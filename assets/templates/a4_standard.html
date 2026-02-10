@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+        /* PDF/Print Optimization */
+        @media print {
+            @page {
+                margin: 0;
+                size: A4;
+            }
+
+            body {
+                -webkit-print-color-adjust: exact;
+                background: white;
+            }
+
+            .page-container {
+                page-break-after: always;
+            }
+
+            .footer-section {
+                page-break-inside: avoid !important;
+            }
+        }
+
+        body {
+            font-family: 'Outfit', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            font-size: 10px;
+            color: #333;
+            line-height: 1.25;
+        }
+
+        .page-container {
+            width: 210mm;
+            min-height: 297mm;
+            padding: 10mm;
+            box-sizing: border-box;
+            background: white;
+            position: relative;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        td,
+        th {
+            border: 1px solid #000;
+            padding: 6pt;
+            vertical-align: top;
+            word-wrap: break-word;
+        }
+
+        .no-border {
+            border: none !important;
+        }
+
+        .text-right {
+            text-align: right;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .font-bold {
+            font-weight: bold;
+        }
+
+        .text-uppercase {
+            text-transform: uppercase;
+        }
+
+        .bg-gray {
+            background-color: #f3f4f6;
+        }
+
+        .items-header th {
+            background-color: #f3f4f6;
+            font-size: 7pt;
+            letter-spacing: 0.5pt;
+        }
+
+        .company-title {
+            font-size: 14pt;
+            margin-bottom: 4pt;
+        }
+
+        .doc-title {
+            font-size: 12pt;
+            letter-spacing: 1pt;
+            margin-bottom: 2pt;
+        }
+
+        .label {
+            color: #666;
+            font-weight: bold;
+            font-size: 7pt;
+            margin-bottom: 2pt;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="page-container">
+        <!-- HEADER SECTION -->
+        <table>
+            <tbody>
+                <tr>
+                    <td style="width: 65%; border-bottom: none;">
+                        <div class="company-title font-bold text-uppercase">{{COMPANY_NAME}}</div>
+                        <div style="font-size: 9pt; white-space: pre-line; max-width: 250pt; margin-bottom: 8pt;">
+                            {{COMPANY_ADDRESS}}
+                        </div>
+                        <table class="no-border" style="font-size: 8pt;">
+                            <tr class="no-border">
+                                <td class="no-border label" style="width: 50pt;">GSTIN:</td>
+                                <td class="no-border font-bold">{{COMPANY_GSTIN}}</td>
+                            </tr>
+                            <tr class="no-border">
+                                <td class="no-border label">State:</td>
+                                <td class="no-border">{{COMPANY_STATE}}</td>
+                            </tr>
+                            <tr class="no-border">
+                                <td class="no-border label">Email:</td>
+                                <td class="no-border">{{COMPANY_EMAIL}}</td>
+                            </tr>
+                            <tr class="no-border">
+                                <td class="no-border label">Phone:</td>
+                                <td class="no-border">{{COMPANY_PHONE}}</td>
+                            </tr>
+                        </table>
+                    </td>
+                    <td style="width: 35%; border-bottom: none; border-left: none; padding: 0;">
+                        <div class="bg-gray text-center" style="padding: 8pt; border-bottom: 1px solid #000;">
+                            <div class="doc-title font-bold">{{DOC_TITLE}}</div>
+                            <div style="font-size: 7pt; color: #666;">(Original For Recipient)</div>
+                        </div>
+                        <div style="padding: 8pt;">
+                            <table class="no-border" style="font-size: 9pt;">
+                                <tr class="no-border">
+                                    <td class="no-border label">{{DOC_TYPE_LABEL}} No:</td>
+                                    <td class="no-border font-bold text-right">{{DOC_NUMBER}}</td>
+                                </tr>
+                                <tr class="no-border">
+                                    <td class="no-border label">Date:</td>
+                                    <td class="no-border font-bold text-right">{{DATE}}</td>
+                                </tr>
+                                <tr class="no-border">
+                                    <td class="no-border label">Place of Supply:</td>
+                                    <td class="no-border text-right text-uppercase">{{POS}}</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- PARTY DETAILS -->
+        <table style="border-top: none;">
+            <tbody>
+                <tr>
+                    <td style="width: 50%; border-top: 1px solid #000;">
+                        <div class="label text-uppercase">Billed To</div>
+                        <div class="font-bold" style="font-size: 10pt; margin-bottom: 4pt;">{{CUSTOMER_NAME}}</div>
+                        <div style="font-size: 9pt; white-space: pre-line;">{{CUSTOMER_ADDRESS}}</div>
+                        <div style="margin-top: 6pt; font-size: 8pt;">
+                            <strong>GSTIN:</strong> {{CUSTOMER_GSTIN}}<br>
+                            <strong>State:</strong> {{CUSTOMER_STATE}}
+                        </div>
+                    </td>
+                    <td style="width: 50%; border-top: 1px solid #000; border-left: none;">
+                        <div class="label text-uppercase">Shipped To</div>
+                        <div style="font-size: 9pt; white-space: pre-line;">{{SHIPPING_ADDRESS}}</div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- ITEMS TABLE -->
+        <table style="border-top: none;">
+            <thead>
+                <tr class="items-header text-uppercase">
+                    <th style="width: 6%;">S.No</th>
+                    <th style="text-align: left;">Item Description</th>
+                    <th style="width: 10%;">HSN/SAC</th>
+                    <th style="width: 8%;">Qty</th>
+                    <th style="width: 10%;" class="text-right">Rate</th>
+                    <th style="width: 10%;" class="text-right">Taxable</th>
+                    <th style="width: 10%;" class="text-right">Tax Amt</th>
+                    <th style="width: 12%;" class="text-right">Total</th>
+                </tr>
+            </thead>
+            <tbody style="font-size: 8pt;">
+                {{ITEMS_ROWS}}
+            </tbody>
+        </table>
+
+        <!-- TOTALS & FOOTER -->
+        <div class="footer-section">
+            <table style="border-top: none;">
+                <tbody>
+                    <tr>
+                        <td colspan="4" style="width: 60%;">
+                            <div class="label text-uppercase">Total Amount in Words</div>
+                            <div class="font-bold" style="font-size: 9pt; font-style: italic;">{{AMOUNT_IN_WORDS}} Only
+                            </div>
+                        </td>
+                        <td colspan="4" style="width: 40%; padding: 0;">
+                            <table>
+                                <tr class="no-border">
+                                    <td class="no-border label">Subtotal</td>
+                                    <td class="no-border text-right">₹{{SUBTOTAL}}</td>
+                                </tr>
+                                <tr class="no-border">
+                                    <td class="no-border label">Tax</td>
+                                    <td class="no-border text-right">₹{{TAX_TOTAL}}</td>
+                                </tr>
+                                {{EXTRA_CHARGES}}
+                                <tr class="bg-gray">
+                                    <td style="border:none; padding: 6pt;" class="font-bold">Grand Total</td>
+                                    <td style="border:none; padding: 6pt;" class="font-bold text-right">₹{{GRAND_TOTAL}}
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <!-- TAX BREAKUP -->
+                    <tr class="bg-gray">
+                        <td colspan="8" style="padding: 4pt; font-size: 7pt;"
+                            class="font-bold text-uppercase text-center">Tax Breakup Details</td>
+                    </tr>
+                    <tr>
+                        <td colspan="8" style="padding: 0;">
+                            <table style="font-size: 7pt; border: none;">
+                                <tr class="bg-gray">
+                                    <th>HSN</th>
+                                    <th>Taxable</th>
+                                    <th>CGST</th>
+                                    <th>SGST</th>
+                                    <th>IGST</th>
+                                    <th class="text-right">Total Tax</th>
+                                </tr>
+                                {{TAX_BREAKUP_ROWS}}
+                            </table>
+                        </td>
+                    </tr>
+                    <!-- BANK & SIGNATORY -->
+                    <tr>
+                        <td colspan="3" style="width: 40%;">
+                            <div class="label text-uppercase" style="text-decoration: underline;">Bank Details</div>
+                            <div style="font-size: 8pt;">
+                                <strong>Bank:</strong> {{BANK_NAME}}<br>
+                                <strong>A/c:</strong> {{BANK_ACC}}<br>
+                                <strong>IFSC:</strong> {{BANK_IFSC}}
+                            </div>
+                        </td>
+                        <td colspan="3" style="width: 30%;">
+                            <div class="label text-uppercase" style="text-decoration: underline;">Terms</div>
+                            <div style="font-size: 7pt; color: #666;">
+                                1. Goods once sold not returnable.<br>
+                                2. E.& O.E.
+                            </div>
+                        </td>
+                        <td colspan="2" style="width: 30%; text-align: center;">
+                            <div class="font-bold">For {{COMPANY_NAME}}</div>
+                            <div style="margin-top: 30pt;">Authorized Signatory</div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top: 10pt; font-size: 6pt; color: #999;">
+            This is a computer generated document. Powered by EZBillify.
+        </div>
+    </div>
+</body>
+
+</html>

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: 'monospace';
+            width: 80mm;
+            padding: 5px;
+            font-size: 12px;
+        }
+
+        .center {
+            text-align: center;
+        }
+
+        .divider {
+            border-top: 1px dashed black;
+            margin: 5px 0;
+        }
+
+        .row {
+            display: flex;
+            justify-content: space-between;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="center">
+        <h2>{{COMPANY_NAME}}</h2>
+        <p>{{DOC_TYPE}} #{{DOC_NUMBER}}</p>
+    </div>
+    <div class="divider"></div>
+    {{ITEMS_SIMPLE}}
+    <div class="divider"></div>
+    <div class="row">
+        <span>TOTAL:</span>
+        <span>₹{{TOTAL}}</span>
+    </div>
+    <div class="divider"></div>
+    <p class="center">Thank you!</p>
+</body>
+
+</html>
