@@ -215,7 +215,7 @@ class _ScannerModalContentState<T> extends State<ScannerModalContent<T>> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.qr_code_scanner_rounded, size: 48, color: context.textSecondary.withOpacity(0.2)),
+                        Icon(Icons.barcode_reader, size: 48, color: context.textSecondary.withOpacity(0.2)),
                         const SizedBox(height: 16),
                         Text("No items scanned yet", style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary)),
                       ],

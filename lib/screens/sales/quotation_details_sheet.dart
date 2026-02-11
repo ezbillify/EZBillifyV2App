@@ -233,18 +233,49 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
   }
 
   Widget _buildActions() {
-    return Row(
+    return Column(
       children: [
-        Expanded(child: _buildActionButton(Icons.edit_outlined, "Edit", () {
-          Navigator.pop(context);
-          Navigator.push(context, MaterialPageRoute(builder: (c) => QuotationFormScreen(quotation: _quotation)));
-        })),
-        const SizedBox(width: 12),
-        Expanded(child: _buildActionButton(Icons.print_outlined, "Print", () {
-          final printData = Map<String, dynamic>.from(_quotation);
-          printData['items'] = _items;
-          PrintService.printDocument(printData, 'quotation');
-        })),
+        Row(
+          children: [
+            Expanded(child: _buildActionButton(Icons.edit_outlined, "Edit", () {
+              Navigator.pop(context);
+              Navigator.push(context, MaterialPageRoute(builder: (c) => QuotationFormScreen(quotation: _quotation)));
+            })),
+            const SizedBox(width: 12),
+            Expanded(child: _buildActionButton(Icons.print_outlined, "Print", () {
+              final printData = Map<String, dynamic>.from(_quotation);
+              printData['items'] = _items;
+              PrintService.printDocument(printData, 'quotation');
+            })),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
+              final printData = Map<String, dynamic>.from(_quotation);
+              printData['items'] = _items;
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
+              final path = await PrintService.downloadDocument(printData, 'quotation');
+              if (path != null && mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
+              }
+            })),
+            const SizedBox(width: 12),
+            Expanded(child: _buildActionButton(Icons.share_outlined, "Share", () async {
+              final printData = Map<String, dynamic>.from(_quotation);
+              printData['items'] = _items;
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparing share...'), duration: Duration(seconds: 1)));
+              try {
+                await PrintService.shareDocument(context, printData, 'quotation');
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));
+                }
+              }
+            })),
+          ],
+        ),
       ],
     );
   }

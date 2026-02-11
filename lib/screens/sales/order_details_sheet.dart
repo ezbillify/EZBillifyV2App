@@ -233,18 +233,49 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
   }
 
   Widget _buildActions() {
-    return Row(
+    return Column(
       children: [
-        Expanded(child: _buildActionButton(Icons.edit_outlined, "Edit", () {
-          Navigator.pop(context);
-          Navigator.push(context, MaterialPageRoute(builder: (c) => SalesOrderFormScreen(order: _order)));
-        })),
-        const SizedBox(width: 12),
-        Expanded(child: _buildActionButton(Icons.print_outlined, "Print", () {
-          final printData = Map<String, dynamic>.from(_order);
-          printData['items'] = _items;
-          PrintService.printDocument(printData, 'order');
-        })),
+        Row(
+          children: [
+            Expanded(child: _buildActionButton(Icons.edit_outlined, "Edit", () {
+              Navigator.pop(context);
+              Navigator.push(context, MaterialPageRoute(builder: (c) => SalesOrderFormScreen(order: _order)));
+            })),
+            const SizedBox(width: 12),
+            Expanded(child: _buildActionButton(Icons.print_outlined, "Print", () {
+              final printData = Map<String, dynamic>.from(_order);
+              printData['items'] = _items;
+              PrintService.printDocument(printData, 'order');
+            })),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
+              final printData = Map<String, dynamic>.from(_order);
+              printData['items'] = _items;
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
+              final path = await PrintService.downloadDocument(printData, 'order');
+              if (path != null && mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
+              }
+            })),
+            const SizedBox(width: 12),
+            Expanded(child: _buildActionButton(Icons.share_outlined, "Share", () async {
+              final printData = Map<String, dynamic>.from(_order);
+              printData['items'] = _items;
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparing share...'), duration: Duration(seconds: 1)));
+              try {
+                await PrintService.shareDocument(context, printData, 'order');
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));
+                }
+              }
+            })),
+          ],
+        ),
       ],
     );
   }

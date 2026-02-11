@@ -23,6 +23,8 @@ import 'sales/customers_screen.dart';
 import 'master_data/master_data_screen.dart';
 import 'settings/user_management_screen.dart';
 import 'sales/sales_dashboard.dart';
+import 'purchase/purchase_dashboard.dart';
+import 'purchase/vendors_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -913,59 +915,95 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   Widget _buildFloatingNavigation() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      height: 70,
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E293B) : const Color(0xFF0F172A),
-        borderRadius: BorderRadius.circular(35),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+    
+    return SizedBox(
+      height: 120, // Ensure height covers raised button
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.bottomCenter,
+      children: [
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 12),
+          child: ClipPath(
+            clipper: NotchedPillClipper(),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+              child: Container(
+                height: 68,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white : const Color(0xFF1E293B), 
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: isDark ? Colors.black.withOpacity(0.1) : Colors.black.withOpacity(0.3),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                  border: Border.all(
+                    color: isDark ? const Color(0xFFE2E8F0) : Colors.white.withOpacity(0.1),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildNavItemIconButton(Icons.dashboard_rounded, "Home", isSelected: _selectedTabIndex == 0, index: 0),
+                    _buildNavItemIconButton(Icons.receipt_long_rounded, "Bills", onTap: () => _navigateToScreen(const SalesDashboard(initialIndex: 0)), index: 1),
+                    const SizedBox(width: 70), // Space for the floating button
+                    _buildNavItemIconButton(Icons.people_alt_rounded, "Customer", onTap: () {
+                      _navigateToScreen(const CustomersScreen());
+                    }, index: 2),
+                    _buildNavItemIconButton(Icons.inventory_2_rounded, "Stock", onTap: () => _navigateToScreen(const InventoryDashboardScreen()), index: 3),
+                  ],
+                ),
+              ),
+            ),
           ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildNavItemIconButton(Icons.dashboard_rounded, "Dashboard", isSelected: true),
-          _buildNavItemIconButton(Icons.receipt_long_rounded, "Invoices", onTap: () => _navigateToScreen(const SalesDashboard(initialIndex: 0))),
-          _buildQuickActionBtn(),
-          _buildNavItemIconButton(Icons.people_alt_rounded, "Users", onTap: () {
-            if (_currentUser?.companyId != null) {
-              _navigateToScreen(UserManagementScreen(companyId: _currentUser!.companyId!));
-            }
-          }),
-          _buildNavItemIconButton(Icons.search_rounded, "Inventory", onTap: () => _navigateToScreen(const InventoryDashboardScreen())),
-        ],
-      ),
+        ),
+        Positioned(
+          bottom: 39,
+          child: _buildQuickActionBtn(),
+        ),
+      ],
+    ),
     );
   }
 
-  Widget _buildNavItemIconButton(IconData icon, String label, {VoidCallback? onTap, bool isSelected = false}) {
+  Widget _buildNavItemIconButton(IconData icon, String label, {VoidCallback? onTap, bool isSelected = false, int index = 0}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    // Invert colors based on the bar's theme:
+    // If Dark Mode (White Bar): Use Primary Blue / Dark Grey
+    // If Light Mode (Navy Bar): Use Vibrant Blue / White Opacity
+    final activeColor = isDark ? const Color(0xFF2563EB) : const Color(0xFF60A5FA); 
+    final inactiveColor = isDark ? const Color(0xFF64748B) : Colors.white.withOpacity(0.5);
+
     return Expanded(
       child: InkWell(
         onTap: () {
-          HapticFeedback.lightImpact();
+          HapticFeedback.selectionClick();
           if (onTap != null) onTap();
+          setState(() => _selectedTabIndex = index);
         },
-        borderRadius: BorderRadius.circular(20),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               icon,
-              color: isSelected ? const Color(0xFF3B82F6) : Colors.white.withOpacity(0.4),
-              size: 24,
+              color: isSelected ? activeColor : inactiveColor,
+              size: 22,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               label,
-              style: TextStyle(fontFamily: 'Outfit', 
+              style: TextStyle(
+                fontFamily: 'Outfit', 
                 fontSize: 10,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                color: isSelected ? const Color(0xFF3B82F6) : Colors.white.withOpacity(0.4),
+                color: isSelected ? activeColor : inactiveColor,
+                letterSpacing: 0.1,
               ),
             ),
           ],
@@ -986,7 +1024,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             child: FadeInUp(
               duration: const Duration(milliseconds: 500),
               child: Padding(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
                 child: Column(
                   children: [
                     _buildWelcomeSection(),
@@ -1025,14 +1063,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
     final textSecondary = context.textSecondary;
 
     return SliverAppBar(
-      expandedHeight: 130.0,
+      expandedHeight: 120.0,
       floating: false,
       pinned: true,
       backgroundColor: surfaceColor,
       elevation: 0,
       flexibleSpace: LayoutBuilder(
         builder: (context, constraints) {
-          final double expandedHeight = 130.0;
+          final double expandedHeight = 120.0;
           final double kToolbarHeight = 70.0; // Increased from 56.0
           final double currentHeight = constraints.biggest.height;
           // Calculate t: 0.0 at collapsed, 1.0 at expanded
@@ -1125,112 +1163,84 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Widget _buildWelcomeSection() {
     return FadeInDown(
       duration: const Duration(milliseconds: 500),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center, // Align items vertically in center
         children: [
+          Text(
+            "Dashboard",
+            style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary),
+          ),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Dashboard",
-                      style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      "Live Business Intelligence",
-                      style: TextStyle(fontFamily: 'Outfit', fontSize: 13, color: context.textSecondary),
-                    ),
-                    Text(
-                      "Real-time enterprise management.",
-                      style: TextStyle(fontFamily: 'Outfit', color: const Color(0xFF64748B), fontSize: 13),
-                    ),
-                  ],
+              GestureDetector(
+                onTap: () => _showDateRangeSelector(context),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF2563EB).withOpacity(0.1)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF2563EB).withOpacity(0.04),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.calendar_today_rounded, size: 12, color: Color(0xFF2563EB)),
+                      const SizedBox(width: 4),
+                      Text(
+                        _selectedDateRange == 'today' ? 'Today' : 
+                        _selectedDateRange == 'yesterday' ? 'Yesterday' :
+                        _selectedDateRange == '7days' ? 'Last 7 Days' :
+                        _selectedDateRange == '30days' ? 'Last 30 Days' : 'This Month',
+                        style: TextStyle(fontFamily: 'Outfit', fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFF2563EB)),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              Row(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 14),
-                    child: GestureDetector(
-                      onTap: () => _showDateRangeSelector(context),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFF2563EB).withOpacity(0.1)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF2563EB).withOpacity(0.04),
-                              blurRadius: 8,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.calendar_today_rounded, size: 12, color: Color(0xFF2563EB)),
-                            const SizedBox(width: 4),
-                            Text(
-                              _selectedDateRange == 'today' ? 'Today' : 
-                              _selectedDateRange == 'yesterday' ? 'Yesterday' :
-                              _selectedDateRange == '7days' ? 'Last 7 Days' :
-                              _selectedDateRange == '30days' ? 'Last 30 Days' : 'This Month',
-                              style: TextStyle(fontFamily: 'Outfit', fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFF2563EB)),
-                            ),
-                          ],
-                        ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => _showBranchSelector(context),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF2563EB).withOpacity(0.2)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF2563EB).withOpacity(0.08),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
                       ),
-                    ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  Padding(
-                    padding: const EdgeInsets.only(top: 14),
-                    child: GestureDetector(
-                      onTap: () => _showBranchSelector(context),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFF2563EB).withOpacity(0.2)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF2563EB).withOpacity(0.08),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.location_on_rounded, size: 14, color: Color(0xFF2563EB)),
-                            const SizedBox(width: 4),
-                            Text(
-                              _selectedBranchId == null 
-                                  ? "All" 
-                                  : (_branches.firstWhere((b) => b['id'] == _selectedBranchId, orElse: () => {'name': '...'})['name']),
-                              style: TextStyle(fontFamily: 'Outfit', fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF2563EB)),
-                            ),
-                            const SizedBox(width: 2),
-                            const Icon(Icons.keyboard_arrow_down_rounded, size: 14, color: Color(0xFF2563EB)),
-                          ],
-                        ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.location_on_rounded, size: 14, color: Color(0xFF2563EB)),
+                      const SizedBox(width: 4),
+                      Text(
+                        _selectedBranchId == null 
+                            ? "All" 
+                            : (_branches.firstWhere((b) => b['id'] == _selectedBranchId, orElse: () => {'name': '...'})['name']),
+                        style: TextStyle(fontFamily: 'Outfit', fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF2563EB)),
                       ),
-                    ),
+                      const SizedBox(width: 2),
+                      const Icon(Icons.keyboard_arrow_down_rounded, size: 14, color: Color(0xFF2563EB)),
+                    ],
                   ),
-                ],
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
         ],
       ),
     );
@@ -1528,33 +1538,27 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   Widget _buildQuickActionBtn() {
-    return Expanded(
-      child: Center(
-        child: Container(
-          width: 58,
-          height: 58,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF3B82F6), Color(0xFF2563EB)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF2563EB).withOpacity(0.4),
-                blurRadius: 15,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: InkWell(
-            onTap: () {
-              HapticFeedback.mediumImpact();
-              _showQuickActionMenu(context);
-            },
-            borderRadius: BorderRadius.circular(29),
-            child: const Icon(Icons.add_rounded, color: Colors.white, size: 36),
+    return Container(
+      width: 60,
+      height: 60,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF60A5FA), Color(0xFF2563EB)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        shape: BoxShape.circle,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            HapticFeedback.heavyImpact();
+            _showQuickActionMenu(context);
+          },
+          customBorder: const CircleBorder(),
+          child: const Center(
+            child: Icon(Icons.add_rounded, color: Colors.white, size: 32),
           ),
         ),
       ),
@@ -1655,13 +1659,27 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       _buildOverlaySection(
                         "Purchase", 
                         [
-                          _buildActionIcon(Icons.storefront_rounded, "Vendors", const Color(0xFFF59E0B), () {}),
-                          _buildActionIcon(Icons.quiz_rounded, "RFQs", const Color(0xFFF59E0B), () {}),
-                          _buildActionIcon(Icons.description_rounded, "Purchase Orders", const Color(0xFFF59E0B), () {}),
-                          _buildActionIcon(Icons.inventory_rounded, "Goods Received (GRN)", const Color(0xFFF59E0B), () {}),
-                          _buildActionIcon(Icons.receipt_rounded, "Purchase Bills", const Color(0xFFF59E0B), () {}),
-                          _buildActionIcon(Icons.assignment_returned_rounded, "Debit Notes", const Color(0xFFF59E0B), () {}),
-                          _buildActionIcon(Icons.account_balance_wallet_rounded, "Payments", const Color(0xFFF59E0B), () {}),
+                          _buildActionIcon(Icons.storefront_rounded, "Vendors", const Color(0xFFF59E0B), () {
+                            _navigateToScreen(const VendorsScreen());
+                          }),
+                          _buildActionIcon(Icons.quiz_rounded, "RFQs", const Color(0xFFF59E0B), () {
+                            _navigateToScreen(const PurchaseDashboard(initialIndex: 2));
+                          }),
+                          _buildActionIcon(Icons.description_rounded, "Purchase Orders", const Color(0xFFF59E0B), () {
+                            _navigateToScreen(const PurchaseDashboard(initialIndex: 1));
+                          }),
+                          _buildActionIcon(Icons.inventory_rounded, "Goods Received (GRN)", const Color(0xFFF59E0B), () {
+                            _navigateToScreen(const PurchaseDashboard(initialIndex: 3));
+                          }),
+                          _buildActionIcon(Icons.receipt_rounded, "Purchase Bills", const Color(0xFFF59E0B), () {
+                            _navigateToScreen(const PurchaseDashboard(initialIndex: 0));
+                          }),
+                          _buildActionIcon(Icons.assignment_returned_rounded, "Debit Notes", const Color(0xFFF59E0B), () {
+                           _navigateToScreen(const PurchaseDashboard(initialIndex: 5));
+                          }),
+                          _buildActionIcon(Icons.account_balance_wallet_rounded, "Payments", const Color(0xFFF59E0B), () {
+                            _navigateToScreen(const PurchaseDashboard(initialIndex: 4));
+                          }),
                         ]
                       ),
                        _buildOverlaySection(
@@ -1821,4 +1839,57 @@ class _AdminDashboardState extends State<AdminDashboard> {
       ),
     );
   }
+}
+
+class NotchedPillClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    final path = Path();
+    final radius = 24.0;
+    final notchWidth = 110.0;
+    final notchHeight = 34.0; // Slightly deeper
+    final centerX = size.width / 2;
+
+    // Start top left
+    path.moveTo(radius, 0);
+    
+    // Line to notch start
+    path.lineTo(centerX - notchWidth / 2, 0);
+    
+    // Smooth notch curve (Cradle)
+    path.cubicTo(
+      centerX - notchWidth / 3.5, 0,
+      centerX - notchWidth / 3.5, notchHeight,
+      centerX, notchHeight,
+    );
+    path.cubicTo(
+      centerX + notchWidth / 3.5, notchHeight,
+      centerX + notchWidth / 3.5, 0,
+      centerX + notchWidth / 2, 0,
+    );
+    
+    // Line to top right
+    path.lineTo(size.width - radius, 0);
+    
+    // Top right corner
+    path.arcToPoint(Offset(size.width, radius), radius: Radius.circular(radius));
+    
+    // Bottom right
+    path.lineTo(size.width, size.height - radius);
+    path.arcToPoint(Offset(size.width - radius, size.height), radius: Radius.circular(radius));
+    
+    // Bottom left
+    path.lineTo(radius, size.height);
+    path.arcToPoint(Offset(0, size.height - radius), radius: Radius.circular(radius));
+    
+    // Top left
+    path.lineTo(0, radius);
+    path.arcToPoint(Offset(radius, 0), radius: Radius.circular(radius));
+    
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }

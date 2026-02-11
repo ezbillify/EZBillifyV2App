@@ -316,7 +316,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                 decoration: const InputDecoration(
                   labelText: "Barcodes (Comma separated)", 
                   hintText: "12345678, 87654321",
-                  suffixIcon: Icon(Icons.qr_code_scanner_rounded),
+                  suffixIcon: Icon(Icons.barcode_reader),
                 ),
                 onSaved: (v) {
                   if (v != null && v.isNotEmpty) {

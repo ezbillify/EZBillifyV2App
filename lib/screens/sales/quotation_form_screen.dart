@@ -11,6 +11,7 @@ import 'scanner_modal_content.dart';
 import 'invoice_form_screen.dart';
 import 'sales_order_form_screen.dart';
 import '../../services/numbering_service.dart';
+import '../../services/master_data_service.dart';
 
 class QuotationFormScreen extends StatefulWidget {
   final Map<String, dynamic>? quotation; // Null for new
@@ -26,6 +27,7 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
   
   // Header Info
   String? _companyId;
+  String? _internalUserId;
   String? _branchId;
   String? _branchName;
   String? _customerId;
@@ -53,8 +55,9 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
     setState(() => _loading = true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
-      final profile = await Supabase.instance.client.from('users').select('company_id').eq('auth_id', user!.id).single();
+      final profile = await Supabase.instance.client.from('users').select('id, company_id').eq('auth_id', user!.id).single();
       _companyId = profile['company_id'];
+      _internalUserId = profile['id'];
       
       if (widget.quotation == null) {
         // Fetch branches to select default if only one
@@ -137,9 +140,9 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
       tax += lineTax;
     }
     setState(() {
-      _subtotal = sub;
-      _totalTax = tax;
-      _totalAmount = sub + tax;
+      _subtotal = double.parse(sub.toStringAsFixed(2));
+      _totalTax = double.parse(tax.toStringAsFixed(2));
+      _totalAmount = double.parse((sub + tax).toStringAsFixed(2));
     });
   }
 
@@ -534,8 +537,8 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
   }
 
   Future<void> _selectCustomer() async {
-    // Navigate to customer picker (similar to Selection sheet but for CUSTOMERS)
-    final results = await Supabase.instance.client.from('customers').select().eq('company_id', _companyId!);
+    // Use MasterDataService for caching
+    final results = await MasterDataService().getCustomers(_companyId!);
     if(!mounted) return;
     
     _showSelectionSheet<Map<String, dynamic>>(
@@ -546,12 +549,15 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
       currentValue: _customerName,
       badgeMapper: (c) => c['customer_type'] ?? 'B2C',
       badgeColorMapper: (c) => (c['customer_type'] == 'B2B') ? Colors.purple : Colors.blue,
+      onRefresh: () async {
+        await MasterDataService().getCustomers(_companyId!, forceRefresh: true);
+      },
     );
   }
 
   Future<void> _addItem() async {
-     // Item selection sheet
-    final results = await Supabase.instance.client.from('items').select('*, tax_rate:tax_rates(rate)').eq('company_id', _companyId!);
+     // Use MasterDataService for caching
+    final results = await MasterDataService().getItems(_companyId!);
     if(!mounted) return;
 
     _showSelectionSheet<Map<String, dynamic>>(
@@ -568,6 +574,9 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
         return "${i['sku'] ?? ''} ${barcodes.join(' ')}";
       },
       isMultiple: true,
+      onRefresh: () async {
+        await MasterDataService().getItems(_companyId!, forceRefresh: true);
+      },
       onSelectMultiple: (selectedList) {
         setState(() {
           final consolidated = <String, Map<String, dynamic>>{};
@@ -586,7 +595,7 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
             final qty = qtyMap[id]!;
             final mrp = (item['default_sales_price'] ?? 0).toDouble();
             final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
-            final inclusivePrice = mrp * (1 + rate / 100);
+            final inclusivePrice = double.parse((mrp * (1 + rate / 100)).toStringAsFixed(2));
             
             final existingIndex = _items.indexWhere((element) => element['item_id'] == id);
             if (existingIndex != -1) {
@@ -609,10 +618,11 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
       },
       showScanner: true,
       itemContentBuilder: (context, item, count, onAdd, onRemove) {
-        final mrp = (item['default_sales_price'] ?? 0).toDouble(); // Assuming default_sales_price is MRP for now or generic
+        final itemMrp = (item['mrp'] ?? 0).toDouble();
+        final salesPrice = (item['default_sales_price'] ?? 0).toDouble();
         final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
-        final inclusive = mrp * (1 + rate / 100);
-        final purchase = (item['purchase_price'] ?? 0).toDouble();
+        final salesPriceInclTax = salesPrice * (1 + rate / 100);
+        final purchasePrice = (item['default_purchase_price'] ?? 0).toDouble();
         final unit = item['unit'] ?? 'unt';
 
         return Container(
@@ -656,15 +666,16 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
                            maxLines: 1, overflow: TextOverflow.ellipsis
                          ),
                          const SizedBox(height: 4),
-                         Row(
+                         Wrap(
+                           spacing: 8,
+                           runSpacing: 4,
                            children: [
-                             Text("MRP: ₹${mrp.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary, fontWeight: FontWeight.w500)),
-                             const SizedBox(width: 8),
-                             Text("Rate (Incl. Tax): ₹${inclusive.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+                             Text("MRP: ₹${itemMrp.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary, fontWeight: FontWeight.w500)),
+                             Text("Rate: ₹${salesPriceInclTax.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
                            ],
                          ),
                          const SizedBox(height: 4),
-                         Text("Pur: ₹${purchase.toStringAsFixed(2)} • $unit", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary.withOpacity(0.7))),
+                         Text("Pur: ₹${purchasePrice.toStringAsFixed(2)} • $unit • ${rate.toStringAsFixed(0)}% Tax", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary.withOpacity(0.7))),
                        ],
                      ),
                    ),
@@ -754,6 +765,7 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
         'tax_total': _totalTax,
         'total_amount': _totalAmount,
         'status': _status,
+        'created_by': _internalUserId,
       };
 
       if (widget.quotation == null) {
@@ -768,29 +780,46 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
 
         final inserted = await Supabase.instance.client.from('sales_quotations').insert(quotationData).select().single();
         for (var item in _items) {
-           await Supabase.instance.client.from('sales_quotation_items').insert({
-             'quotation_id': inserted['id'],
-             'item_id': item['item_id'],
-             'quantity': item['quantity'],
-             'unit_price': item['unit_price'],
-             'tax_rate': item['tax_rate'],
-             'company_id': _companyId,
-           });
+          final qty = (item['quantity'] ?? 0).toDouble();
+          final price = (item['unit_price'] ?? 0).toDouble();
+          final taxRate = (item['tax_rate'] ?? 0).toDouble();
+          final totalInclusive = qty * price;
+          final lineSub = totalInclusive / (1 + (taxRate / 100));
+          final lineTax = totalInclusive - lineSub;
+
+            await Supabase.instance.client.from('sales_quotation_items').insert({
+              'quotation_id': inserted['id'],
+              'item_id': item['item_id'],
+              'description': item['name'],
+              'quantity': item['quantity'],
+              'unit_price': item['unit_price'],
+              'tax_rate': item['tax_rate'],
+              'tax_amount': double.parse(lineTax.toStringAsFixed(2)),
+              'total_amount': double.parse(totalInclusive.toStringAsFixed(2)),
+            });
         }
       } else {
-        // Update logic (omitted for brevity in first pass)
         await Supabase.instance.client.from('sales_quotations').update(quotationData).eq('id', widget.quotation!['id']);
         // Delete old items and re-insert (common simple approach for document edits)
         await Supabase.instance.client.from('sales_quotation_items').delete().eq('quotation_id', widget.quotation!['id']);
         for (var item in _items) {
-           await Supabase.instance.client.from('sales_quotation_items').insert({
-             'quotation_id': widget.quotation!['id'],
-             'item_id': item['item_id'],
-             'quantity': item['quantity'],
-             'unit_price': item['unit_price'],
-             'tax_rate': item['tax_rate'],
-             'company_id': _companyId,
-           });
+          final qty = (item['quantity'] ?? 0).toDouble();
+          final price = (item['unit_price'] ?? 0).toDouble();
+          final taxRate = (item['tax_rate'] ?? 0).toDouble();
+          final totalInclusive = qty * price;
+          final lineSub = totalInclusive / (1 + (taxRate / 100));
+          final lineTax = totalInclusive - lineSub;
+
+            await Supabase.instance.client.from('sales_quotation_items').insert({
+              'quotation_id': widget.quotation!['id'],
+              'item_id': item['item_id'],
+              'description': item['name'],
+              'quantity': item['quantity'],
+              'unit_price': item['unit_price'],
+              'tax_rate': item['tax_rate'],
+              'tax_amount': double.parse(lineTax.toStringAsFixed(2)),
+              'total_amount': double.parse(totalInclusive.toStringAsFixed(2)),
+            });
         }
       }
       
@@ -819,8 +848,10 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
     bool isCompactSearch = false,
     String Function(T)? barcodeMapper,
     Widget Function(BuildContext, T, int count, VoidCallback onAdd, VoidCallback onRemove)? itemContentBuilder,
+    Future<void> Function()? onRefresh,
   }) {
     String searchQuery = "";
+    bool isRefreshing = false;
     final searchController = TextEditingController();
     final focusNode = FocusNode();
     List<T> selectedItems = currentValues != null ? List<T>.from(currentValues) : [];
@@ -878,8 +909,25 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(title, style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary)),
-                            if (isMultiple)
-                              IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded))
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (onRefresh != null)
+                                  isRefreshing 
+                                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : IconButton(
+                                        onPressed: () async {
+                                          setModalState(() => isRefreshing = true);
+                                          await onRefresh();
+                                          if (context.mounted) Navigator.pop(context);
+                                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Data synchronized! Please reopen to see changes.")));
+                                        }, 
+                                        icon: const Icon(Icons.sync_rounded, color: AppColors.primaryBlue)
+                                      ),
+                                if (isMultiple)
+                                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded))
+                              ],
+                            )
                           ],
                         ),
                       ),
@@ -903,7 +951,7 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
                               border: InputBorder.none,
                               contentPadding: const EdgeInsets.all(16),
                               suffixIcon: showScanner ? IconButton(
-                                icon: const Icon(Icons.qr_code_scanner_rounded),
+                                icon: const Icon(Icons.barcode_reader),
                                 onPressed: () {
                                     Navigator.push(context, MaterialPageRoute(builder: (c) => MobileScanner(
                                       onDetect: (capture) {

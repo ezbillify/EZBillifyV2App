@@ -534,7 +534,7 @@ class _IntegrationFormState extends ConsumerState<_IntegrationForm> {
       ),
       child: Column(
         children: [
-          const Icon(Icons.qr_code_scanner_rounded, size: 48, color: Color(0xFF10B981)),
+          const Icon(Icons.barcode_reader, size: 48, color: Color(0xFF10B981)),
           const SizedBox(height: 16),
           const Text(
             "Direct WhatsApp Connection",

@@ -9,6 +9,7 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import '../inventory/item_form_sheet.dart';
 import 'scanner_modal_content.dart';
 import '../../services/numbering_service.dart';
+import '../../services/master_data_service.dart';
 
 class InvoiceFormScreen extends StatefulWidget {
   final Map<String, dynamic>? invoice; // Null for new
@@ -24,6 +25,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
   
   // Header Info
   String? _companyId;
+  String? _internalUserId;
   String? _branchId;
   String? _branchName;
   String? _customerId;
@@ -40,6 +42,14 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
   double _totalTax = 0;
   double _totalAmount = 0;
 
+  // Record Payment State
+  bool _recordPayment = false;
+  double _paidAmount = 0;
+  String _paymentMode = "Cash";
+  String _referenceNumber = "";
+  String _paymentNotes = "";
+  final _paidAmountController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -50,8 +60,9 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
     setState(() => _loading = true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
-      final profile = await Supabase.instance.client.from('users').select('company_id').eq('auth_id', user!.id).single();
+      final profile = await Supabase.instance.client.from('users').select('id, company_id').eq('auth_id', user!.id).single();
       _companyId = profile['company_id'];
+      _internalUserId = profile['id'];
       
       final isEdit = widget.invoice != null && widget.invoice!['id'] != null;
       
@@ -122,9 +133,15 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       tax += lineTax;
     }
     setState(() {
-      _subtotal = sub;
-      _totalTax = tax;
-      _totalAmount = sub + tax;
+      _subtotal = double.parse(sub.toStringAsFixed(2));
+      _totalTax = double.parse(tax.toStringAsFixed(2));
+      _totalAmount = double.parse((sub + tax).toStringAsFixed(2));
+      
+      // Keep paid amount in sync if record payment is toggled and it was previously matching total or just enabled
+      if (_recordPayment) {
+        _paidAmount = _totalAmount;
+        _paidAmountController.text = _paidAmount.toStringAsFixed(2);
+      }
     });
   }
 
@@ -379,16 +396,103 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
   }
 
   Widget _buildSummarySection() {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.05), borderRadius: BorderRadius.circular(24), border: Border.all(color: AppColors.primaryBlue.withOpacity(0.1))),
+          child: Column(
+            children: [
+              _buildSummaryRow("Subtotal", "₹${_subtotal.toStringAsFixed(2)}"),
+              const SizedBox(height: 12),
+              _buildSummaryRow("Total Tax", "₹${_totalTax.toStringAsFixed(2)}"),
+              const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider()),
+              _buildSummaryRow("Grand Total", "₹${_totalAmount.toStringAsFixed(2)}", isTotal: true),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        if (widget.invoice == null) _buildPaymentToggleSection(),
+      ],
+    );
+  }
+
+  Widget _buildPaymentToggleSection() {
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.05), borderRadius: BorderRadius.circular(24), border: Border.all(color: AppColors.primaryBlue.withOpacity(0.1))),
+      decoration: BoxDecoration(
+        color: _recordPayment ? Colors.green.withOpacity(0.05) : context.cardBg,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _recordPayment ? Colors.green.withOpacity(0.2) : context.borderColor),
+      ),
       child: Column(
         children: [
-          _buildSummaryRow("Subtotal", "₹${_subtotal.toStringAsFixed(2)}"),
-          const SizedBox(height: 12),
-          _buildSummaryRow("Total Tax", "₹${_totalTax.toStringAsFixed(2)}"),
-          const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider()),
-          _buildSummaryRow("Grand Total", "₹${_totalAmount.toStringAsFixed(2)}", isTotal: true),
+          Row(
+            children: [
+              Icon(_recordPayment ? Icons.check_circle_rounded : Icons.payments_outlined, color: _recordPayment ? Colors.green : context.textSecondary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Record Payment", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
+                    Text("Add immediate payment to this invoice", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+                  ],
+                ),
+              ),
+              Switch.adaptive(
+                value: _recordPayment, 
+                onChanged: (v) {
+                  setState(() {
+                    _recordPayment = v;
+                    if (v) {
+                      _paidAmount = _totalAmount;
+                      _paidAmountController.text = _paidAmount.toStringAsFixed(2);
+                    }
+                  });
+                },
+                activeColor: Colors.green,
+              ),
+            ],
+          ),
+          if (_recordPayment) ...[
+            const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider()),
+            TextFormField(
+              controller: _paidAmountController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18),
+              decoration: InputDecoration(
+                labelText: "Paid Amount",
+                prefixText: "₹ ",
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true,
+                fillColor: context.scaffoldBg,
+              ),
+              onChanged: (v) => _paidAmount = double.tryParse(v) ?? 0,
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              value: _paymentMode,
+              decoration: InputDecoration(
+                labelText: "Payment Mode",
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true,
+                fillColor: context.scaffoldBg,
+              ),
+              items: ["Cash", "Bank Transfer", "UPI", "Cheque", "Other"].map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
+              onChanged: (v) => setState(() => _paymentMode = v!),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              decoration: InputDecoration(
+                labelText: "Reference # (Optional)",
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true,
+                fillColor: context.scaffoldBg,
+              ),
+              onChanged: (v) => _referenceNumber = v,
+            ),
+          ]
         ],
       ),
     );
@@ -516,8 +620,8 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
   }
 
   Future<void> _selectCustomer() async {
-    // Navigate to customer picker (similar to Selection sheet but for CUSTOMERS)
-    final results = await Supabase.instance.client.from('customers').select().eq('company_id', _companyId!);
+    // Use MasterDataService for caching
+    final results = await MasterDataService().getCustomers(_companyId!);
     if(!mounted) return;
     
     _showSelectionSheet<Map<String, dynamic>>(
@@ -528,12 +632,15 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       currentValue: _customerName,
       badgeMapper: (c) => c['customer_type'] ?? 'B2C',
       badgeColorMapper: (c) => (c['customer_type'] == 'B2B') ? Colors.purple : Colors.blue,
+      onRefresh: () async {
+        await MasterDataService().getCustomers(_companyId!, forceRefresh: true);
+      },
     );
   }
 
   Future<void> _addItem() async {
-     // Item selection sheet
-    final results = await Supabase.instance.client.from('items').select('*, tax_rate:tax_rates(rate)').eq('company_id', _companyId!);
+     // Use MasterDataService for caching
+    final results = await MasterDataService().getItems(_companyId!);
     if(!mounted) return;
 
     _showSelectionSheet<Map<String, dynamic>>(
@@ -550,6 +657,9 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
         return "${i['sku'] ?? ''} ${barcodes.join(' ')}";
       },
       isMultiple: true,
+      onRefresh: () async {
+        await MasterDataService().getItems(_companyId!, forceRefresh: true);
+      },
       onSelectMultiple: (selectedList) {
         setState(() {
           final consolidated = <String, Map<String, dynamic>>{};
@@ -568,7 +678,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
             final qty = qtyMap[id]!;
             final mrp = (item['default_sales_price'] ?? 0).toDouble();
             final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
-            final inclusivePrice = mrp * (1 + rate / 100);
+            final inclusivePrice = double.parse((mrp * (1 + rate / 100)).toStringAsFixed(2));
             
             final existingIndex = _items.indexWhere((element) => element['item_id'] == id);
             if (existingIndex != -1) {
@@ -592,10 +702,11 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       },
       showScanner: true,
       itemContentBuilder: (context, item, count, onAdd, onRemove) {
-        final mrp = (item['default_sales_price'] ?? 0).toDouble(); // Assuming default_sales_price is MRP for now or generic
+        final itemMrp = (item['mrp'] ?? 0).toDouble();
+        final salesPrice = (item['default_sales_price'] ?? 0).toDouble();
         final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
-        final inclusive = mrp * (1 + rate / 100);
-        final purchase = (item['purchase_price'] ?? 0).toDouble();
+        final salesPriceInclTax = salesPrice * (1 + rate / 100);
+        final purchasePrice = (item['default_purchase_price'] ?? 0).toDouble();
         final unit = item['unit'] ?? 'unt';
 
         return Container(
@@ -639,15 +750,16 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                            maxLines: 1, overflow: TextOverflow.ellipsis
                          ),
                          const SizedBox(height: 4),
-                         Row(
+                         Wrap(
+                           spacing: 8,
+                           runSpacing: 4,
                            children: [
-                             Text("MRP: ₹${mrp.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary, fontWeight: FontWeight.w500)),
-                             const SizedBox(width: 8),
-                             Text("Rate (Incl. Tax): ₹${inclusive.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+                             Text("MRP: ₹${itemMrp.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary, fontWeight: FontWeight.w500)),
+                             Text("Rate: ₹${salesPriceInclTax.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
                            ],
                          ),
                          const SizedBox(height: 4),
-                         Text("Pur: ₹${purchase.toStringAsFixed(2)} • $unit", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary.withOpacity(0.7))),
+                         Text("Pur: ₹${purchasePrice.toStringAsFixed(2)} • $unit • ${rate.toStringAsFixed(0)}% Tax", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary.withOpacity(0.7))),
                        ],
                      ),
                    ),
@@ -726,6 +838,9 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
     
     setState(() => _loading = true);
     try {
+      final balanceDue = _recordPayment ? (_totalAmount - _paidAmount) : _totalAmount;
+      final status = balanceDue <= 0.5 ? 'paid' : (_recordPayment && _paidAmount > 0 ? 'partial' : 'unpaid');
+
       final invoiceData = {
         'company_id': _companyId,
         'branch_id': _branchId,
@@ -736,8 +851,9 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
         'sub_total': _subtotal,
         'tax_total': _totalTax,
         'total_amount': _totalAmount,
-        'balance_due': _totalAmount,
-        'status': 'unpaid',
+        'balance_due': balanceDue < 0 ? 0 : balanceDue,
+        'status': status,
+        'created_by': _internalUserId,
       };
 
       final isEdit = widget.invoice != null && widget.invoice!['id'] != null;
@@ -754,14 +870,23 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
 
         final inserted = await Supabase.instance.client.from('sales_invoices').insert(invoiceData).select().single();
         for (var item in _items) {
-           await Supabase.instance.client.from('sales_invoice_items').insert({
-             'invoice_id': inserted['id'],
-             'item_id': item['item_id'],
-             'quantity': item['quantity'],
-             'unit_price': item['unit_price'],
-             'tax_rate': item['tax_rate'],
-             'company_id': _companyId,
-           });
+          final qty = (item['quantity'] ?? 0).toDouble();
+          final price = (item['unit_price'] ?? 0).toDouble();
+          final taxRate = (item['tax_rate'] ?? 0).toDouble();
+          final totalInclusive = qty * price;
+          final lineSub = totalInclusive / (1 + (taxRate / 100));
+          final lineTax = totalInclusive - lineSub;
+
+            await Supabase.instance.client.from('sales_invoice_items').insert({
+              'invoice_id': inserted['id'],
+              'item_id': item['item_id'],
+              'description': item['name'],
+              'quantity': item['quantity'],
+              'unit_price': item['unit_price'],
+              'tax_rate': item['tax_rate'],
+              'tax_amount': double.parse(lineTax.toStringAsFixed(2)),
+              'total_amount': double.parse(totalInclusive.toStringAsFixed(2)),
+            });
         }
         
         // If this was a conversion from a quotation, update the quotation status
@@ -770,19 +895,57 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
               .update({'status': 'converted'})
               .eq('id', widget.invoice!['quotation_id']);
         }
+
+        // 4. Record Payment if enabled
+        if (_recordPayment && _paidAmount > 0) {
+          final paymentNumber = await NumberingService.getNextDocumentNumber(
+            companyId: _companyId!,
+            documentType: 'SALES_PAYMENT',
+            branchId: _branchId,
+            previewOnly: false,
+          );
+
+          final payment = await Supabase.instance.client.from('sales_payments').insert({
+            'company_id': _companyId,
+            'branch_id': _branchId,
+            'customer_id': _customerId,
+            'payment_number': paymentNumber,
+            'date': DateTime.now().toIso8601String(),
+            'amount': _paidAmount,
+            'payment_mode': _paymentMode,
+            'reference_number': _referenceNumber,
+            'created_by': _internalUserId,
+            'is_active': true,
+          }).select().single();
+
+          await Supabase.instance.client.from('sales_payment_allocations').insert({
+            'payment_id': payment['id'],
+            'invoice_id': inserted['id'],
+            'amount': _paidAmount,
+          });
+        }
       } else {
         await Supabase.instance.client.from('sales_invoices').update(invoiceData).eq('id', widget.invoice!['id']);
         // Delete and re-insert items
         await Supabase.instance.client.from('sales_invoice_items').delete().eq('invoice_id', widget.invoice!['id']);
         for (var item in _items) {
-           await Supabase.instance.client.from('sales_invoice_items').insert({
-             'invoice_id': widget.invoice!['id'],
-             'item_id': item['item_id'],
-             'quantity': item['quantity'],
-             'unit_price': item['unit_price'],
-             'tax_rate': item['tax_rate'],
-             'company_id': _companyId,
-           });
+          final qty = (item['quantity'] ?? 0).toDouble();
+          final price = (item['unit_price'] ?? 0).toDouble();
+          final taxRate = (item['tax_rate'] ?? 0).toDouble();
+          final totalInclusive = qty * price;
+          final lineSub = totalInclusive / (1 + (taxRate / 100));
+          final lineTax = totalInclusive - lineSub;
+
+            await Supabase.instance.client.from('sales_invoice_items').insert({
+              'invoice_id': widget.invoice!['id'],
+              'item_id': item['item_id'],
+              'description': item['name'],
+              'quantity': item['quantity'],
+              'unit_price': item['unit_price'],
+              'tax_rate': item['tax_rate'],
+              'tax_amount': double.parse(lineTax.toStringAsFixed(2)),
+              'total_amount': double.parse(totalInclusive.toStringAsFixed(2)),
+            });
         }
       }
       
@@ -811,8 +974,10 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
     bool isCompactSearch = false,
     String Function(T)? barcodeMapper,
     Widget Function(BuildContext, T, int count, VoidCallback onAdd, VoidCallback onRemove)? itemContentBuilder,
+    Future<void> Function()? onRefresh,
   }) {
     String searchQuery = "";
+    bool isRefreshing = false;
     final searchController = TextEditingController();
     final focusNode = FocusNode();
     List<T> selectedItems = currentValues != null ? List<T>.from(currentValues) : [];
@@ -870,8 +1035,30 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(title, style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary)),
-                            if (isMultiple)
-                              IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded))
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (onRefresh != null)
+                                  isRefreshing 
+                                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : IconButton(
+                                        onPressed: () async {
+                                          setModalState(() => isRefreshing = true);
+                                          await onRefresh();
+                                          // Note: Since items list is passed as parameter, we might need a way to update the parent list
+                                          // but for now, we assume the caller uses a direct reference or is fine with just triggering it.
+                                          // Actually, since MasterDataService is a singleton, current refers to it might work if we re-fetch effectively.
+                                          // BETTER: Selection sheet should probably fetch its own data or take a Future.
+                                          // For now, let's just pop and let user reopen or tell them to reopen if we can't update 'items' local list.
+                                          if (context.mounted) Navigator.pop(context);
+                                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Data synchronized! Please reopen to see changes.")));
+                                        }, 
+                                        icon: const Icon(Icons.sync_rounded, color: AppColors.primaryBlue)
+                                      ),
+                                if (isMultiple)
+                                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
+                              ],
+                            )
                           ],
                         ),
                       ),
@@ -902,7 +1089,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     if (searchQuery.isNotEmpty) IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => setModalState(() { searchQuery = ""; searchController.clear(); })),
-                                    if (showScanner) IconButton(icon: const Icon(Icons.qr_code_scanner_rounded, color: AppColors.primaryBlue), onPressed: () => _openScanner(
+                                    if (showScanner) IconButton(icon: const Icon(Icons.barcode_reader, color: AppColors.primaryBlue), onPressed: () => _openScanner(
                                       allItems: items,
                                       selectedItems: selectedItems,
                                       onSelectionChanged: (l) => setModalState(() { selectedItems.clear(); selectedItems.addAll(l); }),

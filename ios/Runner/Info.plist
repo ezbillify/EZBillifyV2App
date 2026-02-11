@@ -47,6 +47,13 @@
 	<string>This app needs camera access to scan barcodes for billing.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>This app needs Face ID access for secure login.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Outfit-Regular.ttf</string>
+		<string>Outfit-Medium.ttf</string>
+		<string>Outfit-SemiBold.ttf</string>
+		<string>Outfit-Bold.ttf</string>
+	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 </dict>

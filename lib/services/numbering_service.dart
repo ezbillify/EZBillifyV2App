@@ -17,7 +17,8 @@ class NumberingService {
     'PURCHASE_PAYMENT': 'PAY',
     'SALES_PAYMENT': 'RCPT',
     'DEBIT_NOTE': 'DN',
-    'PURCHASE_DEBIT_NOTE': 'DN'
+    'PURCHASE_DEBIT_NOTE': 'DN',
+    'PURCHASE_BILL': 'PB',
   };
 
   /// Gets the next document number, optionally incrementing the sequence.

@@ -7,6 +7,7 @@ import '../inventory/item_form_sheet.dart';
 import 'scanner_modal_content.dart';
 import 'invoice_form_screen.dart';
 import '../../services/numbering_service.dart';
+import '../../services/master_data_service.dart';
 
 class DeliveryChallanFormScreen extends StatefulWidget {
   final Map<String, dynamic>? challan; // Null for new
@@ -22,6 +23,7 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
   
   // Header Info
   String? _companyId;
+  String? _internalUserId;
   String? _branchId;
   String? _branchName;
   String? _customerId;
@@ -45,8 +47,9 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
     setState(() => _loading = true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
-      final profile = await Supabase.instance.client.from('users').select('company_id').eq('auth_id', user!.id).single();
+      final profile = await Supabase.instance.client.from('users').select('id, company_id').eq('auth_id', user!.id).single();
       _companyId = profile['company_id'];
+      _internalUserId = profile['id'];
       
       if (widget.challan == null || widget.challan!['id'] == null) {
         // Handle potential pre-filled data (e.g. from Order)
@@ -341,20 +344,35 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
   }
 
   Future<void> _selectCustomer() async {
-    final results = await Supabase.instance.client.from('customers').select().eq('company_id', _companyId!);
+    final results = await MasterDataService().getCustomers(_companyId!);
     if(!mounted) return;
     _showSelectionSheet<Map<String, dynamic>>(
-      title: "Select Customer", items: List<Map<String, dynamic>>.from(results), labelMapper: (c) => c['name'],
+      title: "Select Customer", 
+      items: List<Map<String, dynamic>>.from(results), 
+      labelMapper: (c) => c['name'],
       onSelect: (c) => setState(() { _customerId = c['id'].toString(); _customerName = c['name']; }),
+      currentValue: _customerName,
+      onRefresh: () async {
+        await MasterDataService().getCustomers(_companyId!, forceRefresh: true);
+      },
     );
   }
 
   Future<void> _addItem() async {
-     final results = await Supabase.instance.client.from('items').select('*, tax_rate:tax_rates(rate)').eq('company_id', _companyId!);
+     final results = await MasterDataService().getItems(_companyId!);
      if(!mounted) return;
      _showSelectionSheet<Map<String, dynamic>>(
-       title: "Dispatch Items", items: List<Map<String, dynamic>>.from(results), labelMapper: (i) => i['name'],
-       isMultiple: true, showScanner: true,
+       title: "Dispatch Items", 
+       items: List<Map<String, dynamic>>.from(results), 
+       labelMapper: (i) {
+         final price = (i['default_sales_price'] ?? 0).toDouble();
+         return "${i['name']} (₹${price.toStringAsFixed(2)})";
+       },
+       isMultiple: true, 
+       showScanner: true,
+       onRefresh: () async {
+         await MasterDataService().getItems(_companyId!, forceRefresh: true);
+       },
        onSelectMultiple: (selectedList) {
          setState(() {
             for(var item in selectedList) {
@@ -362,7 +380,7 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
                  'item_id': item['id'],
                  'name': item['name'],
                  'quantity': 1,
-                 'unit_price': (item['default_sales_price'] ?? 0).toDouble(),
+                 'unit_price': double.parse(((item['default_sales_price'] ?? 0).toDouble()).toStringAsFixed(2)),
                  'unit': item['unit'],
                });
             }
@@ -371,22 +389,138 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
      );
   }
 
-  void _showSelectionSheet<T>({ required String title, required List<T> items, required String Function(T) labelMapper, Function(T)? onSelect, Function(List<T>)? onSelectMultiple, bool isMultiple = false, bool showScanner = false }) {
+  void _showSelectionSheet<T>({
+    required String title,
+    required List<T> items,
+    required String Function(T) labelMapper,
+    Function(T)? onSelect,
+    Function(List<T>)? onSelectMultiple,
+    bool isMultiple = false,
+    String? currentValue,
+    bool showScanner = false,
+    String Function(T)? barcodeMapper,
+    Future<void> Function()? onRefresh,
+  }) {
+    String searchQuery = "";
+    bool isRefreshing = false;
+    final searchController = TextEditingController();
+    final focusNode = FocusNode();
+    List<T> selectedItems = [];
+
     showModalBottomSheet(
-      context: context, isScrollControlled: true,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.8, padding: const EdgeInsets.all(16),
-        child: Column(children: [
-          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          Expanded(child: ListView.builder(
-            itemCount: items.length,
-            itemBuilder: (c, i) => ListTile(title: Text(labelMapper(items[i])), onTap: () {
-              if (isMultiple) onSelectMultiple?.call([items[i]]); else onSelect?.call(items[i]); Navigator.pop(context);
-            }),
-          ))
-        ]),
-      )
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      useSafeArea: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final List<T> filteredItems = items.where((item) {
+            final label = labelMapper(item).toLowerCase();
+            return label.contains(searchQuery.toLowerCase());
+          }).toList();
+
+          return DraggableScrollableSheet(
+            initialChildSize: 0.9,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
+            builder: (context, scrollController) => Container(
+              decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
+              child: Column(
+                children: [
+                  const SizedBox(height: 12),
+                  Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
+                  const SizedBox(height: 24),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(title, style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (onRefresh != null)
+                              isRefreshing 
+                                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                                : IconButton(
+                                    onPressed: () async {
+                                      setModalState(() => isRefreshing = true);
+                                      await onRefresh();
+                                      if (context.mounted) Navigator.pop(context);
+                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Data synchronized! Please reopen to see changes.")));
+                                    }, 
+                                    icon: const Icon(Icons.sync_rounded, color: AppColors.primaryBlue)
+                                  ),
+                            IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded))
+                          ],
+                        )
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Container(
+                      decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
+                      child: TextField(
+                        controller: searchController,
+                        onChanged: (v) => setModalState(() => searchQuery = v),
+                        decoration: InputDecoration(
+                          hintText: "Search...",
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.all(16),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: ListView.builder(
+                      controller: scrollController,
+                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 100),
+                      itemCount: filteredItems.length,
+                      itemBuilder: (context, index) {
+                        final item = filteredItems[index];
+                        final label = labelMapper(item);
+                        final isSelected = isMultiple ? selectedItems.contains(item) : currentValue == label;
+                        return ListTile(
+                          title: Text(label, style: TextStyle(fontFamily: 'Outfit', fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                          trailing: isSelected ? const Icon(Icons.check_circle_rounded, color: AppColors.primaryBlue) : null,
+                          onTap: () {
+                            if (isMultiple) {
+                              setModalState(() => selectedItems.contains(item) ? selectedItems.remove(item) : selectedItems.add(item));
+                            } else {
+                              onSelect?.call(item);
+                              Navigator.pop(context);
+                            }
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  if (isMultiple)
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 54,
+                        child: ElevatedButton(
+                          onPressed: selectedItems.isEmpty ? null : () {
+                            onSelectMultiple?.call(selectedItems);
+                            Navigator.pop(context);
+                          },
+                          style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                          child: Text("Add Selected (${selectedItems.length})", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                        ),
+                      ),
+                    )
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -412,6 +546,7 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
           'mode': _transportMode,
         },
         'status': _status,
+        'created_by': _internalUserId,
       };
 
       if (widget.challan == null || widget.challan!['id'] == null) {
@@ -426,25 +561,21 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
 
         final inserted = await Supabase.instance.client.from('sales_delivery_challans').insert(challanData).select().single();
         for (var item in _items) {
-           await Supabase.instance.client.from('sales_dc_items').insert({
-             'dc_id': inserted['id'],
-             'item_id': item['item_id'],
-             'quantity': item['quantity'],
-             'unit_price': item['unit_price'],
-             'company_id': _companyId,
-           });
+            await Supabase.instance.client.from('sales_dc_items').insert({
+              'dc_id': inserted['id'],
+              'item_id': item['item_id'],
+              'quantity': item['quantity'],
+            });
         }
       } else {
         await Supabase.instance.client.from('sales_delivery_challans').update(challanData).eq('id', widget.challan!['id']);
         await Supabase.instance.client.from('sales_dc_items').delete().eq('dc_id', widget.challan!['id']);
         for (var item in _items) {
-           await Supabase.instance.client.from('sales_dc_items').insert({
-             'dc_id': widget.challan!['id'],
-             'item_id': item['item_id'],
-             'quantity': item['quantity'],
-             'unit_price': item['unit_price'],
-             'company_id': _companyId,
-           });
+            await Supabase.instance.client.from('sales_dc_items').insert({
+              'dc_id': widget.challan!['id'],
+              'item_id': item['item_id'],
+              'quantity': item['quantity'],
+            });
         }
       }
       if (mounted) Navigator.pop(context, true);

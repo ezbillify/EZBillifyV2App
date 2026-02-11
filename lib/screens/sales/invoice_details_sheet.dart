@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import 'dart:ui' as ui;
@@ -20,6 +21,7 @@ class InvoiceDetailsSheet extends StatefulWidget {
 class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
   late Map<String, dynamic> _invoice;
   bool _loading = false;
+  bool _isSharing = false;
   List<Map<String, dynamic>> _items = [];
 
   @override
@@ -238,11 +240,43 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
         Row(
           children: [
             Expanded(
-              child: _buildActionButton(Icons.file_download_outlined, "Download", () {}),
+              child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
+                final printData = Map<String, dynamic>.from(_invoice);
+                printData['items'] = _items;
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
+                final path = await PrintService.downloadDocument(printData, 'invoice');
+                if (path != null && mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
+                }
+              }),
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: _buildActionButton(Icons.share_outlined, "Share", () {}),
+              child: _buildActionButton(
+                Icons.share_outlined, 
+                _isSharing ? "Sharing..." : "Share", 
+                _isSharing ? null : () async {
+                  HapticFeedback.selectionClick();
+                  
+                  setState(() => _isSharing = true);
+                  
+                  try {
+                    final printData = Map<String, dynamic>.from(_invoice);
+                    printData['items'] = _items;
+                    
+                    await PrintService.shareDocument(context, printData, 'invoice');
+                  } catch (e, stack) {
+                    debugPrint('EZ_DEBUG_UI ERROR: $e');
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.red));
+                    }
+                  } finally {
+                    if (mounted) {
+                      setState(() => _isSharing = false);
+                    }
+                  }
+                }
+              ),
             ),
           ],
         ),
@@ -250,7 +284,7 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
     );
   }
 
-  Widget _buildActionButton(IconData icon, String label, VoidCallback onTap, {bool filled = false}) {
+  Widget _buildActionButton(IconData icon, String label, VoidCallback? onTap, {bool filled = false}) {
     return ElevatedButton.icon(
       onPressed: onTap,
       icon: Icon(icon, size: 18),

@@ -186,7 +186,7 @@ class WorkforceDashboard extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.qr_code_scanner_rounded, color: Colors.white),
+                    const Icon(Icons.barcode_reader, color: Colors.white),
                     const SizedBox(width: 12),
                     Text("Inventory Scan", style: TextStyle(fontFamily: 'Outfit', color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                   ],

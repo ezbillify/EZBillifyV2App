@@ -8,6 +8,7 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import '../inventory/item_form_sheet.dart';
 import 'scanner_modal_content.dart';
 import '../../services/numbering_service.dart';
+import '../../services/master_data_service.dart';
 
 class CreditNoteFormScreen extends StatefulWidget {
   final Map<String, dynamic>? creditNote; // Null for new
@@ -23,6 +24,7 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
   
   // Header Info
   String? _companyId;
+  String? _internalUserId;
   String? _branchId;
   String? _branchName;
   String? _customerId;
@@ -49,8 +51,9 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
     setState(() => _loading = true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
-      final profile = await Supabase.instance.client.from('users').select('company_id').eq('auth_id', user!.id).single();
+      final profile = await Supabase.instance.client.from('users').select('id, company_id').eq('auth_id', user!.id).single();
       _companyId = profile['company_id'];
+      _internalUserId = profile['id'];
       
       if (widget.creditNote == null) {
         final branches = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
@@ -71,7 +74,7 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
         
         // Fetch items
         final items = await Supabase.instance.client.from('sales_credit_note_items')
-            .select('*, item:items(name, unit, default_sales_price, purchase_price)')
+            .select('*, item:items(name, unit, default_sales_price, default_purchase_price)')
             .eq('cn_id', widget.creditNote!['id']);
         
         _items = items.map((i) => {
@@ -81,7 +84,7 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
           'unit_price': i['unit_price'],
           'tax_rate': i['tax_rate'],
           'unit': i['item']['unit'],
-          'purchase_price': i['item']['purchase_price'],
+          'purchase_price': i['item']['default_purchase_price'],
         }).toList();
 
         _calculateTotals();
@@ -123,9 +126,9 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
       tax += lineTax;
     }
     setState(() {
-      _subtotal = sub;
-      _totalTax = tax;
-      _totalAmount = sub + tax;
+      _subtotal = double.parse(sub.toStringAsFixed(2));
+      _totalTax = double.parse(tax.toStringAsFixed(2));
+      _totalAmount = double.parse((sub + tax).toStringAsFixed(2));
     });
   }
 
@@ -368,23 +371,37 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
   }
 
   Future<void> _selectCustomer() async {
-    final results = await Supabase.instance.client.from('customers').select().eq('company_id', _companyId!);
+    final results = await MasterDataService().getCustomers(_companyId!);
     if(!mounted) return;
     _showSelectionSheet<Map<String, dynamic>>(
-      title: "Select Customer", items: List<Map<String, dynamic>>.from(results), labelMapper: (c) => c['name'],
+      title: "Select Customer", 
+      items: List<Map<String, dynamic>>.from(results), 
+      labelMapper: (c) => c['name'],
       onSelect: (c) => setState(() { _customerId = c['id'].toString(); _customerName = c['name']; }),
+      currentValue: _customerName,
+      onRefresh: () async {
+        await MasterDataService().getCustomers(_companyId!, forceRefresh: true);
+      },
     );
   }
 
   Future<void> _addItem() async {
-     final results = await Supabase.instance.client.from('items').select('*, tax_rate:tax_rates(rate)').eq('company_id', _companyId!);
+     final results = await MasterDataService().getItems(_companyId!);
      if(!mounted) return;
      _showSelectionSheet<Map<String, dynamic>>(
        title: "Add Items to Return",
        items: List<Map<String, dynamic>>.from(results),
-       labelMapper: (i) => i['name'],
+       labelMapper: (i) {
+         final rate = (i['tax_rate']?['rate'] ?? 0).toDouble();
+         final mrp = (i['default_sales_price'] ?? 0).toDouble();
+         final inclusive = mrp * (1 + rate / 100);
+         return "${i['name']} (₹${inclusive.toStringAsFixed(2)})";
+       },
        isMultiple: true,
        showScanner: true,
+       onRefresh: () async {
+         await MasterDataService().getItems(_companyId!, forceRefresh: true);
+       },
        onSelectMultiple: (selectedList) {
          setState(() {
             final consolidated = <String, Map<String, dynamic>>{};
@@ -403,7 +420,7 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
                final qty = qtyMap[id]!;
                final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
                final mrp = (item['default_sales_price'] ?? 0).toDouble();
-               final inclusive = mrp * (1 + rate / 100);
+               final inclusive = double.parse((mrp * (1 + rate / 100)).toStringAsFixed(2));
                
                final existingIndex = _items.indexWhere((element) => element['item_id'] == id);
                if (existingIndex != -1) {
@@ -424,9 +441,11 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
          });
        },
        itemContentBuilder: (context, item, count, onAdd, onRemove) {
-        final mrp = (item['default_sales_price'] ?? 0).toDouble();
+        final itemMrp = (item['mrp'] ?? 0).toDouble();
+        final salesPrice = (item['default_sales_price'] ?? 0).toDouble();
         final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
-        final inclusive = mrp * (1 + rate / 100);
+        final salesPriceInclTax = salesPrice * (1 + rate / 100);
+        final purchasePrice = (item['default_purchase_price'] ?? 0).toDouble();
         final unit = item['unit'] ?? 'unt';
 
         return Container(
@@ -455,7 +474,16 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
                        crossAxisAlignment: CrossAxisAlignment.start,
                        children: [
                          Text(item['name'], style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
-                         Text("Rate (Incl. Tax): ₹${inclusive.toStringAsFixed(2)} • $unit", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+                         Wrap(
+                           spacing: 8,
+                           runSpacing: 4,
+                           children: [
+                             Text("MRP: ₹${itemMrp.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary, fontWeight: FontWeight.w500)),
+                             Text("Rate: ₹${salesPriceInclTax.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+                           ],
+                         ),
+                         const SizedBox(height: 4),
+                         Text("Pur: ₹${purchasePrice.toStringAsFixed(2)} • $unit • ${rate.toStringAsFixed(0)}% Tax", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary.withOpacity(0.7))),
                        ],
                      ),
                    ),
@@ -494,8 +522,10 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
     bool isCompactSearch = false,
     String Function(T)? barcodeMapper,
     Widget Function(BuildContext, T, int count, VoidCallback onAdd, VoidCallback onRemove)? itemContentBuilder,
+    Future<void> Function()? onRefresh,
   }) {
     String searchQuery = "";
+    bool isRefreshing = false;
     final searchController = TextEditingController();
     final focusNode = FocusNode();
     List<T> selectedItems = currentValues != null ? List<T>.from(currentValues) : [];
@@ -596,7 +626,7 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
                                  child: Container(
                                    height: 50, width: 50,
                                    decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(16)),
-                                   child: const Icon(Icons.qr_code_scanner, color: Colors.white),
+                                   child: const Icon(Icons.barcode_reader, color: Colors.white),
                                  ),
                                ),
                              ]
@@ -710,6 +740,7 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
         'tax_total': _totalTax,
         'total_amount': _totalAmount,
         'status': 'open',
+        'created_by': _internalUserId,
       };
       
       if (widget.creditNote == null) {
@@ -724,27 +755,45 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
 
         final inserted = await Supabase.instance.client.from('sales_credit_notes').insert(cnData).select().single();
         for (var item in _items) {
+          final qty = (item['quantity'] ?? 0).toDouble();
+          final price = (item['unit_price'] ?? 0).toDouble();
+          final taxRate = (item['tax_rate'] ?? 0).toDouble();
+          final totalInclusive = qty * price;
+          final lineSub = totalInclusive / (1 + (taxRate / 100));
+          final lineTax = totalInclusive - lineSub;
+
              await Supabase.instance.client.from('sales_credit_note_items').insert({
                'cn_id': inserted['id'],
               'item_id': item['item_id'],
+              'description': item['name'],
               'quantity': item['quantity'],
               'unit_price': item['unit_price'],
               'tax_rate': item['tax_rate'],
-              'company_id': _companyId,
+              'tax_amount': double.parse(lineTax.toStringAsFixed(2)),
+              'total_amount': double.parse(totalInclusive.toStringAsFixed(2)),
             });
         }
       } else {
         await Supabase.instance.client.from('sales_credit_notes').update(cnData).eq('id', widget.creditNote!['id']);
         await Supabase.instance.client.from('sales_credit_note_items').delete().eq('cn_id', widget.creditNote!['id']);
         for (var item in _items) {
-           await Supabase.instance.client.from('sales_credit_note_items').insert({
-             'cn_id': widget.creditNote!['id'],
-             'item_id': item['item_id'],
-             'quantity': item['quantity'],
-             'unit_price': item['unit_price'],
-             'tax_rate': item['tax_rate'],
-             'company_id': _companyId,
-           });
+          final qty = (item['quantity'] ?? 0).toDouble();
+          final price = (item['unit_price'] ?? 0).toDouble();
+          final taxRate = (item['tax_rate'] ?? 0).toDouble();
+          final totalInclusive = qty * price;
+          final lineSub = totalInclusive / (1 + (taxRate / 100));
+          final lineTax = totalInclusive - lineSub;
+
+            await Supabase.instance.client.from('sales_credit_note_items').insert({
+              'cn_id': widget.creditNote!['id'],
+              'item_id': item['item_id'],
+              'description': item['name'],
+              'quantity': item['quantity'],
+              'unit_price': item['unit_price'],
+              'tax_rate': item['tax_rate'],
+              'tax_amount': double.parse(lineTax.toStringAsFixed(2)),
+              'total_amount': double.parse(totalInclusive.toStringAsFixed(2)),
+            });
         }
       }
       

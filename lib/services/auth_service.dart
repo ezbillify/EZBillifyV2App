@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/auth_models.dart';
+import 'master_data_service.dart';
 
 class AuthService {
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -12,7 +13,23 @@ class AuthService {
     );
   }
 
+  Future<void> sendOtp(String email) async {
+    await _supabase.auth.signInWithOtp(
+      email: email,
+      shouldCreateUser: false,
+    );
+  }
+
+  Future<AuthResponse> verifyOtp(String email, String token) async {
+    return await _supabase.auth.verifyOTP(
+      email: email,
+      token: token,
+      type: OtpType.magiclink, // Magiclink type also works for 6-digit codes in Supabase auth
+    );
+  }
+
   Future<void> signOut() async {
+    MasterDataService().invalidateCache();
     await _supabase.auth.signOut();
   }
 
