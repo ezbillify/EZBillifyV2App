@@ -1,0 +1,7 @@
+{
+    "name": "ez_billify_v2_app",
+    "version": "1.0.0",
+    "scripts": {
+        "push": "node scripts/smart_push.js"
+    }
+}

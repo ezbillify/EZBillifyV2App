@@ -1,0 +1,29 @@
+language: "en-US"
+tone_instructions: "Provide concise, actionable feedback. Suggest Flutter-specific optimizations (build method efficiency, state management), Dart clean code practices, and Material/Cupertino design consistency."
+early_access: false
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: true 
+  review_status: true
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches: ["main", "develop", "master"] 
+  tools:
+    ast-grep:
+      enabled: true
+    github-checks:
+      enabled: true
+  path_filters:
+    - "!**/*.lock"
+    - "!**/pubspec.lock"
+    - "!build/**"
+    - "!.dart_tool/**"
+    - "!ios/Pods/**"
+    - "!html/**"
+    - "!android/.gradle/**"
+chat:
+  auto_reply: true

@@ -25,6 +25,11 @@ import 'settings/user_management_screen.dart';
 import 'sales/sales_dashboard.dart';
 import 'purchase/purchase_dashboard.dart';
 import 'purchase/vendors_screen.dart';
+import 'hr/employee_list_screen.dart';
+import 'hr/workforce_monitor_screen.dart';
+import 'hr/shift_list_screen.dart';
+import 'hr/attendance_list_screen.dart';
+import 'hr/leave_list_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -1457,12 +1462,26 @@ class _AdminDashboardState extends State<AdminDashboard> {
         ),
         const SizedBox(height: 16),
         _buildBigAction(
+          title: "HR & Payroll",
+          description: "Manage employees, salaries & bank details",
+          icon: Icons.people_alt_rounded,
+          color: const Color(0xFFEC4899),
+          onTap: () {
+            Navigator.push(context, MaterialPageRoute(
+              builder: (c) => const EmployeeListScreen(),
+            ));
+          },
+        ),
+        const SizedBox(height: 16),
+        _buildBigAction(
           title: "Workforce Monitor",
           description: "Assign and track warehouse staff activities",
           icon: Icons.assignment_ind_rounded,
           color: const Color(0xFF10B981),
           onTap: () {
-             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Workforce Monitor - Coming Soon")));
+             Navigator.push(context, MaterialPageRoute(
+              builder: (c) => const WorkforceMonitorScreen(),
+            ));
           },
         ),
         const SizedBox(height: 16),
@@ -1699,11 +1718,21 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       _buildOverlaySection(
                         "HR & Payroll", 
                         [
-                          _buildActionIcon(Icons.engineering_rounded, "Workforce Monitor", const Color(0xFF8B5CF6), () {}),
-                          _buildActionIcon(Icons.badge_rounded, "Employees", const Color(0xFF8B5CF6), () {}),
-                          _buildActionIcon(Icons.schedule_rounded, "Shifts", const Color(0xFF8B5CF6), () {}),
-                          _buildActionIcon(Icons.event_available_rounded, "Attendance", const Color(0xFF8B5CF6), () {}),
-                          _buildActionIcon(Icons.beach_access_rounded, "Leaves", const Color(0xFF8B5CF6), () {}),
+                          _buildActionIcon(Icons.engineering_rounded, "Workforce Monitor", const Color(0xFF8B5CF6), () {
+                            _navigateToScreen(const WorkforceMonitorScreen());
+                          }),
+                          _buildActionIcon(Icons.badge_rounded, "Employees", const Color(0xFF8B5CF6), () {
+                            _navigateToScreen(const EmployeeListScreen());
+                          }),
+                          _buildActionIcon(Icons.schedule_rounded, "Shifts", const Color(0xFF8B5CF6), () {
+                             _navigateToScreen(const ShiftListScreen());
+                          }),
+                          _buildActionIcon(Icons.event_available_rounded, "Attendance", const Color(0xFF8B5CF6), () {
+                             _navigateToScreen(const AttendanceListScreen());
+                          }),
+                          _buildActionIcon(Icons.beach_access_rounded, "Leaves", const Color(0xFF8B5CF6), () {
+                             _navigateToScreen(const LeaveListScreen());
+                          }),
                           _buildActionIcon(Icons.settings_rounded, "Settings", const Color(0xFF8B5CF6), () {}),
                         ]
                       ),

@@ -91,4 +91,10 @@ class AuthService {
       return null;
     }
   }
+
+  Future<AppUser?> getCurrentUser() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return null;
+    return await fetchUserProfile(user.id);
+  }
 }
