@@ -99,12 +99,16 @@ class _SalesInvoicesScreenState extends State<SalesInvoicesScreen> {
         icon: const Icon(Icons.add_rounded, color: Colors.white),
         label: const Text("Create Invoice", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white)),
       ),
-      body: CustomScrollView(
-        slivers: [
-          if (widget.showAppBar) _buildAppBar(),
-          _buildSearchAndFilters(),
-          _buildInvoiceList(),
-        ],
+      body: RefreshIndicator(
+        onRefresh: _fetchInvoices,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            if (widget.showAppBar) _buildAppBar(),
+            _buildSearchAndFilters(),
+            _buildInvoiceList(),
+          ],
+        ),
       ),
     );
   }

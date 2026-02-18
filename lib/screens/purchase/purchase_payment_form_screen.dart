@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme_service.dart';
 import '../../services/numbering_service.dart';
-import 'vendors_screen.dart';
+import '../../widgets/calendar_sheet.dart';
 
 class PurchasePaymentFormScreen extends StatefulWidget {
   final Map<String, dynamic>? payment; // Null for new
@@ -31,11 +31,22 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
   String _mode = "Bank Transfer";
   String _referenceId = ""; // Bank transaction ID
   String _notes = "";
+  String? _branchId;
+  String? _branchName;
+  String? _internalUserId;
+
+  final _amountController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _initializeData();
+  }
+  
+  @override
+  void dispose() {
+    _amountController.dispose();
+    super.dispose();
   }
 
   Future<void> _generatePaymentNumber() async {
@@ -43,6 +54,7 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
     final nextNum = await NumberingService.getNextDocumentNumber(
       companyId: _companyId!,
       documentType: 'PURCHASE_PAYMENT',
+      branchId: _branchId,
       previewOnly: true,
     );
     setState(() => _paymentNumber = nextNum);
@@ -54,6 +66,7 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
       final user = Supabase.instance.client.auth.currentUser;
       final profile = await Supabase.instance.client.from('users').select('id, company_id').eq('auth_id', user!.id).single();
       _companyId = profile['company_id'];
+      _internalUserId = profile['id'];
       
       if (widget.payment != null) {
         // Edit Mode (Usually payments aren't edited much, but let's support it)
@@ -70,10 +83,23 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
         
         _paymentDate = DateTime.parse(widget.payment!['date'] ?? widget.payment!['created_at']);
         _amount = (widget.payment!['amount'] ?? 0).toDouble();
+        _amountController.text = _amount.toString();
         _mode = _kebabToTitle(widget.payment!['mode'] ?? 'bank_transfer');
         _referenceId = widget.payment!['reference_id'] ?? "";
         _notes = widget.payment!['notes'] ?? "";
+        _branchId = widget.payment!['branch_id']?.toString();
+        // Fetch branch name if present
+        if (_branchId != null) {
+          final branch = await Supabase.instance.client.from('branches').select('name').eq('id', _branchId!).single();
+          _branchName = branch['name'];
+        }
       } else {
+        // Fetch default branch
+        final branches = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
+        if (branches.isNotEmpty) {
+          _branchId = branches[0]['id'].toString();
+          _branchName = branches[0]['name'];
+        }
         // New Mode
         await _generatePaymentNumber();
       }
@@ -89,20 +115,73 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
   }
 
   Future<void> _selectVendor() async {
-    final result = await Navigator.push(
-      context, 
-      MaterialPageRoute(builder: (c) => const VendorsScreen(isSelecting: true))
-    );
+    final results = await Supabase.instance.client.from('vendors').select().eq('company_id', _companyId!);
+    if (!mounted) return;
     
-    if (result != null && result is Map<String, dynamic>) {
-      setState(() {
-        _vendorId = result['id'];
-        _vendorName = result['name'];
-        _billId = null; // Reset bill
-        _billNumber = null;
-        _billBalance = 0;
-      });
-    }
+    String searchQuery = "";
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final filtered = results.where((v) => 
+            v['name'].toString().toLowerCase().contains(searchQuery.toLowerCase()) ||
+            (v['phone']?.toString().toLowerCase().contains(searchQuery.toLowerCase()) ?? false)
+          ).toList();
+
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.8,
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+            decoration: BoxDecoration(color: context.scaffoldBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
+            child: Column(children: [
+              const SizedBox(height: 12),
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
+              Padding(padding: const EdgeInsets.all(16), child: Text("Select Vendor", style: TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: context.textPrimary))),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: TextFormField(
+                  decoration: InputDecoration(
+                    hintText: "Search vendor name or phone...",
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    filled: true,
+                    fillColor: context.cardBg,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                  onChanged: (v) => setModalState(() => searchQuery = v),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(child: ListView.builder(
+                itemCount: filtered.length,
+                physics: const BouncingScrollPhysics(),
+                itemBuilder: (c, i) => Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                   decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(12), border: Border.all(color: context.borderColor)),
+                   child: ListTile(
+                    title: Text(filtered[i]['name'], style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+                    subtitle: Text(filtered[i]['phone'] ?? '', style: TextStyle(color: context.textSecondary)),
+                    onTap: () {
+                      setState(() {
+                        _vendorId = filtered[i]['id'].toString();
+                        _vendorName = filtered[i]['name'];
+                        _billId = null; 
+                        _billNumber = null;
+                        _billBalance = 0;
+                        _amountController.clear();
+                      });
+                      Navigator.pop(context);
+                    },
+                  ),
+                ),
+              ))
+            ]),
+          );
+        }
+      )
+    );
   }
 
   Future<void> _selectBill() async {
@@ -111,47 +190,102 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
        return;
     }
 
-    // Show unpaid bills
+    String searchQuery = "";
+
+    // Show unpaid bills in a sheet
     showModalBottomSheet(
       context: context,
-      backgroundColor: context.surfaceBg,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) {
-        return FutureBuilder<List<Map<String, dynamic>>>(
-          future: Supabase.instance.client.from('purchase_bills')
-            .select()
-            .eq('vendor_id', _vendorId!)
-            .neq('status', 'paid') // Only open/partial/overdue
-            .order('created_at', ascending: false),
-          builder: (context, snapshot) {
-            if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-            final bills = snapshot.data!;
-            if (bills.isEmpty) return const Center(child: Text("No unpaid bills found for this vendor"));
-            
-            return ListView.builder(
-              itemCount: bills.length,
-              itemBuilder: (context, index) {
-                final bill = bills[index];
-                final total = (bill['total_amount'] ?? 0).toDouble();
-                final paid = (bill['paid_amount'] ?? 0).toDouble();
-                final due = total - paid;
-                
-                return ListTile(
-                  title: Text(bill['bill_number']),
-                  subtitle: Text("Date: ${DateFormat('dd MMM').format(DateTime.parse(bill['date']))}\nTotal: $total, Due: $due"),
-                  isThreeLine: true,
-                  onTap: () async {
-                    Navigator.pop(context); // Close sheet
-                    setState(() {
-                      _billId = bill['id'];
-                      _billNumber = bill['bill_number'];
-                      _billBalance = due;
-                      if (_amount == 0) _amount = due; // Auto-fill full amount
-                    });
-                  },
-                );
-              },
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.8,
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              decoration: BoxDecoration(color: context.scaffoldBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
+              child: Column(
+                children: [
+                  const SizedBox(height: 12),
+                  Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
+                  Padding(padding: const EdgeInsets.all(16), child: Text("Select Bill to Pay", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary))),
+                  
+                  // Search Bar
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    child: TextFormField(
+                      decoration: InputDecoration(
+                        hintText: "Search Bill Number...",
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        filled: true,
+                        fillColor: context.cardBg,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      ),
+                      onChanged: (v) => setModalState(() => searchQuery = v),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  Expanded(
+                    child: FutureBuilder<List<Map<String, dynamic>>>(
+                      future: Supabase.instance.client.from('purchase_bills')
+                        .select()
+                        .eq('vendor_id', _vendorId!)
+                        .neq('status', 'paid') // Only open/partial/overdue
+                        .order('created_at', ascending: false),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                        final allBills = snapshot.data!;
+                        if (allBills.isEmpty) return const Center(child: Text("No unpaid bills found for this vendor"));
+                        
+                        final filtered = allBills.where((b) => 
+                          b['bill_number'].toString().toLowerCase().contains(searchQuery.toLowerCase())
+                        ).toList();
+
+                        return ListView.builder(
+                          itemCount: filtered.length,
+                          itemBuilder: (context, index) {
+                            final bill = filtered[index];
+                            final total = (bill['total_amount'] ?? 0).toDouble();
+                            final paid = (bill['paid_amount'] ?? 0).toDouble();
+                            final due = total - paid;
+                            final isSelected = _billId == bill['id'].toString();
+                            
+                            return Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: isSelected ? AppColors.primaryBlue.withOpacity(0.1) : context.cardBg,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: isSelected ? AppColors.primaryBlue : context.borderColor),
+                              ),
+                              child: ListTile(
+                                title: Text(bill['bill_number'], style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+                                subtitle: Text("Date: ${DateFormat('dd MMM').format(DateTime.parse(bill['date']))}\nTotal: $total", style: TextStyle(color: context.textSecondary, fontSize: 12)),
+                                trailing: Text("Due: ₹$due", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+                                onTap: () async {
+                                  Navigator.pop(context); // Close sheet
+                                  setState(() {
+                                    _billId = bill['id'];
+                                    _billNumber = bill['bill_number'];
+                                    _billBalance = due;
+                                    if (_amount == 0) {
+                                      _amount = due; 
+                                      _amountController.text = _amount.toStringAsFixed(2);
+                                    }
+                                  });
+                                },
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
             );
-          },
+          }
         );
       }
     );
@@ -175,6 +309,7 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
     try {
       final paymentData = {
         'company_id': _companyId,
+        'branch_id': _branchId,
         'payment_number': _paymentNumber,
         'bill_id': _billId,
         'vendor_id': _vendorId,
@@ -186,15 +321,11 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
       };
       
       if (widget.payment != null) {
-         // Should handle reversing previous payment amount on bill if edited? 
-         // Complex logic. For MVP, update payment and let trigger/logic handle manual bill update or assume user fixes.
-         // Actually, let's keep it simple: Just update record. 
          await Supabase.instance.client.from('purchase_payments').update(paymentData).eq('id', widget.payment!['id']);
       } else {
          await Supabase.instance.client.from('purchase_payments').insert(paymentData);
          
          // Update Bill Paid Amount
-         // Need to fetch current paid amount and add new amount
          final bill = await Supabase.instance.client.from('purchase_bills').select('paid_amount, total_amount').eq('id', _billId!).single();
          final currentPaid = (bill['paid_amount'] ?? 0).toDouble();
          final total = (bill['total_amount'] ?? 0).toDouble();
@@ -225,159 +356,259 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: context.scaffoldBg,
-      appBar: AppBar(
-        title: Text(widget.payment == null ? "Record Payment" : "Edit Payment", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
-        backgroundColor: context.surfaceBg,
-        elevation: 0,
-        iconTheme: IconThemeData(color: context.textPrimary),
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.9,
+      decoration: BoxDecoration(
+        color: context.scaffoldBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      body: _loading ? const Center(child: CircularProgressIndicator()) : Form(
-        key: _formKey,
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
+      child: Column(
+        children: [
+          // Header
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: Icon(Icons.close_rounded, color: context.textPrimary),
+                  onPressed: () => Navigator.pop(context),
+                ),
+                Expanded(
+                  child: Text(
+                    widget.payment == null ? "Record Payment" : "Edit Payment",
+                    style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(width: 48), // Spacer
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Form(
+                key: _formKey,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildHeaderSection(),
+                    _buildSectionTitle("Company Details"),
+                    const SizedBox(height: 12),
+                    _buildBranchSelector(),
+                    const SizedBox(height: 24),
+                    _buildSectionTitle("Payee Details"),
+                    const SizedBox(height: 12),
+                    _buildVendorSelector(),
+                    
+                    if (_vendorId != null) ...[
+                      const SizedBox(height: 24),
+                      _buildSectionTitle("Bill to Pay"),
+                      const SizedBox(height: 12),
+                      _buildBillSelector(),
+                    ],
+
                     const SizedBox(height: 32),
                     _buildPaymentDetailsSection(),
+                    
                     const SizedBox(height: 32),
                     _buildNotesSection(),
-                    const SizedBox(height: 100),
+                    
+                    const SizedBox(height: 40),
+                    SizedBox(
+                       width: double.infinity,
+                       height: 54,
+                       child: ElevatedButton(
+                         onPressed: _loading ? null : _savePayment,
+                         style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                         child: _loading 
+                             ? const CircularProgressIndicator(color: Colors.white) 
+                             : const Text("Save Payment", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18)),
+                       ),
+                     ),
                   ],
                 ),
               ),
             ),
-            _buildBottomBar(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBranchSelector() {
+    return InkWell(
+      onTap: _selectBranch,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
+        child: Row(
+          children: [
+            Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), shape: BoxShape.circle), child: const Icon(Icons.business_rounded, color: AppColors.primaryBlue)),
+            const SizedBox(width: 16),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_branchName ?? "Select Branch", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
+              if (_branchId == null) Text("Tap to select branch", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+            ])),
+            const Icon(Icons.arrow_drop_down),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildHeaderSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionTitle("Payee Details"),
-        const SizedBox(height: 12),
-        InkWell(
-          onTap: _selectVendor,
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), shape: BoxShape.circle),
-                  child: const Icon(Icons.store_rounded, color: AppColors.primaryBlue, size: 24),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(_vendorName ?? "Select Vendor", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: _vendorName == null ? context.textSecondary.withOpacity(0.4) : context.textPrimary)),
-                    ],
-                  ),
-                ),
-                Icon(Icons.chevron_right_rounded, color: context.textSecondary.withOpacity(0.3)),
-              ],
-            ),
-          ),
-        ),
-        if (_vendorId != null) ...[
-          const SizedBox(height: 16),
-          InkWell(
-            onTap: _selectBill,
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), shape: BoxShape.circle),
-                    child: const Icon(Icons.receipt_long_rounded, color: Colors.red, size: 24),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(_billNumber ?? "Select Bill to Pay", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: _billNumber == null ? context.textSecondary.withOpacity(0.4) : context.textPrimary)),
-                        if (_billNumber != null) Text("Due Balance: ₹$_billBalance", style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: Colors.red)),
-                      ],
-                    ),
-                  ),
-                  Icon(Icons.chevron_right_rounded, color: context.textSecondary.withOpacity(0.3)),
-                ],
+  Future<void> _selectBranch() async {
+    final results = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
+    if (!mounted) return;
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.5,
+        decoration: BoxDecoration(color: context.scaffoldBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
+        child: Column(children: [
+          Padding(padding: const EdgeInsets.all(16), child: Text("Select Branch", style: TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: context.textPrimary))),
+          const SizedBox(height: 8),
+          Expanded(child: ListView.builder(
+            itemCount: results.length,
+            physics: const BouncingScrollPhysics(),
+            itemBuilder: (c, i) => Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+               decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(12), border: Border.all(color: context.borderColor)),
+               child: ListTile(
+                title: Text(results[i]['name'], style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+                onTap: () {
+                  setState(() {
+                    _branchId = results[i]['id'].toString();
+                    _branchName = results[i]['name'];
+                  });
+                  _generatePaymentNumber(); // Regenerate for new branch
+                  Navigator.pop(context);
+                },
               ),
             ),
-          ),
-        ],
-      ],
+          ))
+        ]),
+      )
     );
   }
 
+  Widget _buildVendorSelector() {
+    return InkWell(
+      onTap: _selectVendor,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
+        child: Row(
+          children: [
+            Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), shape: BoxShape.circle), child: const Icon(Icons.store_rounded, color: AppColors.primaryBlue)),
+            const SizedBox(width: 16),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_vendorName ?? "Select Vendor", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
+              if (_vendorId == null) Text("Tap to search vendors", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+            ])),
+            const Icon(Icons.arrow_drop_down),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBillSelector() {
+    if (_vendorId == null) return const SizedBox.shrink();
+    
+    return InkWell(
+      onTap: _selectBill,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
+        child: Row(
+          children: [
+            Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), shape: BoxShape.circle), child: const Icon(Icons.receipt_long, color: Colors.red)),
+            const SizedBox(width: 16),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_billId != null ? "${_billNumber ?? 'Unknown'} (Due: ₹$_billBalance)" : "Select Bill", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
+              if (_billId == null) Text("Tap to select bill", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+            ])),
+            const Icon(Icons.arrow_drop_down),
+          ],
+        ),
+      ),
+    );
+  }
+  
   Widget _buildPaymentDetailsSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSectionTitle("Payment Details"),
         const SizedBox(height: 16),
+        
+        // Payment Number
         TextFormField(
-          initialValue: _amount > 0 ? _amount.toString() : null,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 24, color: Colors.green),
+          key: ValueKey(_paymentNumber),
+          initialValue: _paymentNumber,
+          readOnly: true,
           decoration: InputDecoration(
+            labelText: "Payment Number",
+            prefixIcon: const Icon(Icons.numbers),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+            filled: true,
+            fillColor: context.cardBg,
+          ),
+        ),
+        const SizedBox(height: 16),
+        
+        // Date Selector
+        _buildInfoCard("Payment Date", DateFormat('dd MMM, yyyy').format(_paymentDate), Icons.calendar_today_rounded, () async {
+            final picked = await showCustomCalendarSheet(
+              context: context, 
+              initialDate: _paymentDate, 
+              title: "Select Payment Date",
+              lastDate: DateTime.now()
+            );
+            if (picked != null) setState(() => _paymentDate = picked);
+        }),
+        const SizedBox(height: 16),
+        
+        TextFormField(
+          controller: _amountController,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primaryBlue),
+           decoration: InputDecoration(
              labelText: "Amount",
              prefixText: "₹ ",
              fillColor: context.cardBg,
              filled: true,
-             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
           ),
           onChanged: (v) => _amount = double.tryParse(v) ?? 0,
         ),
         const SizedBox(height: 16),
-        Row(
-          children: [
-             Expanded(
-               child: _buildInfoCard("Date", DateFormat('dd MMM, yyyy').format(_paymentDate), Icons.calendar_today_rounded, () async {
-                  final d = await showDatePicker(context: context, initialDate: _paymentDate, firstDate: DateTime(2000), lastDate: DateTime(2100));
-                  if (d != null) setState(() => _paymentDate = d);
-               }),
-             ),
-          ],
-        ),
-        const SizedBox(height: 16),
+        
         DropdownButtonFormField<String>(
           value: _mode,
-          decoration: InputDecoration(
-            labelText: "Payment Mode",
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            filled: true,
-            fillColor: context.cardBg,
+           decoration: InputDecoration(
+             labelText: "Payment Mode",
+             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+             filled: true,
+             fillColor: context.cardBg,
           ),
           items: ["Cash", "Bank Transfer", "UPI", "Cheque", "Other"].map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
           onChanged: (v) => setState(() => _mode = v!),
         ),
         const SizedBox(height: 16),
+        
         TextFormField(
           initialValue: _referenceId,
-          decoration: InputDecoration(
-            labelText: "Reference / Transaction ID",
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            filled: true,
-            fillColor: context.cardBg,
+           decoration: InputDecoration(
+             labelText: "Reference / Transaction ID",
+             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+             filled: true,
+             fillColor: context.cardBg,
           ),
           onChanged: (v) => _referenceId = v,
         ),
@@ -390,15 +621,15 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSectionTitle("Notes"),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         TextFormField(
           initialValue: _notes,
           maxLines: 2,
-          decoration: InputDecoration(
-            labelText: "Remarks",
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            filled: true,
-            fillColor: context.cardBg,
+           decoration: InputDecoration(
+             labelText: "Remarks (Optional)",
+             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+             filled: true,
+             fillColor: context.cardBg,
           ),
           onChanged: (v) => _notes = v,
         ),
@@ -406,48 +637,18 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
     );
   }
 
-  Widget _buildBottomBar() {
-    return Container(
-      padding: EdgeInsets.fromLTRB(20, 16, 20, 16 + MediaQuery.of(context).padding.bottom),
-      decoration: BoxDecoration(color: context.surfaceBg, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))]),
-      child: SizedBox(
-        height: 54,
-        width: double.infinity,
-        child: ElevatedButton(
-          onPressed: _loading ? null : _savePayment,
-          style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 0),
-          child: const Text("Save Payment", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
-        ),
-      ),
-    );
+  Widget _buildSectionTitle(String title) {
+    return Text(title, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary));
   }
-
+  
   Widget _buildInfoCard(String label, String value, IconData icon, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-              Text(label, style: TextStyle(fontFamily: 'Outfit', fontSize: 10, color: context.textSecondary)),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Icon(icon, size: 14, color: AppColors.primaryBlue),
-                  const SizedBox(width: 6),
-                  Text(value, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 13, color: context.textPrimary)),
-                ],
-              ),
-          ],
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(12), border: Border.all(color: context.borderColor)),
+        child: Row(children: [Icon(icon, size: 16, color: context.textSecondary), const SizedBox(width: 8), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: TextStyle(fontSize: 10, color: context.textSecondary)), Text(value, style: TextStyle(fontWeight: FontWeight.bold, color: context.textPrimary))])]),
       ),
     );
-  }
-  
-  Widget _buildSectionTitle(String title) {
-    return Text(title, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary));
   }
 }

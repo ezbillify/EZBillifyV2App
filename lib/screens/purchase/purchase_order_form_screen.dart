@@ -5,6 +5,7 @@ import '../../core/theme_service.dart';
 import '../../services/numbering_service.dart';
 import '../inventory/item_selection_sheet.dart';
 import 'vendors_screen.dart';
+import '../../widgets/calendar_sheet.dart';
 
 class PurchaseOrderFormScreen extends StatefulWidget {
   final Map<String, dynamic>? order; // Null for new
@@ -164,37 +165,61 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
     }
   }
   
-  void _editItem(int index) async {
+  Future<void> _editItemPrice(int index) async {
     final item = _items[index];
-    final priceController = TextEditingController(text: item['unit_price'].toString());
-    final taxController = TextEditingController(text: item['tax_rate'].toString());
+    final controller = TextEditingController(text: item['unit_price'].toString());
     
-    await showDialog(
+    await showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text("Edit Item: ${item['name']}", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
-        content: Column(
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24, right: 24, top: 24),
+        decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
+        child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            TextField(controller: priceController, decoration: const InputDecoration(labelText: "Unit Price"), keyboardType: const TextInputType.numberWithOptions(decimal: true)),
-            const SizedBox(height: 12),
-            TextField(controller: taxController, decoration: const InputDecoration(labelText: "Tax Rate (%)"), keyboardType: const TextInputType.numberWithOptions(decimal: true)),
+            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 24),
+            Text("Edit Unit Price", style: TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.bold, color: context.textPrimary)),
+            const SizedBox(height: 8),
+            Text(item['name'], style: TextStyle(fontFamily: 'Outfit', fontSize: 14, color: context.textSecondary)),
+            const SizedBox(height: 24),
+            TextField(
+              controller: controller,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              autofocus: true,
+              style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
+              decoration: InputDecoration(
+                prefixText: "₹ ",
+                prefixStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                labelText: "New Unit Price",
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                filled: true,
+                fillColor: context.cardBg,
+              ),
+            ),
+            const SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity,
+              height: 54,
+              child: ElevatedButton(
+                onPressed: () {
+                  final newPrice = double.tryParse(controller.text) ?? item['unit_price'];
+                  setState(() {
+                    _items[index]['unit_price'] = newPrice;
+                    _calculateTotals();
+                  });
+                  Navigator.pop(context);
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 0),
+                child: const Text("Save Changes", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
+              ),
+            ),
+            const SizedBox(height: 32),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-          ElevatedButton(
-            onPressed: () {
-              setState(() {
-                _items[index]['unit_price'] = double.tryParse(priceController.text) ?? 0;
-                _items[index]['tax_rate'] = double.tryParse(taxController.text) ?? 0;
-                _calculateTotals();
-              });
-              Navigator.pop(context);
-            },
-            child: const Text("Save"),
-          ),
-        ],
       ),
     );
   }
@@ -347,14 +372,23 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
           children: [
             Expanded(
               child: _buildInfoCard("Order Date", DateFormat('dd MMM, yyyy').format(_orderDate), Icons.calendar_today_rounded, () async {
-                final d = await showDatePicker(context: context, initialDate: _orderDate, firstDate: DateTime(2000), lastDate: DateTime(2100));
+                final d = await showCustomCalendarSheet(
+                  context: context, 
+                  initialDate: _orderDate, 
+                  title: "Select Order Date"
+                );
                 if (d != null) setState(() => _orderDate = d);
               }),
             ),
             const SizedBox(width: 16),
             Expanded(
               child: _buildInfoCard("Expected Delivery", DateFormat('dd MMM, yyyy').format(_deliveryDate), Icons.local_shipping_outlined, () async {
-                final d = await showDatePicker(context: context, initialDate: _deliveryDate, firstDate: DateTime(2000), lastDate: DateTime(2100));
+                final d = await showCustomCalendarSheet(
+                  context: context, 
+                  initialDate: _deliveryDate, 
+                  title: "Select Delivery Date",
+                  firstDate: _orderDate
+                );
                 if (d != null) setState(() => _deliveryDate = d);
               }),
             ),
@@ -412,7 +446,7 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
       child: InkWell(
-        onTap: () => _editItem(index),
+        onTap: () => _editItemPrice(index),
         child: Column(
           children: [
             Row(
@@ -423,7 +457,27 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(item['name'] ?? 'Item', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
-                      Text("Unit Price: ₹${item['unit_price']} (Tap to edit)", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+                      const SizedBox(height: 4),
+                      InkWell(
+                        onTap: () => _editItemPrice(index),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryBlue.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppColors.primaryBlue.withOpacity(0.1)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text("Price: ₹${item['unit_price']}", style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
+                              const SizedBox(width: 4),
+                              const Icon(Icons.edit_rounded, size: 12, color: AppColors.primaryBlue),
+                            ],
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),

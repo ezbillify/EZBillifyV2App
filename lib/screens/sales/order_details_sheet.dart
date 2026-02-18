@@ -98,64 +98,26 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
     );
   }
 
-  Widget _buildHeader() {
-    final status = _order['status'] ?? 'pending';
-    final statusColor = _getStatusColor(status);
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(_order['so_number'] ?? _order['order_number'] ?? '#---', style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary)),
-              Text(_order['customer']?['name'] ?? 'Unknown Customer', style: TextStyle(fontFamily: 'Outfit', fontSize: 16, color: context.textSecondary)),
-            ],
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: statusColor.withOpacity(0.2))),
-          child: Text(status.toUpperCase(), style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 12, color: statusColor)),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildQuickStats() {
-    final dateStr = _order['order_date']?.toString() ?? _order['created_at']?.toString() ?? '';
-    final date = DateTime.tryParse(dateStr) ?? DateTime.now();
-    
-    return Row(
-      children: [
-        _buildStatCard("Order Date", DateFormat('dd MMM, yyyy').format(date), Icons.calendar_today_rounded),
-        const SizedBox(width: 16),
-        _buildStatCard("Total Amount", "₹${_order['total_amount'] ?? 0}", Icons.payments_rounded),
-      ],
-    );
-  }
-
-  Widget _buildStatCard(String label, String value, IconData icon) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(20), border: Border.all(color: context.borderColor)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: AppColors.primaryBlue, size: 20),
-            const SizedBox(height: 12),
-            Text(value, style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary)),
-            Text(label, style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary)),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildItemsList() {
     if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_items.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.red.withOpacity(0.05), 
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.red.withOpacity(0.2))
+        ),
+        child: Column(
+          children: [
+            const Icon(Icons.error_outline_rounded, color: Colors.red, size: 32),
+            const SizedBox(height: 8),
+            Text("No items found", style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      );
+    }
     return Column(
       children: _items.map((item) => Container(
         margin: const EdgeInsets.only(bottom: 12),
@@ -326,6 +288,62 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
         elevation: 0,
         padding: const EdgeInsets.symmetric(vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: filled ? AppColors.primaryBlue : context.borderColor)),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    final status = _order['status'] ?? 'pending';
+    final statusColor = _getStatusColor(status);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_order['so_number'] ?? _order['order_number'] ?? '#---', style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary)),
+              Text(_order['customer']?['name'] ?? 'Unknown Customer', style: TextStyle(fontFamily: 'Outfit', fontSize: 16, color: context.textSecondary)),
+            ],
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: statusColor.withOpacity(0.2))),
+          child: Text(status.toUpperCase(), style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 12, color: statusColor)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickStats() {
+    final dateStr = _order['order_date']?.toString() ?? _order['created_at']?.toString() ?? '';
+    final date = DateTime.tryParse(dateStr) ?? DateTime.now();
+    
+    return Row(
+      children: [
+        _buildStatCard("Order Date", DateFormat('dd MMM, yyyy').format(date), Icons.calendar_today_rounded),
+        const SizedBox(width: 16),
+        _buildStatCard("Total Amount", "₹${_order['total_amount'] ?? 0}", Icons.payments_rounded),
+      ],
+    );
+  }
+
+  Widget _buildStatCard(String label, String value, IconData icon) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(20), border: Border.all(color: context.borderColor)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: AppColors.primaryBlue, size: 20),
+            const SizedBox(height: 12),
+            Text(value, style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary)),
+            Text(label, style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary)),
+          ],
+        ),
       ),
     );
   }

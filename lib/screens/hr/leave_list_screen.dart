@@ -90,77 +90,13 @@ class _LeaveListScreenState extends State<LeaveListScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _leaves.isEmpty
               ? _buildEmptyState(isDark)
-              : SingleChildScrollView(
-                  scrollDirection: Axis.vertical,
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(minWidth: MediaQuery.of(context).size.width),
-                      child: DataTable(
-                        columnSpacing: 20,
-                        headingRowColor: MaterialStateProperty.all(isDark ? Colors.white10 : Colors.grey[100]),
-                        columns: const [
-                          DataColumn(label: Text('Employee', style: TextStyle(fontWeight: FontWeight.bold))),
-                          DataColumn(label: Text('Type', style: TextStyle(fontWeight: FontWeight.bold))),
-                          DataColumn(label: Text('Duration', style: TextStyle(fontWeight: FontWeight.bold))),
-                          DataColumn(label: Text('Reason', style: TextStyle(fontWeight: FontWeight.bold))),
-                          DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
-                          DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
-                        ],
-                        rows: _leaves.map((l) => DataRow(
-                          cells: [
-                             DataCell(
-                               Row(
-                                 children: [
-                                   CircleAvatar(
-                                     radius: 12,
-                                     backgroundColor: AppColors.primaryBlue.withOpacity(0.1),
-                                     child: Text(l.employeeName?[0] ?? '?', style: TextStyle(fontSize: 10, color: AppColors.primaryBlue)),
-                                   ),
-                                   const SizedBox(width: 8),
-                                   Text(l.employeeName ?? 'Unknown', style: TextStyle(fontWeight: FontWeight.w500)),
-                                 ],
-                               )
-                            ),
-                            DataCell(Text(l.leaveType.toUpperCase())),
-                            DataCell(Text("${l.startDate}\n${l.endDate}", style: const TextStyle(fontSize: 12))),
-                             DataCell(
-                              SizedBox(
-                                width: 150,
-                                child: Text(l.reason ?? '-', overflow: TextOverflow.ellipsis),
-                              )
-                            ),
-                            DataCell(
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: _getStatusColor(l.status).withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(l.status.toUpperCase(), style: TextStyle(color: _getStatusColor(l.status), fontSize: 10, fontWeight: FontWeight.bold)),
-                              )
-                            ),
-                            DataCell(
-                              l.status == 'pending' 
-                              ? Row(
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.check, color: Colors.green),
-                                      onPressed: () => _updateStatus(l.id!, 'approved'),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.close, color: Colors.red),
-                                      onPressed: () => _updateStatus(l.id!, 'rejected'),
-                                    ),
-                                  ],
-                                )
-                              : const Text('-'),
-                            ),
-                          ],
-                        )).toList(),
-                      ),
-                    ),
-                  ),
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _leaves.length,
+                  itemBuilder: (context, index) {
+                    final leave = _leaves[index];
+                    return _buildLeaveCard(leave, isDark);
+                  },
                 ),
     );
   }
@@ -172,8 +108,131 @@ class _LeaveListScreenState extends State<LeaveListScreen> {
         children: [
            Icon(Icons.beach_access, size: 64, color: isDark ? Colors.white24 : Colors.grey[300]),
            const SizedBox(height: 16),
-           Text("No leave requests found", style: TextStyle(color: isDark ? Colors.white54 : Colors.grey)),
+           Text("No leave requests found", style: TextStyle(color: isDark ? Colors.white54 : Colors.grey, fontFamily: 'Outfit')),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLeaveCard(Leave leave, bool isDark) {
+    Color statusColor = _getStatusColor(leave.status);
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurface : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: AppColors.primaryBlue.withOpacity(0.1),
+                  child: Text(
+                    leave.employeeName?[0] ?? '?', 
+                    style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: AppColors.primaryBlue)
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        leave.employeeName ?? 'Unknown',
+                        style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.white : Colors.black87),
+                      ),
+                      Text(
+                        "${leave.startDate} - ${leave.endDate}",
+                        style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: isDark ? Colors.white54 : Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    leave.status.toUpperCase(),
+                    style: TextStyle(fontFamily: 'Outfit', color: statusColor, fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white.withOpacity(0.05) : Colors.grey[50], 
+                borderRadius: BorderRadius.circular(8)
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                   Row(
+                     children: [
+                       Icon(Icons.category, size: 14, color: isDark ? Colors.white54 : Colors.grey),
+                       const SizedBox(width: 6),
+                       Text(leave.leaveType.toUpperCase(), style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 12, color: isDark ? Colors.white70 : Colors.black87)),
+                     ],
+                   ),
+                   if (leave.reason != null && leave.reason!.isNotEmpty) ...[
+                     const SizedBox(height: 6),
+                     Text(
+                       '"${leave.reason}"', 
+                       style: TextStyle(fontFamily: 'Outfit', fontStyle: FontStyle.italic, color: isDark ? Colors.white54 : Colors.grey[600], fontSize: 13)
+                     ),
+                   ]
+                ],
+              ),
+            ),
+            if (leave.status == 'pending') ...[
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        side: const BorderSide(color: Colors.red),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _updateStatus(leave.id!, 'rejected'),
+                      child: const Text("Reject", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _updateStatus(leave.id!, 'approved'),
+                      child: const Text("Approve", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ]
+          ],
+        ),
       ),
     );
   }

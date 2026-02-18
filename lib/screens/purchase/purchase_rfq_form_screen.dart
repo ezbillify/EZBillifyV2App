@@ -5,6 +5,7 @@ import '../../core/theme_service.dart';
 import '../../services/numbering_service.dart';
 import '../inventory/item_selection_sheet.dart';
 import 'vendors_screen.dart';
+import '../../widgets/calendar_sheet.dart';
 
 class PurchaseRfqFormScreen extends StatefulWidget {
   final Map<String, dynamic>? rfq; // Null for new
@@ -303,7 +304,11 @@ class _PurchaseRfqFormScreenState extends State<PurchaseRfqFormScreen> {
           children: [
             Expanded(
               child: _buildInfoCard("RFQ Date", DateFormat('dd MMM, yyyy').format(_rfqDate), Icons.calendar_today_rounded, () async {
-                final d = await showDatePicker(context: context, initialDate: _rfqDate, firstDate: DateTime(2000), lastDate: DateTime(2100));
+                final d = await showCustomCalendarSheet(
+                   context: context, 
+                   initialDate: _rfqDate, 
+                   title: "Select RFQ Date"
+                );
                 if (d != null) setState(() => _rfqDate = d);
               }),
             ),

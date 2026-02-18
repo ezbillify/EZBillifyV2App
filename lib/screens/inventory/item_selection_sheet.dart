@@ -69,21 +69,58 @@ class _ItemSelectionSheetState extends State<ItemSelectionSheet> {
             height: 4,
             decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
           ),
+          // Premium High-Fidelity Search Bar
           Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: "Search items...",
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                filled: true,
-                fillColor: context.cardBg,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutCubic,
+              height: 56,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: context.cardBg,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: AppColors.primaryBlue.withOpacity(0.5),
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))
+                ]
               ),
-              onChanged: (v) {
-                _query = v;
-                _fetchItems();
-              },
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: TextField(
+                  controller: _searchController,
+                  textAlignVertical: TextAlignVertical.center,
+                  style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: "Search anything...",
+                    hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15, fontWeight: FontWeight.normal),
+                    prefixIcon: const Icon(Icons.search_rounded, color: AppColors.primaryBlue, size: 24),
+                    suffixIcon: _query.isNotEmpty ? IconButton(
+                      icon: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(color: context.textSecondary.withOpacity(0.1), shape: BoxShape.circle),
+                        child: const Icon(Icons.close_rounded, size: 14)
+                      ),
+                      onPressed: () {
+                        setState(() { _query = ""; _searchController.clear(); });
+                        _fetchItems();
+                      },
+                    ) : null,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+                  ),
+                  onChanged: (v) {
+                    _query = v;
+                    _fetchItems();
+                  },
+                ),
+              ),
             ),
           ),
           Expanded(

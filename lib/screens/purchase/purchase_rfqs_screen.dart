@@ -98,12 +98,16 @@ class _PurchaseRfqsScreenState extends State<PurchaseRfqsScreen> {
         icon: const Icon(Icons.add_rounded, color: Colors.white),
         label: const Text("Create RFQ", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white)),
       ),
-      body: CustomScrollView(
-        slivers: [
-          if (widget.showAppBar) _buildAppBar(),
-          _buildSearchAndFilters(),
-          _buildRfqList(),
-        ],
+      body: RefreshIndicator(
+        onRefresh: _fetchRfqs,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            if (widget.showAppBar) _buildAppBar(),
+            _buildSearchAndFilters(),
+            _buildRfqList(),
+          ],
+        ),
       ),
     );
   }

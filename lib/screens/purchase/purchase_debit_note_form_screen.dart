@@ -5,6 +5,7 @@ import '../../core/theme_service.dart';
 import '../../services/numbering_service.dart';
 import '../inventory/item_selection_sheet.dart';
 import 'vendors_screen.dart';
+import '../../widgets/calendar_sheet.dart';
 
 class PurchaseDebitNoteFormScreen extends StatefulWidget {
   final Map<String, dynamic>? debitNote; // Null for new
@@ -423,7 +424,11 @@ class _PurchaseDebitNoteFormScreenState extends State<PurchaseDebitNoteFormScree
           children: [
             Expanded(
               child: _buildInfoCard("Date", DateFormat('dd MMM, yyyy').format(_date), Icons.calendar_today_rounded, () async {
-                final d = await showDatePicker(context: context, initialDate: _date, firstDate: DateTime(2000), lastDate: DateTime(2100));
+                final d = await showCustomCalendarSheet(
+                   context: context, 
+                   initialDate: _date, 
+                   title: "Select Debit Note Date"
+                );
                 if (d != null) setState(() => _date = d);
               }),
             ),

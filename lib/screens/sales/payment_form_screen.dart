@@ -5,7 +5,7 @@ import '../../core/theme_service.dart';
 import '../../services/numbering_service.dart';
 import 'package:animate_do/animate_do.dart';
 import 'package:flutter/cupertino.dart';
-// import 'scanner_modal_content.dart'; // Not needed unless scanning invoice QR
+import '../../widgets/calendar_sheet.dart';
 
 class PaymentFormScreen extends StatefulWidget {
   final Map<String, dynamic>? payment; // Null for new
@@ -22,6 +22,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
   
   // Data
   String? _companyId;
+  String? _internalUserId;
   String? _branchId; // Optional link to branch
   String? _customerId;
   String? _customerName;
@@ -35,6 +36,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
   String _paymentMode = "Cash";
   String _referenceNumber = "";
   String _notes = "";
+  String? _branchName;
 
   List<Map<String, dynamic>> _unpaidInvoices = [];
 
@@ -56,14 +58,16 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
     setState(() => _loading = true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
-      final profile = await Supabase.instance.client.from('users').select('company_id').eq('auth_id', user!.id).single();
+      final profile = await Supabase.instance.client.from('users').select('id, company_id').eq('auth_id', user!.id).single();
       _companyId = profile['company_id'];
+      _internalUserId = profile['id'];
       
       if (widget.payment == null) {
         // Fetch branch for proper linking
         final branches = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
         if (branches.isNotEmpty) {
            _branchId = branches[0]['id'].toString();
+           _branchName = branches[0]['name'];
         }
 
         await _generatePaymentNumber();
@@ -132,101 +136,213 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: context.scaffoldBg,
-      appBar: AppBar(
-        backgroundColor: context.scaffoldBg,
-        elevation: 0,
-        title: Text("Record Payment", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
-        leading: IconButton(icon: Icon(Icons.arrow_back_ios_new_rounded, color: context.textPrimary), onPressed: () => Navigator.pop(context)),
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.9,
+      decoration: BoxDecoration(
+        color: context.scaffoldBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      body: _loading ? const Center(child: CircularProgressIndicator()) : SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-               _buildSectionTitle("Customer"),
-               const SizedBox(height: 12),
-               _buildCustomerSelector(),
-               
-               if (_customerId != null) ...[
-                 const SizedBox(height: 24),
-                 _buildSectionTitle("Invoice to Pay"),
-                 const SizedBox(height: 12),
-                 _buildInvoiceSelector(),
-               ],
-
-               const SizedBox(height: 24),
-               _buildSectionTitle("Payment Details"),
-               const SizedBox(height: 12),
-               
-               // Date Selector
-               _buildInfoCard("Payment Date", DateFormat('dd MMM, yyyy').format(_paymentDate), Icons.calendar_today_rounded, () async {
-                  final picked = await showDatePicker(context: context, initialDate: _paymentDate, firstDate: DateTime(2000), lastDate: DateTime.now());
-                  if (picked != null) setState(() => _paymentDate = picked);
-               }),
-               const SizedBox(height: 16),
-               
-               // Amount Field
-               TextFormField(
-                 controller: _amountController,
-                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                 style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primaryBlue),
-                 decoration: InputDecoration(
-                   labelText: "Amount Received",
-                   prefixText: "₹ ",
-                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                   filled: true,
-                   fillColor: context.cardBg,
-                 ),
-                 onChanged: (v) => _amount = double.tryParse(v) ?? 0,
-                 validator: (v) {
-                   if (v == null || v.isEmpty) return "Enter amount";
-                   final val = double.tryParse(v);
-                   if (val == null || val <= 0) return "Invalid amount";
-                   if (_invoiceId != null && val > _invoiceBalance) return "Exceeds balance (₹$_invoiceBalance)"; // Optional check
-                   return null;
-                 },
-               ),
-               const SizedBox(height: 16),
-               
-               // Mode Selector
-               DropdownButtonFormField<String>(
-                 value: _paymentMode,
-                 decoration: InputDecoration(labelText: "Payment Mode", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), filled: true, fillColor: context.cardBg),
-                 items: ["Cash", "Bank Transfer", "Cheque", "UPI", "Other"].map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
-                 onChanged: (v) => setState(() => _paymentMode = v!),
-               ),
-               const SizedBox(height: 16),
-               
-               TextFormField(
-                 decoration: InputDecoration(labelText: "Reference # (Optional)", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), filled: true, fillColor: context.cardBg),
-                 onChanged: (v) => _referenceNumber = v,
-               ),
-               const SizedBox(height: 16),
-               
-               TextFormField(
-                 maxLines: 3,
-                 decoration: InputDecoration(labelText: "Notes (Optional)", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), filled: true, fillColor: context.cardBg),
-                 onChanged: (v) => _notes = v,
-               ),
-               
-               const SizedBox(height: 40),
-               SizedBox(
-                 width: double.infinity,
-                 height: 54,
-                 child: ElevatedButton(
-                   onPressed: _loading ? null : _savePayment,
-                   style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-                   child: const Text("Save Payment", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18)),
-                 ),
-               ),
-            ],
+      child: Column(
+        children: [
+          // Header
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: Icon(Icons.close_rounded, color: context.textPrimary),
+                  onPressed: () => Navigator.pop(context),
+                ),
+                Expanded(
+                  child: Text(
+                    "Record Payment",
+                    style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(width: 48), // Spacer
+              ],
+            ),
           ),
+          const Divider(height: 1),
+          
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                     _buildSectionTitle("Company Details"),
+                     const SizedBox(height: 12),
+                     _buildBranchSelector(),
+                     const SizedBox(height: 24),
+                     
+                     _buildSectionTitle("Customer"),
+                     const SizedBox(height: 12),
+                     _buildCustomerSelector(),
+                     
+                     if (_customerId != null) ...[
+                       const SizedBox(height: 24),
+                       _buildSectionTitle("Invoice to Pay"),
+                       const SizedBox(height: 12),
+                       _buildInvoiceSelector(),
+                     ],
+
+                     const SizedBox(height: 24),
+                     _buildSectionTitle("Payment Details"),
+                     const SizedBox(height: 12),
+
+                     // Payment Number
+                     TextFormField(
+                       key: ValueKey(_paymentNumber),
+                       initialValue: _paymentNumber, // This will be the preview number
+                       readOnly: true, // Should be read-only if auto-numbered
+                       decoration: InputDecoration(
+                         labelText: "Payment Number",
+                         prefixIcon: const Icon(Icons.numbers),
+                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                         filled: true,
+                         fillColor: context.cardBg,
+                       ),
+                     ),
+                     const SizedBox(height: 16),
+                     
+                     // Date Selector
+                     _buildInfoCard("Payment Date", DateFormat('dd MMM, yyyy').format(_paymentDate), Icons.calendar_today_rounded, () async {
+                        final picked = await showCustomCalendarSheet(
+                          context: context, 
+                          initialDate: _paymentDate, 
+                          title: "Select Payment Date",
+                          lastDate: DateTime.now()
+                        );
+                        if (picked != null) setState(() => _paymentDate = picked);
+                     }),
+                     const SizedBox(height: 16),
+                     
+                     // Amount Field
+                     TextFormField(
+                       controller: _amountController,
+                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                       style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primaryBlue),
+                       decoration: InputDecoration(
+                         labelText: "Amount Received",
+                         prefixText: "₹ ",
+                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                         filled: true,
+                         fillColor: context.cardBg,
+                       ),
+                       onChanged: (v) => _amount = double.tryParse(v) ?? 0,
+                       validator: (v) {
+                         if (v == null || v.isEmpty) return "Enter amount";
+                         final val = double.tryParse(v);
+                         if (val == null || val <= 0) return "Invalid amount";
+                         if (_invoiceId != null && val > _invoiceBalance + 0.99) return "Exceeds balance (₹$_invoiceBalance)"; // Slight buffer for float
+                         return null;
+                       },
+                     ),
+                     const SizedBox(height: 16),
+                     
+                     // Mode Selector
+                     DropdownButtonFormField<String>(
+                       value: _paymentMode,
+                       decoration: InputDecoration(labelText: "Payment Mode", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), filled: true, fillColor: context.cardBg),
+                       items: ["Cash", "Bank Transfer", "Cheque", "UPI", "Other"].map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
+                       onChanged: (v) => setState(() => _paymentMode = v!),
+                     ),
+                     const SizedBox(height: 16),
+                     
+                     TextFormField(
+                       decoration: InputDecoration(labelText: "Reference # (Optional)", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), filled: true, fillColor: context.cardBg),
+                       onChanged: (v) => _referenceNumber = v,
+                     ),
+                     const SizedBox(height: 16),
+                     
+                     TextFormField(
+                       maxLines: 3,
+                       decoration: InputDecoration(labelText: "Notes (Optional)", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), filled: true, fillColor: context.cardBg),
+                       onChanged: (v) => _notes = v,
+                     ),
+                     
+                     const SizedBox(height: 40),
+                     SizedBox(
+                       width: double.infinity,
+                       height: 54,
+                       child: ElevatedButton(
+                         onPressed: _loading ? null : _savePayment,
+                         style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                         child: _loading 
+                             ? const CircularProgressIndicator(color: Colors.white) 
+                             : const Text("Save Payment", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18)),
+                       ),
+                     ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBranchSelector() {
+    return InkWell(
+      onTap: _selectBranch,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
+        child: Row(
+          children: [
+            Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), shape: BoxShape.circle), child: const Icon(Icons.business_rounded, color: AppColors.primaryBlue)),
+            const SizedBox(width: 16),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_branchName ?? "Select Branch", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
+              if (_branchId == null) Text("Tap to select branch", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+            ])),
+            const Icon(Icons.arrow_drop_down),
+          ],
         ),
       ),
+    );
+  }
+
+  Future<void> _selectBranch() async {
+    final results = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
+    if (!mounted) return;
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.5,
+        decoration: BoxDecoration(color: context.scaffoldBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
+        child: Column(children: [
+          Padding(padding: const EdgeInsets.all(16), child: Text("Select Branch", style: TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: context.textPrimary))),
+          const SizedBox(height: 8),
+          Expanded(child: ListView.builder(
+            itemCount: results.length,
+            physics: const BouncingScrollPhysics(),
+            itemBuilder: (c, i) => Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+               decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(12), border: Border.all(color: context.borderColor)),
+               child: ListTile(
+                title: Text(results[i]['name'], style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+                onTap: () {
+                  setState(() {
+                    _branchId = results[i]['id'].toString();
+                    _branchName = results[i]['name'];
+                  });
+                  _generatePaymentNumber(); // Regenerate for new branch
+                  Navigator.pop(context);
+                },
+              ),
+            ),
+          ))
+        ]),
+      )
     );
   }
 
@@ -242,7 +358,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
             const SizedBox(width: 16),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(_customerName ?? "Select Customer", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
-              if (_customerId == null) Text(" Tap to search customers", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+              if (_customerId == null) Text("Tap to search customers", style: TextStyle(fontSize: 12, color: context.textSecondary)),
             ])),
             const Icon(Icons.arrow_drop_down),
           ],
@@ -259,27 +375,104 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
         child: Row(children: [const Icon(Icons.info_outline, color: Colors.orange), const SizedBox(width: 12), const Expanded(child: Text("No unpaid invoices found for this customer.", style: TextStyle(fontFamily: 'Outfit', color: Colors.orange)))],),
       );
     }
+    
+    // Sheet-like selector using InkWell + ShowModal
+    return InkWell(
+      onTap: _showInvoicePickerSheet,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
+        child: Row(
+          children: [
+            Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), shape: BoxShape.circle), child: const Icon(Icons.receipt_long, color: Colors.orange)),
+            const SizedBox(width: 16),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_invoiceId != null ? "${_invoiceNumber ?? 'Unknown'} (Bal: ₹$_invoiceBalance)" : "Select Invoice", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
+              if (_invoiceId == null) Text("Tap to select invoice", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+            ])),
+            const Icon(Icons.arrow_drop_down),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  void _showInvoicePickerSheet() {
+    String searchQuery = "";
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final filtered = _unpaidInvoices.where((inv) => 
+            inv['invoice_number'].toString().toLowerCase().contains(searchQuery.toLowerCase())
+          ).toList();
 
-    return DropdownButtonFormField<String>(
-      value: _invoiceId,
-      decoration: InputDecoration(labelText: "Select Invoice", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), filled: true, fillColor: context.cardBg),
-      items: _unpaidInvoices.map((inv) {
-        return DropdownMenuItem<String>(
-          value: inv['id'].toString(),
-          child: Text("${inv['invoice_number']} (Bal: ₹${inv['balance_amount']})", style: const TextStyle(fontFamily: 'Outfit')),
-        );
-      }).toList(),
-      onChanged: (val) {
-        if (val == null) return;
-        final selected = _unpaidInvoices.firstWhere((i) => i['id'].toString() == val);
-        setState(() {
-          _invoiceId = val;
-          _invoiceNumber = selected['invoice_number'];
-          _invoiceBalance = (selected['balance_amount'] ?? 0).toDouble();
-          _amount = _invoiceBalance; // Auto-fill
-          _amountController.text = _amount.toStringAsFixed(2);
-        });
-      },
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.8,
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+            decoration: BoxDecoration(color: context.scaffoldBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
+            child: Column(
+              children: [
+                const SizedBox(height: 12),
+                Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
+                Padding(padding: const EdgeInsets.all(16), child: Text("Select Invoice", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary))),
+                
+                // Search Bar
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: TextFormField(
+                    decoration: InputDecoration(
+                      hintText: "Search Invoice Number...",
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      filled: true,
+                      fillColor: context.cardBg,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                    onChanged: (v) => setModalState(() => searchQuery = v),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                
+                Expanded(child: ListView.builder(
+                  itemCount: filtered.length,
+                  physics: const BouncingScrollPhysics(),
+                  itemBuilder: (context, index) {
+                    final inv = filtered[index];
+                    final isSelected = _invoiceId == inv['id'].toString();
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isSelected ? AppColors.primaryBlue.withOpacity(0.1) : context.cardBg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: isSelected ? AppColors.primaryBlue : context.borderColor),
+                      ),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        title: Text("${inv['invoice_number']}", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+                        subtitle: Text("Date: ${DateFormat('dd MMM').format(DateTime.parse(inv['date'] ?? inv['invoice_date']))}", style: TextStyle(color: context.textSecondary, fontSize: 12)),
+                        trailing: Text("₹${inv['balance_amount']}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)), // Show Balance
+                        onTap: () {
+                          setState(() {
+                            _invoiceId = inv['id'].toString();
+                            _invoiceNumber = inv['invoice_number'];
+                            _invoiceBalance = (inv['balance_amount'] ?? 0).toDouble();
+                            _amount = _invoiceBalance;
+                            _amountController.text = _amount.toStringAsFixed(2);
+                          });
+                          Navigator.pop(context);
+                        },
+                      ),
+                    );
+                  },
+                )),
+              ],
+            ),
+          );
+        }
+      ),
     );
   }
   
@@ -299,40 +492,70 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
   }
 
   Future<void> _selectCustomer() async {
-    // Basic reuse of sheet logic or direct list fetch
-    // For brevity, using a simple modal list here or reusing from invoice form via copy-paste of a helper class
-    // I'll implement a simple one-off sheet here for speed/simplicity
-    
     final results = await Supabase.instance.client.from('customers').select().eq('company_id', _companyId!);
     if (!mounted) return;
+    
+    String searchQuery = "";
     
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.8,
-        padding: const EdgeInsets.all(16),
-        child: Column(children: [
-          const Text("Select Customer", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          Expanded(child: ListView.builder(
-            itemCount: results.length,
-            itemBuilder: (c, i) => ListTile(
-              title: Text(results[i]['name']),
-              subtitle: Text(results[i]['phone'] ?? ''),
-              onTap: () {
-                setState(() {
-                  _customerId = results[i]['id'].toString();
-                  _customerName = results[i]['name'];
-                  _invoiceId = null; 
-                  _unpaidInvoices = [];
-                });
-                _fetchUnpaidInvoices();
-                Navigator.pop(context);
-              },
-            ),
-          ))
-        ]),
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final filtered = results.where((c) => 
+            c['name'].toString().toLowerCase().contains(searchQuery.toLowerCase()) ||
+            (c['phone']?.toString().toLowerCase().contains(searchQuery.toLowerCase()) ?? false)
+          ).toList();
+
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.8,
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+            decoration: BoxDecoration(color: context.scaffoldBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
+            child: Column(children: [
+              const SizedBox(height: 12),
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
+              Padding(padding: const EdgeInsets.all(16), child: Text("Select Customer", style: TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: context.textPrimary))),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: TextFormField(
+                  decoration: InputDecoration(
+                    hintText: "Search customer name or phone...",
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    filled: true,
+                    fillColor: context.cardBg,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                  onChanged: (v) => setModalState(() => searchQuery = v),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(child: ListView.builder(
+                itemCount: filtered.length,
+                physics: const BouncingScrollPhysics(),
+                itemBuilder: (c, i) => Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                   decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(12), border: Border.all(color: context.borderColor)),
+                   child: ListTile(
+                    title: Text(filtered[i]['name'], style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+                    subtitle: Text(filtered[i]['phone'] ?? '', style: TextStyle(color: context.textSecondary)),
+                    onTap: () {
+                      setState(() {
+                        _customerId = filtered[i]['id'].toString();
+                        _customerName = filtered[i]['name'];
+                        _invoiceId = null; 
+                        _unpaidInvoices = [];
+                      });
+                      _fetchUnpaidInvoices();
+                      Navigator.pop(context);
+                    },
+                  ),
+                ),
+              ))
+            ]),
+          );
+        }
       )
     );
   }
@@ -365,7 +588,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
         'payment_mode': _paymentMode,
         'reference_number': _referenceNumber,
         'notes': _notes,
-        'created_by': user?.id,
+        'created_by': _internalUserId,
         'is_active': true,
       };
 

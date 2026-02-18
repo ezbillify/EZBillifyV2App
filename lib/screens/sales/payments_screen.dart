@@ -75,19 +75,29 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       backgroundColor: context.scaffoldBg,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => const PaymentFormScreen()));
+          final result = await showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            useSafeArea: true,
+            builder: (c) => const PaymentFormScreen()
+          );
           if (result == true) _fetchPayments();
         },
         backgroundColor: AppColors.primaryBlue,
         icon: const Icon(Icons.add_rounded, color: Colors.white),
         label: const Text("Record Payment", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white)),
       ),
-      body: CustomScrollView(
-        slivers: [
-          if (widget.showAppBar) _buildAppBar(),
-          _buildSearch(),
-          _buildPaymentList(),
-        ],
+      body: RefreshIndicator(
+        onRefresh: _fetchPayments,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            if (widget.showAppBar) _buildAppBar(),
+            _buildSearch(),
+            _buildPaymentList(),
+          ],
+        ),
       ),
     );
   }

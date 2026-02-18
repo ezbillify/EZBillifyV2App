@@ -5,6 +5,7 @@ import '../../core/theme_service.dart';
 import '../../services/numbering_service.dart';
 import '../inventory/item_selection_sheet.dart';
 import 'vendors_screen.dart';
+import '../../widgets/calendar_sheet.dart';
 
 class PurchaseGrnFormScreen extends StatefulWidget {
   final Map<String, dynamic>? grn; // Null for new
@@ -405,7 +406,11 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
           children: [
             Expanded(
               child: _buildInfoCard("GRN Date", DateFormat('dd MMM, yyyy').format(_grnDate), Icons.calendar_today_rounded, () async {
-                final d = await showDatePicker(context: context, initialDate: _grnDate, firstDate: DateTime(2000), lastDate: DateTime(2100));
+                final d = await showCustomCalendarSheet(
+                   context: context, 
+                   initialDate: _grnDate, 
+                   title: "Select GRN Date"
+                );
                 if (d != null) setState(() => _grnDate = d);
               }),
             ),

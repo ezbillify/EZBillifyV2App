@@ -9,6 +9,7 @@ import '../inventory/item_form_sheet.dart';
 import 'scanner_modal_content.dart';
 import '../../services/numbering_service.dart';
 import '../../services/master_data_service.dart';
+import '../../widgets/calendar_sheet.dart';
 
 class CreditNoteFormScreen extends StatefulWidget {
   final Map<String, dynamic>? creditNote; // Null for new
@@ -225,7 +226,12 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
         ),
         const SizedBox(height: 24),
         _buildInfoCard("Credit Note Date", DateFormat('dd MMM, yyyy').format(_creditNoteDate), Icons.calendar_today_rounded, () async {
-           final p = await showDatePicker(context: context, initialDate: _creditNoteDate, firstDate: DateTime(2000), lastDate: DateTime.now());
+           final p = await showCustomCalendarSheet(
+             context: context, 
+             initialDate: _creditNoteDate, 
+             title: "Select Credit Note Date",
+             lastDate: DateTime.now()
+           );
            if(p!=null) setState(()=>_creditNoteDate=p);
         }),
         const SizedBox(height: 16),

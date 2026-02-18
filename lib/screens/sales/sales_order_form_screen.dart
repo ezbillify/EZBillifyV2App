@@ -12,6 +12,7 @@ import 'invoice_form_screen.dart';
 import 'delivery_challan_form_screen.dart';
 import '../../services/numbering_service.dart';
 import '../../services/master_data_service.dart';
+import '../../widgets/calendar_sheet.dart';
 
 class SalesOrderFormScreen extends StatefulWidget {
   final Map<String, dynamic>? order; // Null for new
@@ -333,7 +334,25 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
                 child: Row(children: [
                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text(item['name'], style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
-                      Text("₹${item['unit_price']}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+                      InkWell(
+                        onTap: () => _editItemPrice(index),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryBlue.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text("₹${item['unit_price']}", style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
+                              const SizedBox(width: 4),
+                              const Icon(Icons.edit_rounded, size: 10, color: AppColors.primaryBlue),
+                            ],
+                          ),
+                        ),
+                      ),
                    ])),
                    Row(children: [
                      IconButton(onPressed: () { if((item['quantity']??1) > 1) { setState(() { item['quantity']--; _calculateTotals(); }); } }, icon: const Icon(Icons.remove_circle_outline_rounded)),
@@ -375,6 +394,65 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
           onPressed: _loading ? null : _saveOrder,
           style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 0),
           child: Text(widget.order == null ? "Place Order" : "Update Order", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editItemPrice(int index) async {
+    final item = _items[index];
+    final controller = TextEditingController(text: item['unit_price'].toString());
+    
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24, right: 24, top: 24),
+        decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 24),
+            Text("Edit Unit Price", style: TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.bold, color: context.textPrimary)),
+            const SizedBox(height: 8),
+            Text(item['name'], style: TextStyle(fontFamily: 'Outfit', fontSize: 14, color: context.textSecondary)),
+            const SizedBox(height: 24),
+            TextField(
+              controller: controller,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              autofocus: true,
+              style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
+              decoration: InputDecoration(
+                prefixText: "₹ ",
+                prefixStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                labelText: "New Unit Price",
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                filled: true,
+                fillColor: context.cardBg,
+              ),
+            ),
+            const SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity,
+              height: 54,
+              child: ElevatedButton(
+                onPressed: () {
+                  final newPrice = double.tryParse(controller.text) ?? item['unit_price'];
+                  setState(() {
+                    _items[index]['unit_price'] = newPrice;
+                    _calculateTotals();
+                  });
+                  Navigator.pop(context);
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 0),
+                child: const Text("Save Changes", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
+              ),
+            ),
+            const SizedBox(height: 32),
+          ],
         ),
       ),
     );
@@ -426,14 +504,32 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
   Future<void> _addItem() async {
      final results = await MasterDataService().getItems(_companyId!);
      if(!mounted) return;
+
+     // Construct currentValues based on ALL items currently in the list
+     List<Map<String, dynamic>> currentValues = [];
+     for (var i in _items) {
+       final match = results.firstWhere((r) => r['id'] == i['item_id'], orElse: () => {});
+       if (match.isNotEmpty) {
+         final qty = (i['quantity'] ?? 1).toInt();
+         for (int q = 0; q < qty; q++) {
+           currentValues.add(match);
+         }
+       }
+     }
+
      _showSelectionSheet<Map<String, dynamic>>(
        title: "Add Items", 
        items: List<Map<String, dynamic>>.from(results), 
+       currentValues: currentValues,
        labelMapper: (i) {
          final rate = (i['tax_rate']?['rate'] ?? 0).toDouble();
          final mrp = (i['default_sales_price'] ?? 0).toDouble();
          final inclusive = mrp * (1 + rate / 100);
          return "${i['name']} (₹${inclusive.toStringAsFixed(2)})";
+       },
+       barcodeMapper: (i) {
+         final barcodes = List<String>.from(i['barcodes'] ?? []);
+         return "${i['sku'] ?? ''} ${barcodes.join(' ')}";
        },
        isMultiple: true, 
        showScanner: true,
@@ -442,17 +538,38 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
        },
        onSelectMultiple: (selectedList) {
          setState(() {
-            for(var item in selectedList) {
-               final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
-               final mrp = (item['default_sales_price'] ?? 0).toDouble();
-               final inclusive = double.parse((mrp * (1 + rate / 100)).toStringAsFixed(2));
-               _items.add({
-                 'item_id': item['id'],
-                 'name': item['name'],
-                 'quantity': 1,
-                 'unit_price': inclusive,
-                 'tax_rate': rate,
-               });
+            final qtyMap = <String, int>{};
+            final itemMap = <String, Map<String, dynamic>>{};
+            
+            for (var item in selectedList) {
+              final id = item['id'].toString();
+              qtyMap[id] = (qtyMap[id] ?? 0) + 1;
+              itemMap[id] = item;
+            }
+
+            // Sync using the same logic as Invoice Form
+            _items.removeWhere((existing) => !qtyMap.containsKey(existing['item_id'].toString()));
+
+            for (var itemEntry in _items) {
+              final id = itemEntry['item_id'].toString();
+              itemEntry['quantity'] = qtyMap[id];
+              qtyMap.remove(id);
+            }
+
+            for (var id in qtyMap.keys) {
+              final item = itemMap[id]!;
+              final qty = qtyMap[id]!;
+              final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
+              final mrp = (item['default_sales_price'] ?? 0).toDouble();
+              final inclusive = double.parse((mrp * (1 + rate / 100)).toStringAsFixed(2));
+              
+              _items.add({
+                'item_id': item['id'],
+                'name': item['name'],
+                'quantity': qty,
+                'unit_price': inclusive,
+                'tax_rate': rate,
+              });
             }
             _calculateTotals();
          });
@@ -468,6 +585,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
     Function(List<T>)? onSelectMultiple,
     bool isMultiple = false,
     String? currentValue,
+    List<T>? currentValues,
     bool showScanner = false,
     String Function(T)? barcodeMapper,
     Future<void> Function()? onRefresh,
@@ -476,7 +594,8 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
     bool isRefreshing = false;
     final searchController = TextEditingController();
     final focusNode = FocusNode();
-    List<T> selectedItems = [];
+    final sheetController = DraggableScrollableController();
+    List<T> selectedItems = currentValues != null ? List<T>.from(currentValues) : [];
 
     showModalBottomSheet(
       context: context,
@@ -485,109 +604,227 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
       useSafeArea: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
+          if (!focusNode.hasListeners) {
+            focusNode.addListener(() { 
+              if (context.mounted) {
+                setModalState(() {});
+                if (focusNode.hasFocus) {
+                  sheetController.animateTo(0.95, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+                }
+              }
+            });
+          }
+
           final List<T> filteredItems = items.where((item) {
             final label = labelMapper(item).toLowerCase();
-            return label.contains(searchQuery.toLowerCase());
+            final barcode = barcodeMapper?.call(item)?.toLowerCase() ?? "";
+            return label.contains(searchQuery.toLowerCase()) || barcode.contains(searchQuery.toLowerCase());
           }).toList();
 
           return DraggableScrollableSheet(
+            controller: sheetController,
             initialChildSize: 0.9,
             minChildSize: 0.5,
             maxChildSize: 0.95,
-            builder: (context, scrollController) => Container(
-              decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
-              child: Column(
-                children: [
-                  const SizedBox(height: 12),
-                  Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
-                  const SizedBox(height: 24),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(title, style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary)),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
+            builder: (context, scrollController) => Stack(
+              children: [
+                Container(
+                  decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 12),
+                      Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
+                      const SizedBox(height: 24),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            if (onRefresh != null)
-                              isRefreshing 
-                                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                                : IconButton(
-                                    onPressed: () async {
-                                      setModalState(() => isRefreshing = true);
-                                      await onRefresh();
-                                      if (context.mounted) Navigator.pop(context);
-                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Data synchronized! Please reopen to see changes.")));
-                                    }, 
-                                    icon: const Icon(Icons.sync_rounded, color: AppColors.primaryBlue)
-                                  ),
-                            IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded))
+                            Text(title, style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (onRefresh != null)
+                                  isRefreshing 
+                                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : IconButton(
+                                        onPressed: () async {
+                                          setModalState(() => isRefreshing = true);
+                                          await onRefresh();
+                                          if (context.mounted) Navigator.pop(context);
+                                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Data synchronized! Please reopen to see changes.")));
+                                        }, 
+                                        icon: const Icon(Icons.sync_rounded, color: AppColors.primaryBlue)
+                                      ),
+                                if (isMultiple)
+                                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
+                              ],
+                            )
                           ],
-                        )
-                      ],
-                    ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      
+                      // Premium High-Fidelity Search Bar
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeOutCubic,
+                          height: 56,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: focusNode.hasFocus ? context.cardBg : context.cardBg.withOpacity(0.5),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: focusNode.hasFocus ? AppColors.primaryBlue : context.borderColor,
+                              width: focusNode.hasFocus ? 2.0 : 1.5,
+                            ),
+                            boxShadow: [
+                              if (focusNode.hasFocus) 
+                                BoxShadow(color: AppColors.primaryBlue.withOpacity(0.08), blurRadius: 15, offset: const Offset(0, 8))
+                              else
+                                BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))
+                            ]
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(20),
+                            child: TextField(
+                              focusNode: focusNode,
+                              controller: searchController,
+                              textAlignVertical: TextAlignVertical.center,
+                              style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+                              decoration: InputDecoration(
+                                isDense: true,
+                                hintText: "Search anything...",
+                                hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15, fontWeight: FontWeight.normal),
+                                prefixIcon: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 200),
+                                  child: Icon(
+                                    Icons.search_rounded, 
+                                    key: ValueKey(focusNode.hasFocus),
+                                    color: focusNode.hasFocus ? AppColors.primaryBlue : context.textSecondary.withOpacity(0.5), 
+                                    size: 24
+                                  ),
+                                ),
+                                suffixIcon: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (searchQuery.isNotEmpty) 
+                                      IconButton(
+                                        icon: Container(
+                                          padding: const EdgeInsets.all(2),
+                                          decoration: BoxDecoration(color: context.textSecondary.withOpacity(0.1), shape: BoxShape.circle),
+                                          child: const Icon(Icons.close_rounded, size: 14)
+                                        ), 
+                                        onPressed: () => setModalState(() { searchQuery = ""; searchController.clear(); })
+                                      ),
+                                    if (showScanner) 
+                                      IconButton(
+                                        icon: Icon(Icons.barcode_reader, size: 22, color: focusNode.hasFocus ? AppColors.primaryBlue : context.textSecondary), 
+                                        onPressed: () => _openScanner(
+                                          allItems: items,
+                                          selectedItems: selectedItems,
+                                          onSelectionChanged: (l) => setModalState(() { selectedItems.clear(); selectedItems.addAll(l); }),
+                                          onConfirm: () {
+                                             if (onSelectMultiple != null) { onSelectMultiple(selectedItems); Navigator.pop(context); }
+                                          },
+                                          barcodeMapper: barcodeMapper!,
+                                          labelMapper: labelMapper,
+                                          isMultiple: isMultiple
+                                        )
+                                      ),
+                                    const SizedBox(width: 4),
+                                  ],
+                                ),
+                                border: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+                              ),
+                              onChanged: (v) => setModalState(() => searchQuery = v),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      
+                      // List
+                      Expanded(
+                        child: ListView.separated(
+                          controller: scrollController,
+                          padding: const EdgeInsets.fromLTRB(24, 0, 24, 100),
+                          itemCount: filteredItems.length,
+                          separatorBuilder: (c, i) => const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final item = filteredItems[index];
+                            final label = labelMapper(item);
+                            final count = selectedItems.where((e) => e == item).length;
+                            final isSelected = count > 0;
+
+                            return Container(
+                              decoration: BoxDecoration(
+                                color: isSelected ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: isSelected ? AppColors.primaryBlue : context.borderColor),
+                              ),
+                              child: ListTile(
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                title: Text(label, style: TextStyle(fontFamily: 'Outfit', fontWeight: isSelected ? FontWeight.bold : FontWeight.normal, color: context.textPrimary)),
+                                onTap: () {
+                                  if (isMultiple) {
+                                    setModalState(() => selectedItems.add(item));
+                                  } else {
+                                    onSelect?.call(item);
+                                    Navigator.pop(context);
+                                  }
+                                },
+                                trailing: isMultiple && isSelected 
+                                  ? Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(color: AppColors.primaryBlue, borderRadius: BorderRadius.circular(8)),
+                                      child: Text("x$count", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                                    ) 
+                                  : (isSelected ? const Icon(Icons.check_circle_rounded, color: AppColors.primaryBlue) : null),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Container(
-                      decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
-                      child: TextField(
-                        controller: searchController,
-                        onChanged: (v) => setModalState(() => searchQuery = v),
-                        decoration: InputDecoration(
-                          hintText: "Search...",
-                          prefixIcon: const Icon(Icons.search_rounded),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.all(16),
+                ),
+                if (isMultiple && selectedItems.isNotEmpty)
+                  Positioned(
+                    bottom: 24,
+                    left: 24,
+                    right: 24,
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                           if (onSelectMultiple != null) { onSelectMultiple(selectedItems); Navigator.pop(context); }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primaryBlue,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          elevation: 8,
+                          shadowColor: AppColors.primaryBlue.withOpacity(0.4),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.shopping_cart_outlined), 
+                            const SizedBox(width: 12),
+                            Text("Add ${selectedItems.toSet().length} Items", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16)),
+                          ],
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  Expanded(
-                    child: ListView.builder(
-                      controller: scrollController,
-                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 100),
-                      itemCount: filteredItems.length,
-                      itemBuilder: (context, index) {
-                        final item = filteredItems[index];
-                        final label = labelMapper(item);
-                        final isSelected = isMultiple ? selectedItems.contains(item) : currentValue == label;
-                        return ListTile(
-                          title: Text(label, style: TextStyle(fontFamily: 'Outfit', fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-                          trailing: isSelected ? const Icon(Icons.check_circle_rounded, color: AppColors.primaryBlue) : null,
-                          onTap: () {
-                            if (isMultiple) {
-                              setModalState(() => selectedItems.contains(item) ? selectedItems.remove(item) : selectedItems.add(item));
-                            } else {
-                              onSelect?.call(item);
-                              Navigator.pop(context);
-                            }
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  if (isMultiple)
-                    Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: SizedBox(
-                        width: double.infinity,
-                        height: 54,
-                        child: ElevatedButton(
-                          onPressed: selectedItems.isEmpty ? null : () {
-                            onSelectMultiple?.call(selectedItems);
-                            Navigator.pop(context);
-                          },
-                          style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-                          child: Text("Add Selected (${selectedItems.length})", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                        ),
-                      ),
-                    )
-                ],
-              ),
+              ],
             ),
           );
         },
@@ -596,8 +833,25 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
   }
 
   Future<void> _selectDate(bool isOrderDate) async {
-    final p = await showDatePicker(context: context, initialDate: isOrderDate ? _orderDate : _expectedDelivery, firstDate: DateTime(2000), lastDate: DateTime(2100));
-    if (p != null) setState(() { if (isOrderDate) _orderDate = p; else _expectedDelivery = p; });
+    final p = await showCustomCalendarSheet(
+      context: context,
+      initialDate: isOrderDate ? _orderDate : _expectedDelivery,
+      title: isOrderDate ? "Select Order Date" : "Select Delivery Date",
+      firstDate: isOrderDate ? DateTime(2000) : (_orderDate),
+    );
+    if (p != null) {
+      setState(() { 
+        if (isOrderDate) {
+          _orderDate = p;
+          // Auto update delivery date if it becomes before order date
+          if (_expectedDelivery.isBefore(_orderDate)) {
+             _expectedDelivery = _orderDate.add(const Duration(days: 7));
+          }
+        } else {
+          _expectedDelivery = p; 
+        }
+      });
+    }
   }
 
   Future<void> _saveOrder() async {
@@ -641,7 +895,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
           final lineTax = totalInclusive - lineSub;
 
             await Supabase.instance.client.from('sales_order_items').insert({
-              'order_id': inserted['id'],
+              'so_id': inserted['id'],
               'item_id': item['item_id'],
               'description': item['name'],
               'quantity': item['quantity'],
@@ -653,7 +907,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
         }
       } else {
         await Supabase.instance.client.from('sales_orders').update(orderData).eq('id', widget.order!['id']);
-        await Supabase.instance.client.from('sales_order_items').delete().eq('order_id', widget.order!['id']);
+        await Supabase.instance.client.from('sales_order_items').delete().eq('so_id', widget.order!['id']);
         for (var item in _items) {
           final qty = (item['quantity'] ?? 0).toDouble();
           final price = (item['unit_price'] ?? 0).toDouble();
@@ -663,7 +917,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
           final lineTax = totalInclusive - lineSub;
 
             await Supabase.instance.client.from('sales_order_items').insert({
-              'order_id': widget.order!['id'],
+              'so_id': widget.order!['id'],
               'item_id': item['item_id'],
               'description': item['name'],
               'quantity': item['quantity'],
@@ -680,5 +934,31 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
     } finally {
        if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _openScanner<T>({
+    required List<T> allItems,
+    required List<T> selectedItems,
+    required Function(List<T>) onSelectionChanged,
+    required VoidCallback onConfirm,
+    required String? Function(T) barcodeMapper,
+    required String Function(T) labelMapper,
+    required bool isMultiple,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      useSafeArea: true,
+      builder: (context) => ScannerModalContent<T>(
+        allItems: allItems,
+        selectedItems: selectedItems,
+        onSelectionChanged: onSelectionChanged,
+        onConfirm: onConfirm,
+        barcodeMapper: barcodeMapper,
+        labelMapper: labelMapper,
+        isMultiple: isMultiple,
+      ),
+    );
   }
 }

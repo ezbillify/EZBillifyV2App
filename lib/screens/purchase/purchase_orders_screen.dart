@@ -100,12 +100,16 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
         icon: const Icon(Icons.add_rounded, color: Colors.white),
         label: const Text("Create PO", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white)),
       ),
-      body: CustomScrollView(
-        slivers: [
-          if (widget.showAppBar) _buildAppBar(),
-          _buildSearchAndFilters(),
-          _buildOrderList(),
-        ],
+      body: RefreshIndicator(
+        onRefresh: _fetchOrders,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            if (widget.showAppBar) _buildAppBar(),
+            _buildSearchAndFilters(),
+            _buildOrderList(),
+          ],
+        ),
       ),
     );
   }

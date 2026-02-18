@@ -4,6 +4,7 @@ import '../../models/employee_model.dart';
 import '../../services/hr_service.dart';
 import '../../core/theme_service.dart';
 import 'package:intl/intl.dart';
+import 'package:table_calendar/table_calendar.dart';
 
 class LeaveFormSheet extends StatefulWidget {
   final String companyId;
@@ -22,6 +23,7 @@ class _LeaveFormSheetState extends State<LeaveFormSheet> {
   bool _loading = false;
   List<Employee> _employees = [];
   String? _selectedEmployeeId;
+  String? _selectedEmployeeName;
 
   String _leaveType = 'casual';
   late TextEditingController _startDateController;
@@ -45,29 +47,89 @@ class _LeaveFormSheetState extends State<LeaveFormSheet> {
   }
 
   Future<void> _pickDate(bool isStart) async {
-    final initial = isStart ? DateTime.now() : (_start ?? DateTime.now());
-    final picked = await showDatePicker(
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    DateTime focusedDay = isStart ? (_start ?? DateTime.now()) : (_end ?? DateTime.now());
+    DateTime? tempSelectedDay = focusedDay;
+
+    await showModalBottomSheet(
       context: context,
-      initialDate: initial,
-      firstDate: DateTime(2023),
-      lastDate: DateTime(2030),
-    );
-    if (picked != null) {
-      setState(() {
-        if (isStart) {
-          _start = picked;
-          _startDateController.text = DateFormat('yyyy-MM-dd').format(picked);
-          // Auto set end date if empty or before start
-          if (_end == null || _end!.isBefore(_start!)) {
-            _end = picked;
-            _endDateController.text = _startDateController.text;
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (c) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.6,
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkSurface : Colors.white,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                       Text(
+                        isStart ? "Select Start Date" : "Select End Date",
+                        style: TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text("Done", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                      )
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  TableCalendar(
+                    firstDay: DateTime(2023),
+                    lastDay: DateTime(2030),
+                    focusedDay: focusedDay,
+                    currentDay: DateTime.now(),
+                    selectedDayPredicate: (day) => isSameDay(tempSelectedDay, day),
+                    onDaySelected: (selectedDay, focused) {
+                      setSheetState(() {
+                        tempSelectedDay = selectedDay;
+                        focusedDay = focused;
+                      });
+                      
+                      // Auto-update parent state immediately for responsiveness
+                      setState(() {
+                         if (isStart) {
+                           _start = selectedDay;
+                           _startDateController.text = DateFormat('yyyy-MM-dd').format(selectedDay);
+                           if (_end == null || _end!.isBefore(_start!)) {
+                             _end = selectedDay;
+                             _endDateController.text = _startDateController.text;
+                           }
+                         } else {
+                           _end = selectedDay;
+                           _endDateController.text = DateFormat('yyyy-MM-dd').format(selectedDay);
+                         }                      
+                      });
+                    },
+                    calendarStyle: CalendarStyle(
+                       defaultTextStyle: TextStyle(fontFamily: 'Outfit', color: isDark ? Colors.white : Colors.black87),
+                       weekendTextStyle: TextStyle(fontFamily: 'Outfit', color: isDark ? Colors.white70 : Colors.black54),
+                       selectedDecoration: const BoxDecoration(color: AppColors.primaryBlue, shape: BoxShape.circle),
+                       todayDecoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.3), shape: BoxShape.circle),
+                       todayTextStyle: const TextStyle(fontFamily: 'Outfit', color: AppColors.primaryBlue, fontWeight: FontWeight.bold),
+                    ),
+                    headerStyle: HeaderStyle(
+                      titleCentered: true,
+                      formatButtonVisible: false,
+                      titleTextStyle: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87),
+                      leftChevronIcon: Icon(Icons.chevron_left, color: isDark ? Colors.white : Colors.black54),
+                      rightChevronIcon: Icon(Icons.chevron_right, color: isDark ? Colors.white : Colors.black54),
+                    ),
+                  ),
+                ],
+              ),
+            );
           }
-        } else {
-          _end = picked;
-          _endDateController.text = DateFormat('yyyy-MM-dd').format(picked);
-        }
-      });
-    }
+        );
+      }
+    );
   }
 
   Future<void> _submit() async {
@@ -122,9 +184,9 @@ class _LeaveFormSheetState extends State<LeaveFormSheet> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+               Text(
                 "Apply Leave",
-                style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 20),
+                style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 20, color: isDark ? Colors.white : Colors.black87),
               ),
               IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
             ],
@@ -136,31 +198,12 @@ class _LeaveFormSheetState extends State<LeaveFormSheet> {
                 key: _formKey,
                 child: Column(
                   children: [
-                    // Employee Dropdown
-                    DropdownButtonFormField<String>(
-                      value: _selectedEmployeeId,
-                      items: _employees.map((e) => DropdownMenuItem(
-                        value: e.id,
-                        child: Text("${e.firstName} ${e.lastName ?? ''}", style: TextStyle(fontFamily: 'Outfit', color: isDark ? Colors.white : Colors.black87)),
-                      )).toList(),
-                      onChanged: (v) => setState(() => _selectedEmployeeId = v),
-                      dropdownColor: isDark ? AppColors.darkSurface : Colors.white,
-                      decoration: _inputDecoration("Select Employee", isDark),
-                      hint: Text("Select Employee", style: TextStyle(color: isDark ? Colors.white54 : Colors.grey)),
-                    ),
+                    // Employee Selector (Sheet-in-Sheet)
+                    _buildEmployeeSelector(isDark),
                     const SizedBox(height: 16),
                     
-                    // Leave Type
-                    DropdownButtonFormField<String>(
-                      value: _leaveType,
-                      items: ['casual', 'sick', 'annual', 'unpaid', 'remote_work'].map((t) => DropdownMenuItem(
-                        value: t,
-                        child: Text(t.toUpperCase().replaceAll('_', ' '), style: TextStyle(fontFamily: 'Outfit', color: isDark ? Colors.white : Colors.black87)),
-                      )).toList(),
-                      onChanged: (v) => setState(() => _leaveType = v!),
-                      dropdownColor: isDark ? AppColors.darkSurface : Colors.white,
-                      decoration: _inputDecoration("Leave Type", isDark),
-                    ),
+                    // Leave Type Selector (Sheet-in-Sheet)
+                    _buildLeaveTypeSelector(isDark),
                     const SizedBox(height: 16),
 
                     // Dates
@@ -232,6 +275,117 @@ class _LeaveFormSheetState extends State<LeaveFormSheet> {
     );
   }
 
+  Widget _buildEmployeeSelector(bool isDark) {
+    return InkWell(
+      onTap: () {
+        showModalBottomSheet(
+          context: context,
+          backgroundColor: Colors.transparent,
+          isScrollControlled: true,
+          builder: (c) => Container(
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkSurface : Colors.white,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text("Select Employee", style: TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+                ),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _employees.length,
+                    itemBuilder: (ctx, i) {
+                      final e = _employees[i];
+                      final name = "${e.firstName} ${e.lastName ?? ''}".trim();
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: AppColors.primaryBlue.withOpacity(0.1),
+                          radius: 16,
+                          child: Text(name.isNotEmpty ? name[0] : '?', style: const TextStyle(color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
+                        ),
+                        title: Text(name, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w600, color: isDark ? Colors.white : Colors.black87)),
+                        trailing: _selectedEmployeeId == e.id ? const Icon(Icons.check, color: AppColors.primaryBlue) : null,
+                        onTap: () {
+                          setState(() {
+                            _selectedEmployeeId = e.id;
+                            _selectedEmployeeName = name;
+                          });
+                          Navigator.pop(c);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          )
+        );
+      },
+      child: InputDecorator(
+        decoration: _inputDecoration("Select Employee", isDark, icon: Icons.arrow_drop_down),
+        child: Text(
+          _selectedEmployeeName ?? "Select Employee", 
+          style: TextStyle(fontFamily: 'Outfit', color: _selectedEmployeeName == null ? (isDark ? Colors.white54 : Colors.grey) : (isDark ? Colors.white : Colors.black87))
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLeaveTypeSelector(bool isDark) {
+    final types = ['casual', 'sick', 'annual', 'unpaid', 'remote_work'];
+    
+    return InkWell(
+      onTap: () {
+        showModalBottomSheet(
+          context: context,
+          backgroundColor: Colors.transparent,
+          builder: (c) => Container(
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkSurface : Colors.white,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text("Select Leave Type", style: TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+                ),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: types.map((t) => ListTile(
+                      title: Text(t.toUpperCase().replaceAll('_', ' '), style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w600, color: isDark ? Colors.white : Colors.black87)),
+                      trailing: _leaveType == t ? const Icon(Icons.check, color: AppColors.primaryBlue) : null,
+                      onTap: () {
+                        setState(() => _leaveType = t);
+                        Navigator.pop(c);
+                      },
+                    )).toList(),
+                  ),
+                ),
+              ],
+            ),
+          )
+        );
+      },
+      child: InputDecorator(
+        decoration: _inputDecoration("Leave Type", isDark, icon: Icons.arrow_drop_down),
+        child: Text(
+          _leaveType.toUpperCase().replaceAll('_', ' '), 
+          style: TextStyle(fontFamily: 'Outfit', color: isDark ? Colors.white : Colors.black87)
+        ),
+      ),
+    );
+  }
+
   InputDecoration _inputDecoration(String label, bool isDark, {IconData? icon}) {
     return InputDecoration(
       labelText: label,
@@ -241,6 +395,7 @@ class _LeaveFormSheetState extends State<LeaveFormSheet> {
       enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.black12)),
       filled: true,
       fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.grey.withOpacity(0.05),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     );
   }
 }

@@ -82,12 +82,16 @@ class _PurchaseGrnsScreenState extends State<PurchaseGrnsScreen> {
         icon: const Icon(Icons.add_rounded, color: Colors.white),
         label: const Text("Receive Goods", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white)),
       ),
-      body: CustomScrollView(
-        slivers: [
-          if (widget.showAppBar) _buildAppBar(),
-          _buildSearchAndFilters(),
-          _buildGrnList(),
-        ],
+      body: RefreshIndicator(
+        onRefresh: _fetchGrns,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            if (widget.showAppBar) _buildAppBar(),
+            _buildSearchAndFilters(),
+            _buildGrnList(),
+          ],
+        ),
       ),
     );
   }

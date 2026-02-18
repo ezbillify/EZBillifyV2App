@@ -8,6 +8,7 @@ import 'scanner_modal_content.dart';
 import 'invoice_form_screen.dart';
 import '../../services/numbering_service.dart';
 import '../../services/master_data_service.dart';
+import '../../widgets/calendar_sheet.dart';
 
 class DeliveryChallanFormScreen extends StatefulWidget {
   final Map<String, dynamic>? challan; // Null for new
@@ -525,7 +526,11 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
   }
 
   Future<void> _selectDate() async {
-    final p = await showDatePicker(context: context, initialDate: _challanDate, firstDate: DateTime(2000), lastDate: DateTime(2100));
+    final p = await showCustomCalendarSheet(
+      context: context,
+      initialDate: _challanDate,
+      title: "Select Challan Date",
+    );
     if (p != null) setState(() => _challanDate = p);
   }
 

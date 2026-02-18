@@ -156,6 +156,24 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
 
   Widget _buildItemsList() {
     if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_items.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.red.withOpacity(0.05), 
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.red.withOpacity(0.2))
+        ),
+        child: Column(
+          children: [
+            const Icon(Icons.error_outline_rounded, color: Colors.red, size: 32),
+            const SizedBox(height: 8),
+            Text("No items found", style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      );
+    }
     return Column(
       children: _items.map((item) => Container(
         margin: const EdgeInsets.only(bottom: 12),

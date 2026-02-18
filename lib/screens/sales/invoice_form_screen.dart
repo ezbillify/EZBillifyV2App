@@ -4,6 +4,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme_service.dart';
 import 'package:animate_do/animate_do.dart';
+import '../../widgets/calendar_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import '../inventory/item_form_sheet.dart';
@@ -369,7 +370,26 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(item['name'] ?? 'Item Name', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
-                    Text("Unit Price: ₹${item['unit_price']}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+                    InkWell(
+                      onTap: () => _editItemPrice(index),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryBlue.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.primaryBlue.withOpacity(0.1)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text("Unit Price: ₹${item['unit_price']}", style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.edit_rounded, size: 12, color: AppColors.primaryBlue),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -638,14 +658,109 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
     );
   }
 
+  Future<void> _selectDate(bool isInvoiceDate) async {
+    final picked = await showCustomCalendarSheet(
+      context: context,
+      initialDate: isInvoiceDate ? _invoiceDate : _dueDate,
+      title: isInvoiceDate ? "Select Invoice Date" : "Select Due Date",
+    );
+    
+    if (picked != null) {
+      setState(() {
+        if (isInvoiceDate) {
+          _invoiceDate = picked;
+          // Auto update due date if it becomes before invoice date
+          if (_dueDate.isBefore(_invoiceDate)) {
+            _dueDate = _invoiceDate.add(const Duration(days: 7));
+          }
+        } else {
+          _dueDate = picked;
+        }
+      });
+    }
+  }
+
+  Future<void> _editItemPrice(int index) async {
+    final item = _items[index];
+    final controller = TextEditingController(text: item['unit_price'].toString());
+    
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24, right: 24, top: 24),
+        decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 24),
+            Text("Edit Unit Price", style: TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.bold, color: context.textPrimary)),
+            const SizedBox(height: 8),
+            Text(item['name'], style: TextStyle(fontFamily: 'Outfit', fontSize: 14, color: context.textSecondary)),
+            const SizedBox(height: 24),
+            TextField(
+              controller: controller,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              autofocus: true,
+              style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
+              decoration: InputDecoration(
+                prefixText: "₹ ",
+                prefixStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                labelText: "New Unit Price",
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                filled: true,
+                fillColor: context.cardBg,
+              ),
+            ),
+            const SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity,
+              height: 54,
+              child: ElevatedButton(
+                onPressed: () {
+                  final newPrice = double.tryParse(controller.text) ?? item['unit_price'];
+                  setState(() {
+                    _items[index]['unit_price'] = newPrice;
+                    _calculateTotals();
+                  });
+                  Navigator.pop(context);
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 0),
+                child: const Text("Save Changes", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
+              ),
+            ),
+            const SizedBox(height: 32),
+          ],
+        ),
+      ),
+    );
+  }
+
+
   Future<void> _addItem() async {
-     // Use MasterDataService for caching
     final results = await MasterDataService().getItems(_companyId!);
-    if(!mounted) return;
+    if (!mounted) return;
+
+    // Construct currentValues based on ALL items currently in the list
+    // If an item has quantity > 1, add it multiple times to the list so the sheet shows correct count
+    List<Map<String, dynamic>> currentValues = [];
+    for (var i in _items) {
+      final match = results.firstWhere((r) => r['id'] == i['item_id'], orElse: () => {});
+      if (match.isNotEmpty) {
+        final qty = (i['quantity'] ?? 1).toInt();
+        for (int q = 0; q < qty; q++) {
+          currentValues.add(match);
+        }
+      }
+    }
 
     _showSelectionSheet<Map<String, dynamic>>(
       title: "Add Items",
       items: List<Map<String, dynamic>>.from(results),
+      currentValues: currentValues,
       labelMapper: (i) {
         final price = (i['default_sales_price'] ?? 0).toDouble();
         final rate = (i['tax_rate']?['rate'] ?? 0).toDouble();
@@ -662,40 +777,45 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       },
       onSelectMultiple: (selectedList) {
         setState(() {
-          final consolidated = <String, Map<String, dynamic>>{};
+          // Since the sheet now returns the 'Absolute Truth' of the selection (including previous items)
+          // We map the selectedList into a consolidated map of ID -> Qty
           final qtyMap = <String, int>{};
-
+          final itemMap = <String, Map<String, dynamic>>{};
+          
           for (var item in selectedList) {
-            final id = item['id'];
-            if (!consolidated.containsKey(id)) {
-              consolidated[id] = item;
-            }
+            final id = item['id'].toString();
             qtyMap[id] = (qtyMap[id] ?? 0) + 1;
+            itemMap[id] = item;
           }
 
-          for (var id in consolidated.keys) {
-            final item = consolidated[id]!;
+          // We want to keep existing edited items (to preserve manual price changes etc.)
+          // 1. Remove items that are no longer in the selection
+          _items.removeWhere((existing) => !qtyMap.containsKey(existing['item_id'].toString()));
+
+          // 2. Update quantities for items that still exist
+          for (var itemEntry in _items) {
+            final id = itemEntry['item_id'].toString();
+            itemEntry['quantity'] = qtyMap[id];
+            qtyMap.remove(id); // Mark as processed
+          }
+
+          // 3. Add entirely new items
+          for (var id in qtyMap.keys) {
+            final item = itemMap[id]!;
             final qty = qtyMap[id]!;
             final mrp = (item['default_sales_price'] ?? 0).toDouble();
             final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
             final inclusivePrice = double.parse((mrp * (1 + rate / 100)).toStringAsFixed(2));
             
-            final existingIndex = _items.indexWhere((element) => element['item_id'] == id);
-            if (existingIndex != -1) {
-               _items[existingIndex]['quantity'] = (_items[existingIndex]['quantity'] as num) + qty;
-               // Update price just in case, though usually same item has same price
-               _items[existingIndex]['unit_price'] = inclusivePrice; 
-            } else {
-               _items.add({
-                 'item_id': id,
-                 'name': item['name'],
-                 'quantity': qty,
-                 'unit_price': inclusivePrice,
-                 'tax_rate': rate,
-                 'unit': item['unit'],
-                 'purchase_price': (item['purchase_price'] ?? 0).toDouble(),
-               });
-            }
+            _items.add({
+              'item_id': item['id'],
+              'name': item['name'],
+              'quantity': qty,
+              'unit_price': inclusivePrice,
+              'tax_rate': rate,
+              'unit': item['unit'],
+              'purchase_price': (item['purchase_price'] ?? 0).toDouble(),
+            });
           }
         });
         _calculateTotals();
@@ -813,24 +933,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
     _calculateTotals();
   }
 
-  Future<void> _selectDate(bool isInvoiceDate) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: isInvoiceDate ? _invoiceDate : _dueDate,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-    );
-    if (picked != null) {
-      setState(() {
-        if (isInvoiceDate) {
-          _invoiceDate = picked;
-          if (_dueDate.isBefore(_invoiceDate)) _dueDate = _invoiceDate.add(const Duration(days: 7));
-        } else {
-          _dueDate = picked;
-        }
-      });
-    }
-  }
+
 
   Future<void> _saveInvoice() async {
     if (_customerId == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a customer"))); return; }
@@ -1062,48 +1165,82 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      // Search Bar
+                      // Premium High-Fidelity Search Bar
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: Container(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeOutCubic,
+                          height: 56,
+                          alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: context.cardBg,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: context.borderColor),
+                            color: focusNode.hasFocus ? context.cardBg : context.cardBg.withOpacity(0.5),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: focusNode.hasFocus ? AppColors.primaryBlue : context.borderColor,
+                              width: focusNode.hasFocus ? 2.0 : 1.5,
+                            ),
                             boxShadow: [
-                              BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))
+                              if (focusNode.hasFocus) 
+                                BoxShadow(color: AppColors.primaryBlue.withOpacity(0.08), blurRadius: 15, offset: const Offset(0, 8))
+                              else
+                                BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))
                             ]
                           ),
                           child: ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(20),
                             child: TextField(
                               focusNode: focusNode,
                               controller: searchController,
-                              style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary, fontSize: 16),
+                              textAlignVertical: TextAlignVertical.center,
+                              style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
                               decoration: InputDecoration(
-                                hintText: "Search items...",
-                                hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.5)),
-                                prefixIcon: Icon(Icons.search_rounded, color: context.textSecondary),
+                                isDense: true,
+                                hintText: "Search anything...",
+                                hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15, fontWeight: FontWeight.normal),
+                                prefixIcon: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 200),
+                                  child: Icon(
+                                    Icons.search_rounded, 
+                                    key: ValueKey(focusNode.hasFocus),
+                                    color: focusNode.hasFocus ? AppColors.primaryBlue : context.textSecondary.withOpacity(0.5), 
+                                    size: 24
+                                  ),
+                                ),
                                 suffixIcon: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    if (searchQuery.isNotEmpty) IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => setModalState(() { searchQuery = ""; searchController.clear(); })),
-                                    if (showScanner) IconButton(icon: const Icon(Icons.barcode_reader, color: AppColors.primaryBlue), onPressed: () => _openScanner(
-                                      allItems: items,
-                                      selectedItems: selectedItems,
-                                      onSelectionChanged: (l) => setModalState(() { selectedItems.clear(); selectedItems.addAll(l); }),
-                                      onConfirm: () {
-                                         if (onSelectMultiple != null) { onSelectMultiple(selectedItems); Navigator.pop(context); }
-                                      },
-                                      barcodeMapper: barcodeMapper!,
-                                      labelMapper: labelMapper,
-                                      isMultiple: isMultiple
-                                    )),
+                                    if (searchQuery.isNotEmpty) 
+                                      IconButton(
+                                        icon: Container(
+                                          padding: const EdgeInsets.all(2),
+                                          decoration: BoxDecoration(color: context.textSecondary.withOpacity(0.1), shape: BoxShape.circle),
+                                          child: const Icon(Icons.close_rounded, size: 14)
+                                        ), 
+                                        onPressed: () => setModalState(() { searchQuery = ""; searchController.clear(); })
+                                      ),
+                                    if (showScanner) 
+                                      IconButton(
+                                        icon: Icon(Icons.barcode_reader, size: 22, color: focusNode.hasFocus ? AppColors.primaryBlue : context.textSecondary), 
+                                        onPressed: () => _openScanner(
+                                          allItems: items,
+                                          selectedItems: selectedItems,
+                                          onSelectionChanged: (l) => setModalState(() { selectedItems.clear(); selectedItems.addAll(l); }),
+                                          onConfirm: () {
+                                             if (onSelectMultiple != null) { onSelectMultiple(selectedItems); Navigator.pop(context); }
+                                          },
+                                          barcodeMapper: barcodeMapper!,
+                                          labelMapper: labelMapper,
+                                          isMultiple: isMultiple
+                                        )
+                                      ),
+                                    const SizedBox(width: 4),
                                   ],
                                 ),
                                 border: InputBorder.none,
-                                contentPadding: const EdgeInsets.all(16),
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 20),
                               ),
                               onChanged: (v) => setModalState(() => searchQuery = v),
                             ),

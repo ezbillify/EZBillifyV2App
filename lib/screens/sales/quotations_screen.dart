@@ -100,12 +100,16 @@ class _QuotationsScreenState extends State<QuotationsScreen> {
         icon: const Icon(Icons.add_rounded, color: Colors.white),
         label: const Text("Create Quote", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white)),
       ),
-      body: CustomScrollView(
-        slivers: [
-          if (widget.showAppBar) _buildAppBar(),
-          _buildSearchAndFilters(),
-          _buildQuotationList(),
-        ],
+      body: RefreshIndicator(
+        onRefresh: _fetchQuotations,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            if (widget.showAppBar) _buildAppBar(),
+            _buildSearchAndFilters(),
+            _buildQuotationList(),
+          ],
+        ),
       ),
     );
   }
