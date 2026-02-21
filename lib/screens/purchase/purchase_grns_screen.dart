@@ -17,7 +17,10 @@ class PurchaseGrnsScreen extends StatefulWidget {
 class _PurchaseGrnsScreenState extends State<PurchaseGrnsScreen> {
   bool _loading = true;
   List<Map<String, dynamic>> _grns = [];
+  String _filterStatus = 'all';
   String _searchQuery = '';
+  String _sortBy = 'created_at';
+  bool _sortAscending = false;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
@@ -50,16 +53,31 @@ class _PurchaseGrnsScreenState extends State<PurchaseGrnsScreen> {
           .from('purchase_grns')
           .select('*, vendor:vendors(name)')
           .eq('company_id', profile['company_id']);
+          
+      if (_filterStatus != 'all') {
+        query = query.eq('status', _filterStatus);
+      }
 
       if (_searchQuery.isNotEmpty) {
-        query = query.or('grn_number.ilike.%$_searchQuery%,vendors.name.ilike.%$_searchQuery%');
+        query = query.or('grn_number.ilike.%$_searchQuery%');
       }
       
-      final response = await query.order('created_at', ascending: false);
+      final response = await query.order(_sortBy, ascending: _sortAscending);
+      
+      List<Map<String, dynamic>> results = List<Map<String, dynamic>>.from(response);
+      
+      if (_searchQuery.isNotEmpty) {
+        results = results.where((o) {
+          final grnMatch = (o['grn_number'] ?? '').toString().toLowerCase().contains(_searchQuery.toLowerCase());
+          final vendorMatch = (o['vendor']?['name'] ?? '').toString().toLowerCase().contains(_searchQuery.toLowerCase());
+          final refMatch = (o['reference_number'] ?? '').toString().toLowerCase().contains(_searchQuery.toLowerCase());
+          return grnMatch || vendorMatch || refMatch;
+        }).toList();
+      }
       
       if (mounted) {
         setState(() {
-          _grns = List<Map<String, dynamic>>.from(response);
+          _grns = results;
           _loading = false;
         });
       }
@@ -102,6 +120,23 @@ class _PurchaseGrnsScreenState extends State<PurchaseGrnsScreen> {
       backgroundColor: context.scaffoldBg,
       elevation: 0,
       title: Text("Goods Received Notes", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+      actions: [
+        PopupMenuButton<String>(
+          icon: Icon(Icons.sort_rounded, color: context.textPrimary),
+          onSelected: (val) {
+            setState(() {
+              if (val == 'newest') { _sortBy = 'created_at'; _sortAscending = false; }
+              else if (val == 'oldest') { _sortBy = 'created_at'; _sortAscending = true; }
+            });
+            _fetchGrns();
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(value: 'newest', child: Text('Newest First')),
+            const PopupMenuItem(value: 'oldest', child: Text('Oldest First')),
+          ],
+        ),
+        const SizedBox(width: 8),
+      ],
     );
   }
 
@@ -167,8 +202,47 @@ class _PurchaseGrnsScreenState extends State<PurchaseGrnsScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                _buildFilterChip('All GRNs', 'all'),
+                _buildFilterChip('Received', 'received'),
+                _buildFilterChip('Draft', 'draft'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String label, String value) {
+    final isSelected = _filterStatus == value;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        label: Text(label),
+        selected: isSelected,
+        onSelected: (v) {
+          setState(() => _filterStatus = value);
+          _fetchGrns();
+        },
+        backgroundColor: context.cardBg,
+        selectedColor: AppColors.primaryBlue.withOpacity(0.1),
+        labelStyle: TextStyle(
+          color: isSelected ? AppColors.primaryBlue : context.textSecondary,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          fontFamily: 'Outfit',
+          fontSize: 13,
+        ),
+        showCheckmark: false,
+        shape: RoundedRectangleBorder(
+           borderRadius: BorderRadius.circular(12),
+           side: BorderSide(color: isSelected ? AppColors.primaryBlue : context.borderColor),
+        ),
       ),
     );
   }
@@ -267,7 +341,9 @@ class _PurchaseGrnsScreenState extends State<PurchaseGrnsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(vendorName, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary)),
-                        if (grn['po_id'] != null) Text("Linked PO Available", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: Colors.green)),
+                        if (grn['reference_number'] != null && grn['reference_number'].toString().isNotEmpty)
+                          Text("Inv #: ${grn['reference_number']}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: Colors.green, fontWeight: FontWeight.bold)),
+                        if (grn['po_id'] != null) Text("Linked PO Available", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: Colors.orange)),
                       ],
                     ),
                   ),

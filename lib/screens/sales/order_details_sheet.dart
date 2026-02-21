@@ -35,7 +35,7 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
     try {
       final res = await Supabase.instance.client
           .from('sales_order_items')
-          .select('*, item:items(name, sku)')
+          .select('*, item:items(name, uom, default_sales_price, default_purchase_price, hsn_code)')
           .eq('so_id', _order['id']);
       
       if (mounted) {
@@ -248,12 +248,14 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
         'customer_id': _order['customer_id'],
         'customer_name': _order['customer']?['name'],
         'branch_id': _order['branch_id'],
-        'items': _items.map((i) => {
-          'item_id': i['item_id'],
-          'name': i['item']['name'],
-          'quantity': i['quantity'],
-          'unit_price': i['unit_price'],
-          'tax_rate': i['tax_rate'],
+        'items': _items.map((i) {
+          return <String, dynamic>{
+            'item_id': i['item_id'],
+            'name': i['item']?['name'] ?? 'Item',
+            'quantity': i['quantity'],
+            'unit_price': i['unit_price'],
+            'tax_rate': i['tax_rate'],
+          };
         }).toList(),
         'order_id': _order['id'],
       },
@@ -266,11 +268,13 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
         'customer_id': _order['customer_id'],
         'customer_name': _order['customer']?['name'],
         'branch_id': _order['branch_id'],
-        'items': _items.map((i) => {
-          'item_id': i['item_id'],
-          'name': i['item']['name'],
-          'quantity': i['quantity'],
-          'unit_price': i['unit_price'],
+        'items': _items.map((i) {
+          return <String, dynamic>{
+            'item_id': i['item_id'],
+            'name': i['item']?['name'] ?? 'Item',
+            'quantity': i['quantity'],
+            'unit_price': i['unit_price'],
+          };
         }).toList(),
         'order_id': _order['id'],
       },

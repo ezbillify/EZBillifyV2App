@@ -63,7 +63,50 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
       
       final isEdit = widget.order != null && widget.order!['id'] != null;
 
-      if (!isEdit) {
+      if (isEdit) {
+        // FETCH EVERYTHING FRESH FOR EDIT
+        final orderId = widget.order!['id'];
+        final order = await Supabase.instance.client
+            .from('sales_orders')
+            .select('*, branch:branches(name), customer:customers(name)')
+            .eq('id', orderId)
+            .single();
+            
+        _orderNumber = order['so_number'] ?? order['order_number'] ?? '';
+        _branchId = order['branch_id']?.toString();
+        _branchName = order['branch']?['name'];
+        _customerId = order['customer_id']?.toString();
+        _customerName = order['customer']?['name'];
+        _orderDate = DateTime.tryParse(order['date'] ?? order['order_date'] ?? '') ?? DateTime.now();
+        _expectedDelivery = DateTime.tryParse(order['delivery_date'] ?? order['expected_delivery'] ?? '') ?? DateTime.now().add(const Duration(days: 7));
+        _status = order['status'] ?? 'pending';
+        _referenceNumber = order['reference_number'] ?? "";
+        
+        // Fetch items
+        final itemsRes = await Supabase.instance.client.from('sales_order_items')
+            .select('*, item:items(name, uom, default_sales_price, default_purchase_price)')
+            .eq('so_id', orderId);
+        
+        _items = List<Map<String, dynamic>>.from(itemsRes.map((i) {
+          final qty = i['quantity'];
+          final up = i['unit_price'];
+          final tr = i['tax_rate'];
+          final pp = i['item']?['default_purchase_price'];
+
+          return <String, dynamic>{
+            'item_id': i['item_id'],
+            'name': i['item']?['name'] ?? i['description'] ?? 'Item',
+            'quantity': (qty is num) ? qty.toDouble() : (double.tryParse(qty?.toString() ?? '0') ?? 0),
+            'unit_price': (up is num) ? up.toDouble() : (double.tryParse(up?.toString() ?? '0') ?? 0.0),
+            'tax_rate': (tr is num) ? tr.toDouble() : (double.tryParse(tr?.toString() ?? '0') ?? 0.0),
+            'unit': i['item']?['uom'],
+            'purchase_price': (pp is num) ? pp.toDouble() : (double.tryParse(pp?.toString() ?? '0') ?? 0.0),
+          };
+        }));
+
+        _calculateTotals();
+      } else {
+        // NEW ORDER
         final branches = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
         if (branches.isNotEmpty) {
           _branchId = branches[0]['id'].toString();
@@ -74,38 +117,35 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
         // Handle pre-filled data (e.g. from Quotation)
         if (widget.order != null) {
            _customerId = widget.order!['customer_id']?.toString();
-           _customerName = widget.order!['customer_name'];
-           _items = List<Map<String, dynamic>>.from(widget.order!['items'] ?? []);
+           _customerName = widget.order!['customer_name'] ?? widget.order!['customer']?['name'];
+           
+           if (widget.order!['items'] != null) {
+              final rawItems = List<dynamic>.from(widget.order!['items']);
+              _items = rawItems.map((it) {
+                final qty = it['quantity'];
+                final up = it['unit_price'];
+                final tr = it['tax_rate'];
+                final pp = it['purchase_price'];
+
+                return {
+                  'item_id': it['item_id'],
+                  'name': it['name'] ?? it['item']?['name'] ?? 'Item',
+                  'quantity': (qty is num) ? qty.toDouble() : (double.tryParse(qty?.toString() ?? '0') ?? 0),
+                  'unit_price': (up is num) ? up.toDouble() : (double.tryParse(up?.toString() ?? '0') ?? 0.0),
+                  'tax_rate': (tr is num) ? tr.toDouble() : (double.tryParse(tr?.toString() ?? '0') ?? 0.0),
+                  'unit': it['unit'] ?? it['item']?['uom'],
+                  'purchase_price': (pp is num) ? pp.toDouble() : (double.tryParse(pp?.toString() ?? '0') ?? 0.0),
+                };
+              }).toList();
+           }
+           
+           if (widget.order!['branch_id'] != null) {
+              _branchId = widget.order!['branch_id'].toString();
+              final bMatch = branches.firstWhere((b) => b['id'].toString() == _branchId, orElse: () => {});
+              if (bMatch.isNotEmpty) _branchName = bMatch['name'];
+           }
            _calculateTotals();
         }
-      } else {
-        // Load existing order data
-        _orderNumber = widget.order!['so_number'] ?? widget.order!['order_number'] ?? '';
-        _branchId = widget.order!['branch_id']?.toString();
-        _branchName = widget.order!['branch']?['name'];
-        _customerId = widget.order!['customer_id']?.toString();
-        _customerName = widget.order!['customer']?['name'];
-        _orderDate = DateTime.parse(widget.order!['date'] ?? widget.order!['order_date'] ?? DateTime.now().toIso8601String());
-        _expectedDelivery = DateTime.tryParse(widget.order!['delivery_date'] ?? widget.order!['expected_delivery'] ?? '') ?? DateTime.now().add(const Duration(days: 7));
-        _status = widget.order!['status'] ?? 'pending';
-        _referenceNumber = widget.order!['reference_number'] ?? "";
-        
-        // Fetch items
-        final items = await Supabase.instance.client.from('sales_order_items')
-            .select('*, item:items(name, unit, default_sales_price, purchase_price, barcodes)')
-            .eq('order_id', widget.order!['id']);
-        
-        _items = items.map((i) => {
-          'item_id': i['item_id'],
-          'name': i['item']['name'],
-          'quantity': i['quantity'],
-          'unit_price': i['unit_price'],
-          'tax_rate': i['tax_rate'],
-          'unit': i['item']['unit'],
-          'purchase_price': i['item']['purchase_price'],
-        }).toList();
-
-        _calculateTotals();
       }
     } catch (e) {
       debugPrint("Error initializing: $e");

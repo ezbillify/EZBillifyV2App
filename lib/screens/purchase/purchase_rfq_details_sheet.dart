@@ -133,14 +133,18 @@ class _PurchaseRfqDetailsSheetState extends State<PurchaseRfqDetailsSheet> {
                       children: [
                         Expanded(
                           child: _buildActionButton(Icons.print_outlined, "Print", () {
-                            PrintService.printDocument(Map<String, dynamic>.from(widget.rfq), 'purchase_rfq');
+                            final data = Map<String, dynamic>.from(widget.rfq);
+                          data['items'] = _items;
+                          PrintService.printDocument(data, 'purchase_rfq');
                           }),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
+                            final data = Map<String, dynamic>.from(widget.rfq);
+                            data['items'] = _items;
                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
-                            final path = await PrintService.downloadDocument(Map<String, dynamic>.from(widget.rfq), 'purchase_rfq');
+                            final path = await PrintService.downloadDocument(data, 'purchase_rfq');
                             if (path != null && mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
                             }
@@ -152,9 +156,11 @@ class _PurchaseRfqDetailsSheetState extends State<PurchaseRfqDetailsSheet> {
                     SizedBox(
                       width: double.infinity,
                       child: _buildActionButton(Icons.share_outlined, "Share RFQ", () async {
+                        final data = Map<String, dynamic>.from(widget.rfq);
+                        data['items'] = _items;
                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparing share...'), duration: Duration(seconds: 1)));
                         try {
-                          await PrintService.shareDocument(context, Map<String, dynamic>.from(widget.rfq), 'purchase_rfq');
+                          await PrintService.shareDocument(context, data, 'purchase_rfq');
                         } catch (e) {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));

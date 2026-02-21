@@ -75,18 +75,24 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
         
         // Fetch items
         final items = await Supabase.instance.client.from('sales_credit_note_items')
-            .select('*, item:items(name, unit, default_sales_price, default_purchase_price)')
+            .select('*, item:items(name, uom, default_sales_price, default_purchase_price)')
             .eq('cn_id', widget.creditNote!['id']);
         
-        _items = items.map((i) => {
-          'item_id': i['item_id'],
-          'name': i['item']['name'],
-          'quantity': i['quantity'],
-          'unit_price': i['unit_price'],
-          'tax_rate': i['tax_rate'],
-          'unit': i['item']['unit'],
-          'purchase_price': i['item']['default_purchase_price'],
-        }).toList();
+        _items = List<Map<String, dynamic>>.from(items.map((i) {
+          final qty = i['quantity'];
+          final up = i['unit_price'];
+          final tr = i['tax_rate'];
+          final pp = i['item']?['default_purchase_price'];
+          return <String, dynamic>{
+            'item_id': i['item_id'],
+            'name': i['item']?['name'] ?? i['description'] ?? 'Item',
+            'quantity': (qty is num) ? qty.toDouble() : (double.tryParse(qty?.toString() ?? '0') ?? 0),
+            'unit_price': (up is num) ? up.toDouble() : (double.tryParse(up?.toString() ?? '0') ?? 0.0),
+            'tax_rate': (tr is num) ? tr.toDouble() : (double.tryParse(tr?.toString() ?? '0') ?? 0.0),
+            'unit': i['item']?['uom'],
+            'purchase_price': (pp is num) ? pp.toDouble() : (double.tryParse(pp?.toString() ?? '0') ?? 0.0),
+          };
+        }));
 
         _calculateTotals();
       }
@@ -438,8 +444,8 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
                     'quantity': qty,
                     'unit_price': inclusive,
                     'tax_rate': rate,
-                    'unit': item['unit'],
-                    'purchase_price': (item['purchase_price'] ?? 0).toDouble(),
+                    'unit': item['uom'],
+                    'purchase_price': (item['default_purchase_price'] ?? 0).toDouble(),
                   });
                }
             }
@@ -452,7 +458,7 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
         final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
         final salesPriceInclTax = salesPrice * (1 + rate / 100);
         final purchasePrice = (item['default_purchase_price'] ?? 0).toDouble();
-        final unit = item['unit'] ?? 'unt';
+        final unit = item['uom'] ?? 'unt';
 
         return Container(
           margin: const EdgeInsets.only(bottom: 12),

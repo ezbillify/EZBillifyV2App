@@ -139,15 +139,26 @@ function bumpVersionAndCommit(message, bumpType) {
     build += 1; // Always bump build number
 
     const newVersion = `${major}.${minor}.${patch}+${build}`;
+    const newMarketingVersion = `${major}.${minor}.${patch}`;
     console.log(`🚀 Bumping version: ${match[0].replace('version: ', '')} -> ${newVersion}`);
 
-    // Replace in file
+    // 1. Update pubspec.yaml
     const newPubspec = pubspec.replace(versionRegex, `version: ${newVersion}`);
     fs.writeFileSync(pubspecPath, newPubspec);
 
+    // 2. Sync Xcode project.pbxproj so package_info_plus reads the correct version
+    const pbxprojPath = path.join(__dirname, '..', 'ios', 'Runner.xcodeproj', 'project.pbxproj');
+    if (fs.existsSync(pbxprojPath)) {
+        let pbxproj = fs.readFileSync(pbxprojPath, 'utf8');
+        pbxproj = pbxproj.replace(/MARKETING_VERSION = [^;]+;/g, `MARKETING_VERSION = ${newMarketingVersion};`);
+        pbxproj = pbxproj.replace(/CURRENT_PROJECT_VERSION = [^;]+;/g, `CURRENT_PROJECT_VERSION = ${build};`);
+        fs.writeFileSync(pbxprojPath, pbxproj);
+        console.log(`📱 Synced iOS Xcode project: MARKETING_VERSION=${newMarketingVersion}, CURRENT_PROJECT_VERSION=${build}`);
+    }
+
     // Commit and Push
     try {
-        execSync('git add pubspec.yaml', { stdio: 'inherit' });
+        execSync('git add pubspec.yaml ios/Runner.xcodeproj/project.pbxproj', { stdio: 'inherit' });
         execSync(`git commit -m "${message}"`, { stdio: 'inherit' });
         console.log("🔄 Pushing to remote...");
         execSync('git push', { stdio: 'inherit' });

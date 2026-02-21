@@ -25,7 +25,8 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
   String _customerType = 'B2C';
   String _email = '';
   String _phone = '';
-  String _gstin = '';
+  final _gstinController = TextEditingController();
+  final _panController = TextEditingController();
   
   // Billing Address
   final _billingStreetController = TextEditingController();
@@ -56,6 +57,8 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     _billingCityController.dispose();
     _billingStateController.dispose();
     _billingPincodeController.dispose();
+    _gstinController.dispose();
+    _panController.dispose();
     _shippingStreetController.dispose();
     _shippingCityController.dispose();
     _shippingStateController.dispose();
@@ -70,7 +73,8 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     if (_customerType == 'B2B') _companyName = _name;
     _email = c['email'] ?? '';
     _phone = c['phone'] ?? '';
-    _gstin = c['gstin'] ?? '';
+    _gstinController.text = c['gstin'] ?? '';
+    _panController.text = c['pan'] ?? '';
     
     if (c['billing_address'] != null) {
       final addr = c['billing_address'];
@@ -151,7 +155,8 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
         'customer_type': _customerType,
         'email': _email,
         'phone': _phone,
-        'gstin': _gstin,
+        'gstin': _gstinController.text,
+        'pan': _panController.text,
         'billing_address': billingAddress,
         'shipping_addresses': shippingAddress,
       };
@@ -231,12 +236,31 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                         ],
                         _buildTextField(_customerType == 'B2B' ? "Contact Person" : "Customer Name", onSave: (v) => _name = v!, icon: Icons.person_rounded, isRequired: true, initialValue: _name),
                         const SizedBox(height: 20),
-                        _buildTextField("Phone Number", onSave: (v) => _phone = v!, icon: Icons.phone_rounded, keyboard: TextInputType.phone, initialValue: _phone),
+                        _buildTextField("Phone Number", onSave: (v) => _phone = v!, icon: Icons.phone_rounded, keyboard: TextInputType.phone, initialValue: _phone, isRequired: true),
                         const SizedBox(height: 20),
                         _buildTextField("Email Address", onSave: (v) => _email = v!, icon: Icons.mail_rounded, keyboard: TextInputType.emailAddress, initialValue: _email),
                         if (_customerType == 'B2B') ...[
                           const SizedBox(height: 20),
-                          _buildTextField("GSTIN Number", onSave: (v) => _gstin = v!, icon: Icons.verified_user_rounded, initialValue: _gstin),
+                          _buildTextField(
+                            "GSTIN Number", 
+                            onSave: (v) {}, 
+                            icon: Icons.verified_user_rounded, 
+                            controller: _gstinController,
+                            isGstin: true,
+                            onChanged: (v) {
+                              if (v.length == 15 && v.toUpperCase() != "URP") {
+                                _panController.text = v.substring(2, 12).toUpperCase();
+                              }
+                            }
+                          ),
+                          const SizedBox(height: 20),
+                          _buildTextField(
+                            "PAN Number", 
+                            onSave: (v) {}, 
+                            icon: Icons.credit_card_rounded, 
+                            controller: _panController,
+                            isPan: true
+                          ),
                         ],
                       ]),
                       
@@ -361,6 +385,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
               onSave: (v) {}, 
               controller: pincode, 
               keyboard: TextInputType.number,
+              isPincode: true,
               onChanged: (v) {
                 _fetchPincodeDetails(v, isBilling);
                 if (isBilling && _sameAsBilling) {
@@ -494,21 +519,54 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     );
   }
 
-  Widget _buildTextField(String label, {required Function(String?) onSave, String? initialValue, IconData? icon, bool isRequired = false, TextInputType? keyboard, int maxLines = 1, TextEditingController? controller, Function(String)? onChanged}) {
+  Widget _buildTextField(String label, {required Function(String?) onSave, String? initialValue, IconData? icon, bool isRequired = false, TextInputType? keyboard, int maxLines = 1, TextEditingController? controller, Function(String)? onChanged, bool isGstin = false, bool isPan = false, bool isPincode = false}) {
     return TextFormField(
       controller: controller,
       initialValue: controller == null ? initialValue : null,
       decoration: _inputDecoration(label, icon: icon),
+      textCapitalization: (isGstin || isPan) ? TextCapitalization.characters : TextCapitalization.none,
+      autocorrect: !(isGstin || isPan),
+      enableSuggestions: !(isGstin || isPan),
+      inputFormatters: [
+        if (keyboard == TextInputType.phone) ...[
+          FilteringTextInputFormatter.digitsOnly,
+          LengthLimitingTextInputFormatter(10),
+        ],
+        if (isPincode) ...[
+          FilteringTextInputFormatter.digitsOnly,
+          LengthLimitingTextInputFormatter(6),
+        ],
+        if (isGstin) ...[
+          UpperCaseTextFormatter(),
+          LengthLimitingTextInputFormatter(15),
+        ],
+        if (isPan) ...[
+          UpperCaseTextFormatter(),
+          LengthLimitingTextInputFormatter(10),
+        ],
+      ],
       validator: (v) {
         if (isRequired && (v == null || v.isEmpty)) return "Required";
         if (v != null && v.isNotEmpty) {
           if (keyboard == TextInputType.phone) {
             final digits = v.replaceAll(RegExp(r'\D'), '');
-            if (digits.length != 10) return "Must be 10 digits";
+            if (digits.length != 10) return "Must be exactly 10 digits";
           }
           if (keyboard == TextInputType.emailAddress) {
             final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
             if (!emailRegex.hasMatch(v)) return "Invalid email format";
+          }
+          if (isGstin) {
+            final gstRegex = RegExp(r'^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$');
+            if (v.toUpperCase() != "URP" && !gstRegex.hasMatch(v.toUpperCase())) {
+              return "Invalid GSTIN format (e.g. 22AAAAA0000A1Z5)";
+            }
+          }
+          if (isPan) {
+            final panRegex = RegExp(r'^[A-Z]{5}[0-9]{4}[A-Z]{1}$');
+            if (!panRegex.hasMatch(v.toUpperCase())) {
+              return "Invalid PAN format (e.g. ABCDE1234F)";
+            }
           }
         }
         return null;
@@ -551,6 +609,16 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.primaryBlue, width: 1.5)),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    );
+  }
+}
+
+class UpperCaseTextFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    return TextEditingValue(
+      text: newValue.text.toUpperCase(),
+      selection: newValue.selection,
     );
   }
 }

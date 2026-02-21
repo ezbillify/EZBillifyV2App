@@ -25,6 +25,8 @@ class _CompanyProfileScreenState extends State<CompanyProfileScreen> {
   late TextEditingController _gstinController;
   late TextEditingController _panController;
   late TextEditingController _cinController;
+  late TextEditingController _fssaiController;
+  late TextEditingController _upiController;
 
   late TextEditingController _line1Controller;
   late TextEditingController _cityController;
@@ -47,6 +49,8 @@ class _CompanyProfileScreenState extends State<CompanyProfileScreen> {
     _gstinController = TextEditingController();
     _panController = TextEditingController();
     _cinController = TextEditingController();
+    _fssaiController = TextEditingController();
+    _upiController = TextEditingController();
     _line1Controller = TextEditingController();
     _cityController = TextEditingController();
     _pincodeController = TextEditingController();
@@ -66,6 +70,8 @@ class _CompanyProfileScreenState extends State<CompanyProfileScreen> {
         _gstinController.text = data['gstin'] ?? '';
         _panController.text = data['pan'] ?? '';
         _cinController.text = data['cin'] ?? '';
+        _fssaiController.text = data['fssai_lic_no'] ?? data['lic_no'] ?? data['fssai'] ?? '';
+        _upiController.text = data['upi_id'] ?? data['upi'] ?? '';
         _entityType = data['entity_type'] ?? 'proprietorship';
         
         _line1Controller.text = addr['line1'] ?? '';
@@ -92,6 +98,8 @@ class _CompanyProfileScreenState extends State<CompanyProfileScreen> {
         'gstin': _gstinController.text.toUpperCase(),
         'pan': _panController.text.toUpperCase(),
         'cin': _cinController.text.toUpperCase(),
+        'fssai_lic_no': _fssaiController.text.toUpperCase(),
+        'upi_id': _upiController.text,
         'entity_type': _entityType,
         'address': {
           'line1': _line1Controller.text,
@@ -163,12 +171,24 @@ class _CompanyProfileScreenState extends State<CompanyProfileScreen> {
               _buildTextField("Company Name", _nameController, Icons.business_rounded, textPrimary, textSecondary, inputFill),
               _buildTextField("Display Email", _emailController, Icons.mail_outline_rounded, textPrimary, textSecondary, inputFill, keyboardType: TextInputType.emailAddress),
               _buildTextField("Support Phone", _phoneController, Icons.phone_outlined, textPrimary, textSecondary, inputFill, keyboardType: TextInputType.phone),
+              _buildTextField("UPI ID (For Print QR)", _upiController, Icons.qr_code_2_rounded, textPrimary, textSecondary, inputFill),
             ], cardColor, borderColor),
             const SizedBox(height: 32),
             _buildSectionHeader("Legal & Compliance", textTertiary),
             _buildCard([
               _buildDropdownField("Entity Type", _entityType, _entityTypes, (val) => setState(() => _entityType = val), textPrimary, textSecondary, inputFill),
-              _buildTextField("GSTIN", _gstinController, Icons.receipt_long_rounded, textPrimary, textSecondary, inputFill, uppercase: true),
+              _buildTextField(
+                "GSTIN", 
+                _gstinController, 
+                Icons.receipt_long_rounded, 
+                textPrimary, textSecondary, inputFill, uppercase: true,
+                onChanged: (v) {
+                  if (v.length == 15 && v.toUpperCase() != "URP") {
+                    _panController.text = v.substring(2, 12).toUpperCase();
+                  }
+                }
+              ),
+              _buildTextField("FSSAI / License No.", _fssaiController, Icons.shield_rounded, textPrimary, textSecondary, inputFill, uppercase: true),
               Row(
                 children: [
                   Expanded(child: _buildTextField("PAN", _panController, Icons.credit_card_rounded, textPrimary, textSecondary, inputFill, uppercase: true)),
@@ -191,7 +211,10 @@ class _CompanyProfileScreenState extends State<CompanyProfileScreen> {
                         TextField(
                           controller: _pincodeController,
                           keyboardType: TextInputType.number,
-                          maxLength: 6,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                            LengthLimitingTextInputFormatter(6),
+                          ],
                           style: TextStyle(fontFamily: 'Outfit', color: textPrimary),
                           onChanged: (v) async {
                             if (v.length == 6) {
@@ -251,7 +274,7 @@ class _CompanyProfileScreenState extends State<CompanyProfileScreen> {
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, IconData icon, Color textPrimary, Color textSecondary, Color inputFill, {TextInputType keyboardType = TextInputType.text, bool uppercase = false}) {
+  Widget _buildTextField(String label, TextEditingController controller, IconData icon, Color textPrimary, Color textSecondary, Color inputFill, {TextInputType keyboardType = TextInputType.text, bool uppercase = false, Function(String)? onChanged}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(
@@ -260,10 +283,14 @@ class _CompanyProfileScreenState extends State<CompanyProfileScreen> {
           Text(label, style: TextStyle(fontFamily: 'Outfit', fontSize: 13, fontWeight: FontWeight.w600, color: textSecondary)),
           const SizedBox(height: 8),
           TextField(
+            onChanged: onChanged,
             controller: controller,
             keyboardType: keyboardType,
             textCapitalization: uppercase ? TextCapitalization.characters : TextCapitalization.none,
             style: TextStyle(fontFamily: 'Outfit', color: textPrimary),
+            inputFormatters: keyboardType == TextInputType.phone 
+                ? [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)]
+                : null,
             decoration: InputDecoration(
               prefixIcon: Icon(icon, color: textSecondary, size: 20),
               filled: true,

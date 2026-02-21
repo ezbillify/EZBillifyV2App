@@ -135,7 +135,7 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
                            if (result == true) widget.onRefresh();
                         },
                         icon: const Icon(Icons.edit_outlined, size: 18),
-                        label: const Text("Edit Bill", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                        label: const Text("Edit Invoice", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: context.cardBg,
                           foregroundColor: context.textPrimary,
@@ -156,8 +156,10 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
+                            final data = Map<String, dynamic>.from(widget.bill);
+                            data['items'] = _items;
                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
-                            final path = await PrintService.downloadDocument(Map<String, dynamic>.from(widget.bill), 'purchase_bill');
+                            final path = await PrintService.downloadDocument(data, 'purchase_bill');
                             if (path != null && mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
                             }
@@ -171,12 +173,14 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
                       width: double.infinity,
                       child: _buildActionButton(
                         Icons.share_outlined, 
-                        _isSharing ? "Sharing..." : "Share Bill", 
+                        _isSharing ? "Sharing..." : "Share Invoice", 
                         _isSharing ? null : () async {
                           HapticFeedback.selectionClick();
                           setState(() => _isSharing = true);
                           try {
-                            await PrintService.shareDocument(context, Map<String, dynamic>.from(widget.bill), 'purchase_bill');
+                            final data = Map<String, dynamic>.from(widget.bill);
+                            data['items'] = _items;
+                            await PrintService.shareDocument(context, data, 'purchase_bill');
                           } catch (e) {
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));
@@ -235,7 +239,7 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
                 const Icon(Icons.calendar_today_rounded, color: AppColors.primaryBlue, size: 20),
                 const SizedBox(height: 12),
                 Text(DateFormat('dd MMM, yyyy').format(date), style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary)),
-                Text("Bill Date", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary)),
+                Text("Invoice Date", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary)),
               ],
             ),
           ),

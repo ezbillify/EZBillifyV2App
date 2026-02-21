@@ -6,6 +6,7 @@ import '../../services/numbering_service.dart';
 import '../inventory/item_selection_sheet.dart';
 import 'vendors_screen.dart';
 import '../../widgets/calendar_sheet.dart';
+import '../../services/master_data_service.dart';
 
 class PurchaseGrnFormScreen extends StatefulWidget {
   final Map<String, dynamic>? grn; // Null for new
@@ -29,7 +30,9 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
   String? _poNumber;
   DateTime _grnDate = DateTime.now();
   String _grnNumber = "";
+  String _referenceNumber = ""; // Vendor Invoice Number
   String _notes = "";
+  String _status = "received";
   
   // Line Items
   List<Map<String, dynamic>> _items = [];
@@ -58,9 +61,18 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
         await _generateGrnNumber();
       } else {
         _grnNumber = widget.grn!['grn_number'];
+        _referenceNumber = widget.grn!['reference_number'] ?? "";
+        _status = widget.grn!['status'] ?? 'received';
         _vendorId = widget.grn!['vendor_id']?.toString();
         _vendorName = widget.grn!['vendor']?['name'];
         _poId = widget.grn!['po_id']?.toString();
+        _branchId = widget.grn!['branch_id']?.toString();
+        
+        if (_branchId != null) {
+          final b = await Supabase.instance.client.from('branches').select('name').eq('id', _branchId!).maybeSingle();
+          if (b != null) _branchName = b['name'];
+        }
+
         // Fetch PO number if linked
         if (_poId != null) {
           final po = await Supabase.instance.client.from('purchase_orders').select('po_number').eq('id', _poId!).single();
@@ -193,28 +205,250 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
   }
 
   void _addItem() async {
-    final result = await showModalBottomSheet(
+    final results = await MasterDataService().getItems(_companyId!);
+    if (!mounted) return;
+
+    List<Map<String, dynamic>> currentValues = [];
+    for (var i in _items) {
+      final match = results.firstWhere((r) => r['id'] == i['item_id'], orElse: () => {});
+      if (match.isNotEmpty) {
+        final qty = (i['quantity'] ?? 1).toInt();
+        for (int q = 0; q < qty; q++) {
+          currentValues.add(match);
+        }
+      }
+    }
+
+    _showSelectionSheet<Map<String, dynamic>>(
+      title: "Receive Items",
+      items: List<Map<String, dynamic>>.from(results),
+      currentValues: currentValues,
+      labelMapper: (i) => i['name'],
+      barcodeMapper: (i) {
+        final barcodes = List<String>.from(i['barcodes'] ?? []);
+        return "${i['sku'] ?? ''} ${barcodes.join(' ')}";
+      },
+      isMultiple: true,
+      onRefresh: () async {
+        await MasterDataService().getItems(_companyId!, forceRefresh: true);
+      },
+      onSelectMultiple: (selectedList) {
+        setState(() {
+          final qtyMap = <String, int>{};
+          final itemMap = <String, Map<String, dynamic>>{};
+          
+          for (var item in selectedList) {
+            final id = item['id'].toString();
+            qtyMap[id] = (qtyMap[id] ?? 0) + 1;
+            itemMap[id] = item;
+          }
+
+          _items.removeWhere((existing) => !qtyMap.containsKey(existing['item_id'].toString()));
+
+          for (var itemEntry in _items) {
+            final id = itemEntry['item_id'].toString();
+            itemEntry['quantity'] = qtyMap[id]?.toDouble() ?? 1.0;
+            qtyMap.remove(id); 
+          }
+
+          for (var id in qtyMap.keys) {
+            final item = itemMap[id]!;
+            final qty = qtyMap[id]!;
+            
+            _items.add({
+              'item_id': item['id'],
+              'name': item['name'],
+              'quantity': qty.toDouble(),
+              'batch_number': '',
+              'expiry_date': null,
+            });
+          }
+        });
+      },
+      showScanner: true,
+      itemContentBuilder: (context, item, count, onAdd, onRemove) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: count > 0 ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 2))]
+          ),
+          child: InkWell(
+            onTap: onAdd,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                   Container(
+                     width: 48,
+                     height: 48,
+                     decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                     child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue),
+                   ),
+                   const SizedBox(width: 16),
+                   Expanded(
+                     child: Column(
+                       crossAxisAlignment: CrossAxisAlignment.start,
+                       children: [
+                         Text(item['name'], style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary), maxLines: 1, overflow: TextOverflow.ellipsis),
+                         const SizedBox(height: 4),
+                         Text("Stock: ${item['total_stock'] ?? 0}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: (item['total_stock'] ?? 0) <= 0 ? Colors.red : Colors.green, fontWeight: FontWeight.bold)),
+                       ],
+                     ),
+                   ),
+                   const SizedBox(width: 12),
+                   if (count > 0)
+                     Container(
+                       decoration: BoxDecoration(color: context.surfaceBg, borderRadius: BorderRadius.circular(12), border: Border.all(color: context.borderColor)),
+                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                       child: Row(
+                         mainAxisSize: MainAxisSize.min,
+                         children: [
+                           InkWell(onTap: onRemove, child: const Icon(Icons.remove, size: 20)),
+                           SizedBox(width: 32, child: Text("$count", textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold))),
+                           InkWell(onTap: onAdd, child: const Icon(Icons.add, size: 20)),
+                         ],
+                       ),
+                     )
+                   else
+                     Container(
+                       padding: const EdgeInsets.all(8),
+                       decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), shape: BoxShape.circle),
+                       child: const Icon(Icons.add, color: AppColors.primaryBlue, size: 24),
+                     ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showSelectionSheet<T>({
+    required String title,
+    required List<T> items,
+    required String Function(T) labelMapper,
+    Function(T)? onSelect,
+    Function(List<T>)? onSelectMultiple,
+    bool isMultiple = false,
+    String? currentValue,
+    List<T>? currentValues,
+    bool showScanner = false,
+    String Function(T)? barcodeMapper,
+    Widget Function(BuildContext, T, int count, VoidCallback onAdd, VoidCallback onRemove)? itemContentBuilder,
+    Future<void> Function()? onRefresh,
+  }) {
+    String searchQuery = "";
+    final searchController = TextEditingController();
+    final focusNode = FocusNode();
+    List<T> selectedItems = currentValues != null ? List<T>.from(currentValues) : [];
+
+    showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (c) => const ItemSelectionSheet()
-    );
+      useSafeArea: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final List<T> filteredItems = items.where((item) {
+            final label = labelMapper(item).toLowerCase();
+            final barcode = barcodeMapper?.call(item)?.toLowerCase() ?? "";
+            return label.contains(searchQuery.toLowerCase()) || barcode.contains(searchQuery.toLowerCase());
+          }).toList();
 
-    if (result != null) {
-      final List<Map<String, dynamic>> newItems = (result is List) ? List.from(result) : [result];
-      setState(() {
-        for (var item in newItems) {
-           _items.add({
-             'item_id': item['id'],
-             'name': item['name'],
-             'quantity': 1.0, 
-             'batch_number': '',
-             'expiry_date': null,
-           });
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.9,
+            decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
+            child: Column(
+              children: [
+                const SizedBox(height: 12),
+                Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
+                const SizedBox(height: 24),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(title, style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                      if (onRefresh != null)
+                        IconButton(onPressed: () async { await onRefresh(); Navigator.pop(context); }, icon: const Icon(Icons.sync_rounded)),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: TextField(
+                    controller: searchController,
+                    focusNode: focusNode,
+                    decoration: InputDecoration(
+                      hintText: "Search...",
+                      prefixIcon: const Icon(Icons.search),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                      filled: true,
+                      fillColor: context.cardBg,
+                    ),
+                    onChanged: (v) => setModalState(() => searchQuery = v),
+                  ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: filteredItems.length,
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    itemBuilder: (context, index) {
+                      final item = filteredItems[index];
+                      final count = selectedItems.where((e) => e == item).length;
+                      if (itemContentBuilder != null) {
+                        return itemContentBuilder(context, item, count, 
+                          () => setModalState(() => selectedItems.add(item)),
+                          () => setModalState(() => selectedItems.remove(item))
+                        );
+                      }
+                      return ListTile(
+                        title: Text(labelMapper(item)),
+                        onTap: () {
+                          if (isMultiple) {
+                            setModalState(() {
+                              if (selectedItems.contains(item)) selectedItems.remove(item);
+                              else selectedItems.add(item);
+                            });
+                          } else {
+                            onSelect?.call(item);
+                            Navigator.pop(context);
+                          }
+                        },
+                        trailing: isMultiple ? Checkbox(value: selectedItems.contains(item), onChanged: (v) {
+                          setModalState(() {
+                             if (v == true) selectedItems.add(item);
+                             else selectedItems.remove(item);
+                          });
+                        }) : null,
+                      );
+                    },
+                  ),
+                ),
+                if (isMultiple)
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: SizedBox(width: double.infinity, height: 54, 
+                      child: ElevatedButton(
+                        onPressed: () { onSelectMultiple?.call(selectedItems); Navigator.pop(context); },
+                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                        child: Text("Confirm Selection (${selectedItems.length})", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      )
+                    ),
+                  ),
+              ],
+            ),
+          );
         }
-      });
-    }
+      ),
+    );
   }
+
   
   void _removeItem(int index) {
     setState(() {
@@ -234,13 +468,35 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
 
     setState(() => _loading = true);
     try {
+      // Fraud Check: Prevent duplicate GRN for same Vendor Invoice
+      if (_referenceNumber.isNotEmpty) {
+        final existing = await Supabase.instance.client
+            .from('purchase_grns')
+            .select('id')
+            .eq('vendor_id', _vendorId!)
+            .eq('reference_number', _referenceNumber)
+            .neq('id', widget.grn?['id'] ?? '00000000-0000-0000-0000-000000000000') // Exclude current if editing
+            .maybeSingle();
+            
+        if (existing != null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("A GRN with this Invoice Number already exists for this vendor."), backgroundColor: Colors.red));
+            setState(() => _loading = false);
+          }
+          return;
+        }
+      }
+
       final grnData = {
         'company_id': _companyId,
+        'branch_id': _branchId,
         'vendor_id': _vendorId,
         'po_id': _poId,
         'grn_number': _grnNumber,
+        'reference_number': _referenceNumber.isEmpty ? null : _referenceNumber,
         'date': _grnDate.toIso8601String(),
         'notes': _notes,
+        'status': _status,
       };
       
       Map<String, dynamic> upsertedGrn;
@@ -304,7 +560,13 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
     return Scaffold(
       backgroundColor: context.scaffoldBg,
       appBar: AppBar(
-        title: Text(widget.grn == null ? "New GRN" : "Edit GRN", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.grn == null ? "New GRN" : "Edit GRN", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary, fontSize: 18)),
+            Text(_grnNumber.isEmpty ? "Generating ID..." : _grnNumber, style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
+          ],
+        ),
         backgroundColor: context.surfaceBg,
         elevation: 0,
         iconTheme: IconThemeData(color: context.textPrimary),
@@ -318,8 +580,12 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildHeaderSection(),
+                    children: [
+                      _buildSectionTitle("Branch"),
+                      const SizedBox(height: 12),
+                      _buildBranchSelector(),
+                      const SizedBox(height: 24),
+                      _buildHeaderSection(),
                     const SizedBox(height: 32),
                     _buildItemsSection(),
                     const SizedBox(height: 32),
@@ -333,6 +599,46 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBranchSelector() {
+    return InkWell(
+      onTap: _selectBranch,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
+        child: Row(
+          children: [
+            Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), shape: BoxShape.circle), child: const Icon(Icons.business_rounded, color: AppColors.primaryBlue, size: 24)),
+            const SizedBox(width: 16),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_branchName ?? "Select Branch", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: _branchName == null ? context.textSecondary.withOpacity(0.4) : context.textPrimary)),
+              if (_branchName == null) Text("Tap to select branch", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+            ])),
+            Icon(Icons.chevron_right_rounded, color: context.textSecondary.withOpacity(0.3)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _selectBranch() async {
+    final branches = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
+    if (!mounted) return;
+    
+    _showSelectionSheet<Map<String, dynamic>>(
+      title: "Select Branch",
+      items: List<Map<String, dynamic>>.from(branches),
+      labelMapper: (b) => b['name'],
+      onSelect: (b) {
+        setState(() {
+          _branchId = b['id'].toString();
+          _branchName = b['name'];
+        });
+        _generateGrnNumber();
+      }
     );
   }
 
@@ -413,6 +719,19 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
                 );
                 if (d != null) setState(() => _grnDate = d);
               }),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: TextFormField(
+                initialValue: _referenceNumber,
+                decoration: InputDecoration(
+                  labelText: "Invoice Number",
+                  hintText: "Purchased Inv #",
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+                onChanged: (v) => _referenceNumber = v,
+              ),
             ),
           ],
         ),

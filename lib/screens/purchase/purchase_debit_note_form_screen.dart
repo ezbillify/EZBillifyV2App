@@ -6,6 +6,7 @@ import '../../services/numbering_service.dart';
 import '../inventory/item_selection_sheet.dart';
 import 'vendors_screen.dart';
 import '../../widgets/calendar_sheet.dart';
+import '../../services/master_data_service.dart';
 
 class PurchaseDebitNoteFormScreen extends StatefulWidget {
   final Map<String, dynamic>? debitNote; // Null for new
@@ -68,7 +69,13 @@ class _PurchaseDebitNoteFormScreenState extends State<PurchaseDebitNoteFormScree
         _vendorId = widget.debitNote!['vendor_id']?.toString();
         _vendorName = widget.debitNote!['vendor']?['name'];
         _billId = widget.debitNote!['bill_id']?.toString();
+        _branchId = widget.debitNote!['branch_id']?.toString();
         
+        if (_branchId != null) {
+          final b = await Supabase.instance.client.from('branches').select('name').eq('id', _branchId!).maybeSingle();
+          if (b != null) _branchName = b['name'];
+        }
+
         if (_billId != null) {
           final bill = await Supabase.instance.client.from('purchase_bills').select('bill_number').eq('id', _billId!).single();
           _billNumber = bill['bill_number'];
@@ -145,7 +152,7 @@ class _PurchaseDebitNoteFormScreenState extends State<PurchaseDebitNoteFormScree
           builder: (context, snapshot) {
             if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
             final bills = snapshot.data!;
-            if (bills.isEmpty) return const Center(child: Text("No bills found for this vendor"));
+            if (bills.isEmpty) return const Center(child: Text("No invoices found for this vendor"));
             
             return ListView.builder(
               itemCount: bills.length,
@@ -192,29 +199,251 @@ class _PurchaseDebitNoteFormScreenState extends State<PurchaseDebitNoteFormScree
   }
 
   void _addItem() async {
-    final result = await showModalBottomSheet(
+    final results = await MasterDataService().getItems(_companyId!);
+    if (!mounted) return;
+
+    List<Map<String, dynamic>> currentValues = [];
+    for (var i in _items) {
+      final match = results.firstWhere((r) => r['id'] == i['item_id'], orElse: () => {});
+      if (match.isNotEmpty) {
+        final qty = (i['quantity'] ?? 1).toInt();
+        for (int q = 0; q < qty; q++) {
+          currentValues.add(match);
+        }
+      }
+    }
+
+    _showSelectionSheet<Map<String, dynamic>>(
+      title: "Add Items",
+      items: List<Map<String, dynamic>>.from(results),
+      currentValues: currentValues,
+      labelMapper: (i) => i['name'],
+      barcodeMapper: (i) {
+        final barcodes = List<String>.from(i['barcodes'] ?? []);
+        return "${i['sku'] ?? ''} ${barcodes.join(' ')}";
+      },
+      isMultiple: true,
+      onRefresh: () async {
+        await MasterDataService().getItems(_companyId!, forceRefresh: true);
+      },
+      onSelectMultiple: (selectedList) {
+        setState(() {
+          final qtyMap = <String, int>{};
+          final itemMap = <String, Map<String, dynamic>>{};
+          
+          for (var item in selectedList) {
+            final id = item['id'].toString();
+            qtyMap[id] = (qtyMap[id] ?? 0) + 1;
+            itemMap[id] = item;
+          }
+
+          _items.removeWhere((existing) => !qtyMap.containsKey(existing['item_id'].toString()));
+
+          for (var itemEntry in _items) {
+            final id = itemEntry['item_id'].toString();
+            itemEntry['quantity'] = qtyMap[id]?.toDouble() ?? 1.0;
+            qtyMap.remove(id); 
+          }
+
+          for (var id in qtyMap.keys) {
+            final item = itemMap[id]!;
+            final qty = qtyMap[id]!;
+            
+            _items.add({
+              'item_id': item['id'],
+              'name': item['name'],
+              'quantity': qty.toDouble(),
+              'unit_price': (item['purchase_price'] ?? 0.0).toDouble(),
+              'tax_rate': (item['gst_rate'] ?? 0.0).toDouble(),
+            });
+          }
+          _calculateTotals();
+        });
+      },
+      showScanner: true,
+      itemContentBuilder: (context, item, count, onAdd, onRemove) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: count > 0 ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 2))]
+          ),
+          child: InkWell(
+            onTap: onAdd,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                   Container(
+                     width: 48,
+                     height: 48,
+                     decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                     child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue),
+                   ),
+                   const SizedBox(width: 16),
+                   Expanded(
+                     child: Column(
+                       crossAxisAlignment: CrossAxisAlignment.start,
+                       children: [
+                         Text(item['name'], style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary), maxLines: 1, overflow: TextOverflow.ellipsis),
+                         const SizedBox(height: 4),
+                         Text("Stock: ${item['total_stock'] ?? 0}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: (item['total_stock'] ?? 0) <= 0 ? Colors.red : Colors.green, fontWeight: FontWeight.bold)),
+                       ],
+                     ),
+                   ),
+                   const SizedBox(width: 12),
+                   if (count > 0)
+                     Container(
+                       decoration: BoxDecoration(color: context.surfaceBg, borderRadius: BorderRadius.circular(12), border: Border.all(color: context.borderColor)),
+                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                       child: Row(
+                         mainAxisSize: MainAxisSize.min,
+                         children: [
+                           InkWell(onTap: onRemove, child: const Icon(Icons.remove, size: 20)),
+                           SizedBox(width: 32, child: Text("$count", textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold))),
+                           InkWell(onTap: onAdd, child: const Icon(Icons.add, size: 20)),
+                         ],
+                       ),
+                     )
+                   else
+                     Container(
+                       padding: const EdgeInsets.all(8),
+                       decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), shape: BoxShape.circle),
+                       child: const Icon(Icons.add, color: AppColors.primaryBlue, size: 24),
+                     ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showSelectionSheet<T>({
+    required String title,
+    required List<T> items,
+    required String Function(T) labelMapper,
+    Function(T)? onSelect,
+    Function(List<T>)? onSelectMultiple,
+    bool isMultiple = false,
+    String? currentValue,
+    List<T>? currentValues,
+    bool showScanner = false,
+    String Function(T)? barcodeMapper,
+    Widget Function(BuildContext, T, int count, VoidCallback onAdd, VoidCallback onRemove)? itemContentBuilder,
+    Future<void> Function()? onRefresh,
+  }) {
+    String searchQuery = "";
+    final searchController = TextEditingController();
+    final focusNode = FocusNode();
+    List<T> selectedItems = currentValues != null ? List<T>.from(currentValues) : [];
+
+    showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (c) => const ItemSelectionSheet()
-    );
+      useSafeArea: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final List<T> filteredItems = items.where((item) {
+            final label = labelMapper(item).toLowerCase();
+            final barcode = barcodeMapper?.call(item)?.toLowerCase() ?? "";
+            return label.contains(searchQuery.toLowerCase()) || barcode.contains(searchQuery.toLowerCase());
+          }).toList();
 
-    if (result != null) {
-      final List<Map<String, dynamic>> newItems = (result is List) ? List.from(result) : [result];
-      setState(() {
-        for (var item in newItems) {
-           _items.add({
-             'item_id': item['id'],
-             'name': item['name'],
-             'quantity': 1.0,
-             'unit_price': (item['purchase_price'] ?? 0.0).toDouble(),
-             'tax_rate': (item['gst_rate'] ?? 0.0).toDouble(),
-           });
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.9,
+            decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
+            child: Column(
+              children: [
+                const SizedBox(height: 12),
+                Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
+                const SizedBox(height: 24),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(title, style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                      if (onRefresh != null)
+                        IconButton(onPressed: () async { await onRefresh(); Navigator.pop(context); }, icon: const Icon(Icons.sync_rounded)),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: TextField(
+                    controller: searchController,
+                    focusNode: focusNode,
+                    decoration: InputDecoration(
+                      hintText: "Search...",
+                      prefixIcon: const Icon(Icons.search),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                      filled: true,
+                      fillColor: context.cardBg,
+                    ),
+                    onChanged: (v) => setModalState(() => searchQuery = v),
+                  ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: filteredItems.length,
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    itemBuilder: (context, index) {
+                      final item = filteredItems[index];
+                      final count = selectedItems.where((e) => e == item).length;
+                      if (itemContentBuilder != null) {
+                        return itemContentBuilder(context, item, count, 
+                          () => setModalState(() => selectedItems.add(item)),
+                          () => setModalState(() => selectedItems.remove(item))
+                        );
+                      }
+                      return ListTile(
+                        title: Text(labelMapper(item)),
+                        onTap: () {
+                          if (isMultiple) {
+                            setModalState(() {
+                              if (selectedItems.contains(item)) selectedItems.remove(item);
+                              else selectedItems.add(item);
+                            });
+                          } else {
+                            onSelect?.call(item);
+                            Navigator.pop(context);
+                          }
+                        },
+                        trailing: isMultiple ? Checkbox(value: selectedItems.contains(item), onChanged: (v) {
+                          setModalState(() {
+                             if (v == true) selectedItems.add(item);
+                             else selectedItems.remove(item);
+                          });
+                        }) : null,
+                      );
+                    },
+                  ),
+                ),
+                if (isMultiple)
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: SizedBox(width: double.infinity, height: 54, 
+                      child: ElevatedButton(
+                        onPressed: () { onSelectMultiple?.call(selectedItems); Navigator.pop(context); },
+                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                        child: Text("Confirm Selection (${selectedItems.length})", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      )
+                    ),
+                  ),
+              ],
+            ),
+          );
         }
-        _calculateTotals();
-      });
-    }
+      ),
+    );
   }
+
   
   void _editItem(int index) async {
     final item = _items[index];
@@ -258,6 +487,43 @@ class _PurchaseDebitNoteFormScreenState extends State<PurchaseDebitNoteFormScree
     });
   }
 
+  Future<void> _deleteDebitNote() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Delete Debit Note", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+        content: const Text("Are you sure you want to delete this debit note? This action cannot be undone."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text("Delete", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _loading = true);
+    try {
+      await Supabase.instance.client.from('purchase_debit_note_items').delete().eq('debit_note_id', widget.debitNote!['id']);
+      await Supabase.instance.client.from('purchase_debit_notes').delete().eq('id', widget.debitNote!['id']);
+      
+      if (mounted) {
+        Navigator.pop(context, true);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Debit Note Deleted")));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error deleting: $e"), backgroundColor: Colors.red));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   void _saveDebitNote() async {
     if (_items.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please add at least one item")));
@@ -272,12 +538,15 @@ class _PurchaseDebitNoteFormScreenState extends State<PurchaseDebitNoteFormScree
     try {
       final noteData = {
         'company_id': _companyId,
+        'branch_id': _branchId,
         'vendor_id': _vendorId,
         'bill_id': _billId,
         'debit_note_number': _debitNoteNumber,
         'date': _date.toIso8601String(),
         'reason': _reason,
         'notes': _notes,
+        'subtotal': _subtotal,
+        'tax_amount': _totalTax,
         'total_amount': _totalAmount,
       };
       
@@ -293,13 +562,24 @@ class _PurchaseDebitNoteFormScreenState extends State<PurchaseDebitNoteFormScree
       }
       
       final noteId = upsertedNote['id'];
-      final itemsToInsert = _items.map((item) => {
-        'debit_note_id': noteId,
-        'item_id': item['item_id'],
-        'description': item['name'],
-        'quantity': item['quantity'],
-        'unit_price': item['unit_price'],
-        'amount': (item['quantity'] * item['unit_price']),
+      final itemsToInsert = _items.map((item) {
+        final qty = (item['quantity'] ?? 0).toDouble();
+        final price = (item['unit_price'] ?? 0).toDouble();
+        final taxRate = (item['tax_rate'] ?? 0).toDouble();
+        
+        final netAmount = qty * price;
+        final taxAmount = netAmount * (taxRate / 100);
+
+        return {
+          'debit_note_id': noteId,
+          'item_id': item['item_id'],
+          'description': item['name'],
+          'quantity': qty,
+          'unit_price': price,
+          'tax_rate': taxRate,
+          'tax_amount': double.parse(taxAmount.toStringAsFixed(2)),
+          'amount': double.parse((netAmount + taxAmount).toStringAsFixed(2)),
+        };
       }).toList();
       
       await Supabase.instance.client.from('purchase_debit_note_items').insert(itemsToInsert);
@@ -321,31 +601,66 @@ class _PurchaseDebitNoteFormScreenState extends State<PurchaseDebitNoteFormScree
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: context.scaffoldBg,
-      appBar: AppBar(
-        title: Text(widget.debitNote == null ? "New Debit Note" : "Edit Debit Note", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
-        backgroundColor: context.surfaceBg,
-        elevation: 0,
-        iconTheme: IconThemeData(color: context.textPrimary),
-      ),
-      body: _loading ? const Center(child: CircularProgressIndicator()) : Form(
-        key: _formKey,
+      body: _loading ? const Center(child: CircularProgressIndicator()) : SafeArea(
         child: Column(
           children: [
+            // Standard Header
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.close_rounded, color: context.textPrimary),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          widget.debitNote == null ? "New Debit Note" : "Edit Debit Note",
+                          style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
+                          textAlign: TextAlign.center,
+                        ),
+                        Text(_debitNoteNumber.isEmpty ? "Generating ID..." : _debitNoteNumber, style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                  if (widget.debitNote != null)
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+                      onPressed: _deleteDebitNote,
+                    )
+                  else
+                    const SizedBox(width: 48),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            
             Expanded(
               child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
                 padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildHeaderSection(),
-                    const SizedBox(height: 32),
-                    _buildItemsSection(),
-                    const SizedBox(height: 32),
-                    _buildSummarySection(),
-                    const SizedBox(height: 32),
-                    _buildNotesSection(),
-                    const SizedBox(height: 100),
-                  ],
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSectionTitle("Branch"),
+                      const SizedBox(height: 12),
+                      _buildBranchSelector(),
+                      const SizedBox(height: 24),
+                      _buildHeaderSection(),
+                      const SizedBox(height: 32),
+                      _buildItemsSection(),
+                      const SizedBox(height: 32),
+                      _buildSummarySection(),
+                      const SizedBox(height: 32),
+                      _buildNotesSection(),
+                      const SizedBox(height: 100),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -356,11 +671,51 @@ class _PurchaseDebitNoteFormScreenState extends State<PurchaseDebitNoteFormScree
     );
   }
 
+  Widget _buildBranchSelector() {
+    return InkWell(
+      onTap: _selectBranch,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
+        child: Row(
+          children: [
+            Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), shape: BoxShape.circle), child: const Icon(Icons.business_rounded, color: AppColors.primaryBlue, size: 24)),
+            const SizedBox(width: 16),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_branchName ?? "Select Branch", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: _branchName == null ? context.textSecondary.withOpacity(0.4) : context.textPrimary)),
+              if (_branchName == null) Text("Tap to select branch", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+            ])),
+            Icon(Icons.chevron_right_rounded, color: context.textSecondary.withOpacity(0.3)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _selectBranch() async {
+    final branches = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
+    if (!mounted) return;
+    
+    _showSelectionSheet<Map<String, dynamic>>(
+      title: "Select Branch",
+      items: List<Map<String, dynamic>>.from(branches),
+      labelMapper: (b) => b['name'],
+      onSelect: (b) {
+        setState(() {
+          _branchId = b['id'].toString();
+          _branchName = b['name'];
+        });
+        _generateDebitNoteNumber();
+      }
+    );
+  }
+
   Widget _buildHeaderSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionTitle("Vendor & Bill (Optional)"),
+        _buildSectionTitle("Vendor & Invoice (Optional)"),
         const SizedBox(height: 12),
         InkWell(
           onTap: _selectVendor,
@@ -408,7 +763,7 @@ class _PurchaseDebitNoteFormScreenState extends State<PurchaseDebitNoteFormScree
                    child: Column(
                      crossAxisAlignment: CrossAxisAlignment.start,
                      children: [
-                       Text(_billNumber ?? "Link Original Bill (Optional)", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: _billNumber == null ? context.textSecondary.withOpacity(0.4) : context.textPrimary)),
+                       Text(_billNumber ?? "Link Original Invoice (Optional)", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: _billNumber == null ? context.textSecondary.withOpacity(0.4) : context.textPrimary)),
                      ],
                    ),
                  ),

@@ -34,7 +34,7 @@ class _ChallanDetailsSheetState extends State<ChallanDetailsSheet> {
     try {
       final res = await Supabase.instance.client
           .from('sales_dc_items')
-          .select('*, item:items(name, sku)')
+          .select('*, item:items(name, sku, hsn_code)')
           .eq('dc_id', _challan['id']);
       
       if (mounted) {
@@ -258,11 +258,13 @@ class _ChallanDetailsSheetState extends State<ChallanDetailsSheet> {
         'customer_id': _challan['customer_id'],
         'customer_name': _challan['customer']?['name'],
         'branch_id': _challan['branch_id'],
-        'items': _items.map((i) => {
-          'item_id': i['item_id'],
-          'name': i['item']['name'],
-          'quantity': i['quantity'],
-          'unit_price': i['unit_price'],
+        'items': _items.map((i) {
+          return <String, dynamic>{
+            'item_id': i['item_id'],
+            'name': i['item']?['name'] ?? 'Item',
+            'quantity': i['quantity'],
+            'unit_price': i['unit_price'],
+          };
         }).toList(),
         'challan_id': _challan['id'],
       },

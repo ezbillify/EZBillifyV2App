@@ -67,8 +67,53 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       
       final isEdit = widget.invoice != null && widget.invoice!['id'] != null;
       
-      if (!isEdit) {
-        // Fetch branches to select default if only one
+      if (isEdit) {
+        // FETCH EVERYTHING FRESH FOR EDIT
+        final invId = widget.invoice!['id'];
+        final inv = await Supabase.instance.client
+            .from('sales_invoices')
+            .select('*, branch:branches(name), customer:customers(name)')
+            .eq('id', invId)
+            .single();
+            
+        _invoiceNumber = inv['invoice_number'] ?? '';
+        _branchId = inv['branch_id']?.toString();
+        _branchName = inv['branch']?['name'];
+        _customerId = inv['customer_id']?.toString();
+        _customerName = inv['customer']?['name'] ?? inv['customer_name'];
+        _invoiceDate = DateTime.tryParse(inv['date'] ?? inv['invoice_date'] ?? '') ?? DateTime.now();
+        _dueDate = DateTime.tryParse(inv['due_date'] ?? '') ?? DateTime.now();
+        
+        // Fetch items — simple join, tax_rate is already on the line item row
+        final itemsRes = await Supabase.instance.client.from('sales_invoice_items')
+            .select('*, item:items(name, uom, default_sales_price, default_purchase_price)')
+            .eq('invoice_id', invId);
+
+        debugPrint("Edit Invoice: fetched ${itemsRes.length} items for invoice $invId");
+        
+        _items = List<Map<String, dynamic>>.from(itemsRes.map((i) {
+          final qty = i['quantity'];
+          final up = i['unit_price'];
+          final tr = i['tax_rate'];
+          final pp = i['item']?['default_purchase_price'];
+
+          return <String, dynamic>{
+            'item_id': i['item_id'],
+            'name': (i['item'] != null && i['item']['name'] != null) ? i['item']['name'] : (i['description'] ?? 'Item'),
+            'quantity': (qty is num) ? qty.toDouble() : (double.tryParse(qty?.toString() ?? '0') ?? 0),
+            'unit_price': (up is num) ? up.toDouble() : (double.tryParse(up?.toString() ?? '0') ?? 0.0),
+            'tax_rate': (tr is num) ? tr.toDouble() : (double.tryParse(tr?.toString() ?? '0') ?? 0.0),
+            'unit': i['item']?['uom'],
+            'purchase_price': (pp is num) ? pp.toDouble() : (double.tryParse(pp?.toString() ?? '0') ?? 0.0),
+          };
+        }));
+
+        debugPrint("Edit Invoice: mapped ${_items.length} items");
+        
+        _calculateTotals();
+      } else {
+        // NEW INVOICE
+        // Set default branch
         final branches = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
         if (branches.isNotEmpty) {
           _branchId = branches[0]['id'].toString();
@@ -79,26 +124,43 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
         // Check if we have pre-fill data (like from Quotation conversion)
         if (widget.invoice != null) {
            if (widget.invoice!['items'] != null) {
-             _items = List<Map<String, dynamic>>.from(widget.invoice!['items']);
+              final rawItems = List<dynamic>.from(widget.invoice!['items']);
+              _items = List<Map<String, dynamic>>.from(rawItems.map((it) {
+                final qty = it['quantity'];
+                final up = it['unit_price'];
+                final tr = it['tax_rate'];
+                final pp = it['purchase_price'];
+
+                return <String, dynamic>{
+                  'item_id': it['item_id'],
+                  'name': it['name'] ?? it['item']?['name'] ?? 'Item',
+                  'quantity': (qty is num) ? qty.toDouble() : (double.tryParse(qty?.toString() ?? '0') ?? 0),
+                  'unit_price': (up is num) ? up.toDouble() : (double.tryParse(up?.toString() ?? '0') ?? 0.0),
+                  'tax_rate': (tr is num) ? tr.toDouble() : (double.tryParse(tr?.toString() ?? '0') ?? 0.0),
+                  'unit': it['unit'] ?? it['item']?['uom'],
+                  'purchase_price': (pp is num) ? pp.toDouble() : (double.tryParse(pp?.toString() ?? '0') ?? 0.0),
+                };
+              }));
            }
            _customerId = widget.invoice!['customer_id']?.toString();
            _customerName = widget.invoice!['customer_name'] ?? widget.invoice!['customer']?['name'];
+           
+           if (widget.invoice!['branch_id'] != null) {
+              _branchId = widget.invoice!['branch_id'].toString();
+              final bMatch = branches.firstWhere((b) => b['id'].toString() == _branchId, orElse: () => {});
+              if (bMatch.isNotEmpty) _branchName = bMatch['name'];
+           }
            _calculateTotals();
         }
-      } else {
-        // Load existing invoice data for EDIT
-        _invoiceNumber = widget.invoice!['invoice_number'];
-        _branchId = widget.invoice!['branch_id']?.toString();
-        _branchName = widget.invoice!['branch']?['name'];
-        _customerId = widget.invoice!['customer_id']?.toString();
-        _customerName = widget.invoice!['customer']?['name'];
-        _invoiceDate = DateTime.parse(widget.invoice!['date'] ?? widget.invoice!['invoice_date'] ?? DateTime.now().toIso8601String());
-        _dueDate = DateTime.parse(widget.invoice!['due_date'] ?? DateTime.now().toIso8601String());
-        _items = List<Map<String, dynamic>>.from(widget.invoice!['items'] ?? []);
-        _calculateTotals();
       }
     } catch (e) {
-      debugPrint("Error initializing: $e");
+      debugPrint("Error initializing invoice form: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text("Error loading invoice: $e"),
+          backgroundColor: Colors.red,
+        ));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -432,16 +494,16 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
           ),
         ),
         const SizedBox(height: 24),
-        if (widget.invoice == null) _buildPaymentToggleSection(),
+        if (widget.invoice == null) _buildPaymentSection(),
       ],
     );
   }
 
-  Widget _buildPaymentToggleSection() {
+  Widget _buildPaymentSection() {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _recordPayment ? Colors.green.withOpacity(0.05) : context.cardBg,
+        color: _recordPayment ? Colors.green.withOpacity(0.04) : context.cardBg,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: _recordPayment ? Colors.green.withOpacity(0.2) : context.borderColor),
       ),
@@ -449,18 +511,26 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
         children: [
           Row(
             children: [
-              Icon(_recordPayment ? Icons.check_circle_rounded : Icons.payments_outlined, color: _recordPayment ? Colors.green : context.textSecondary),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _recordPayment ? Colors.green.withOpacity(0.1) : context.textSecondary.withOpacity(0.05),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(_recordPayment ? Icons.check_circle_rounded : Icons.payments_outlined, 
+                  color: _recordPayment ? Colors.green : context.textSecondary, size: 20),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text("Record Payment", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
-                    Text("Add immediate payment to this invoice", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+                    Text("Add immediate payment info", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
                   ],
                 ),
               ),
-              Switch.adaptive(
+              Switch(
                 value: _recordPayment, 
                 onChanged: (v) {
                   setState(() {
@@ -472,6 +542,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                   });
                 },
                 activeColor: Colors.green,
+                activeTrackColor: Colors.green.withOpacity(0.3),
               ),
             ],
           ),
@@ -484,9 +555,11 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
               decoration: InputDecoration(
                 labelText: "Paid Amount",
                 prefixText: "₹ ",
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                labelStyle: const TextStyle(fontFamily: 'Outfit'),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                 filled: true,
                 fillColor: context.scaffoldBg,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               ),
               onChanged: (v) => _paidAmount = double.tryParse(v) ?? 0,
             ),
@@ -495,20 +568,24 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
               value: _paymentMode,
               decoration: InputDecoration(
                 labelText: "Payment Mode",
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                labelStyle: const TextStyle(fontFamily: 'Outfit'),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                 filled: true,
                 fillColor: context.scaffoldBg,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               ),
-              items: ["Cash", "Bank Transfer", "UPI", "Cheque", "Other"].map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
+              items: ["Cash", "Bank Transfer", "UPI", "Cheque", "Other"].map((m) => DropdownMenuItem(value: m, child: Text(m, style: const TextStyle(fontFamily: 'Outfit')))).toList(),
               onChanged: (v) => setState(() => _paymentMode = v!),
             ),
             const SizedBox(height: 16),
             TextFormField(
               decoration: InputDecoration(
-                labelText: "Reference # (Optional)",
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                labelText: "Reference # / Notes",
+                labelStyle: const TextStyle(fontFamily: 'Outfit'),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                 filled: true,
                 fillColor: context.scaffoldBg,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               ),
               onChanged: (v) => _referenceNumber = v,
             ),
@@ -813,8 +890,8 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
               'quantity': qty,
               'unit_price': inclusivePrice,
               'tax_rate': rate,
-              'unit': item['unit'],
-              'purchase_price': (item['purchase_price'] ?? 0).toDouble(),
+              'unit': item['uom'],
+              'purchase_price': (item['default_purchase_price'] ?? 0).toDouble(),
             });
           }
         });
@@ -827,7 +904,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
         final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
         final salesPriceInclTax = salesPrice * (1 + rate / 100);
         final purchasePrice = (item['default_purchase_price'] ?? 0).toDouble();
-        final unit = item['unit'] ?? 'unt';
+        final unit = item['uom'] ?? 'unt';
 
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
@@ -1052,7 +1129,10 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
         }
       }
       
-      if (mounted) Navigator.pop(context, true);
+      if (mounted) {
+        await MasterDataService().invalidateItems();
+        Navigator.pop(context, true);
+      }
     } catch (e) {
       debugPrint("Error saving invoice: $e");
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));

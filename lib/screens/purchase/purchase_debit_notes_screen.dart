@@ -18,6 +18,8 @@ class _PurchaseDebitNotesScreenState extends State<PurchaseDebitNotesScreen> {
   bool _loading = true;
   List<Map<String, dynamic>> _notes = [];
   String _searchQuery = '';
+  String _sortBy = 'created_at';
+  bool _sortAscending = false;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
@@ -52,14 +54,24 @@ class _PurchaseDebitNotesScreenState extends State<PurchaseDebitNotesScreen> {
           .eq('company_id', profile['company_id']);
 
       if (_searchQuery.isNotEmpty) {
-        query = query.or('debit_note_number.ilike.%$_searchQuery%,vendors.name.ilike.%$_searchQuery%');
+        query = query.or('debit_note_number.ilike.%$_searchQuery%');
       }
       
-      final response = await query.order('created_at', ascending: false);
+      final response = await query.order(_sortBy, ascending: _sortAscending);
+      
+      List<Map<String, dynamic>> results = List<Map<String, dynamic>>.from(response);
+      
+      if (_searchQuery.isNotEmpty) {
+        results = results.where((o) {
+          final noteMatch = (o['debit_note_number'] ?? '').toString().toLowerCase().contains(_searchQuery.toLowerCase());
+          final vendorMatch = (o['vendor']?['name'] ?? '').toString().toLowerCase().contains(_searchQuery.toLowerCase());
+          return noteMatch || vendorMatch;
+        }).toList();
+      }
       
       if (mounted) {
         setState(() {
-          _notes = List<Map<String, dynamic>>.from(response);
+          _notes = results;
           _loading = false;
         });
       }
@@ -102,6 +114,27 @@ class _PurchaseDebitNotesScreenState extends State<PurchaseDebitNotesScreen> {
       backgroundColor: context.scaffoldBg,
       elevation: 0,
       title: Text("Debit Notes", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+      actions: [
+        PopupMenuButton<String>(
+          icon: Icon(Icons.sort_rounded, color: context.textPrimary),
+          onSelected: (val) {
+            setState(() {
+              if (val == 'newest') { _sortBy = 'date'; _sortAscending = false; }
+              else if (val == 'oldest') { _sortBy = 'date'; _sortAscending = true; }
+              else if (val == 'amount_high') { _sortBy = 'total_amount'; _sortAscending = false; }
+              else if (val == 'amount_low') { _sortBy = 'total_amount'; _sortAscending = true; }
+            });
+            _fetchDebitNotes();
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(value: 'newest', child: Row(children: [Icon(Icons.calendar_today_rounded, size: 18), SizedBox(width: 8), Text('Newest First')])),
+            const PopupMenuItem(value: 'oldest', child: Row(children: [Icon(Icons.history_rounded, size: 18), SizedBox(width: 8), Text('Oldest First')])),
+            const PopupMenuItem(value: 'amount_high', child: Row(children: [Icon(Icons.trending_up_rounded, size: 18), SizedBox(width: 8), Text('Amount: High to Low')])),
+            const PopupMenuItem(value: 'amount_low', child: Row(children: [Icon(Icons.trending_down_rounded, size: 18), SizedBox(width: 8), Text('Amount: Low to High')])),
+          ],
+        ),
+        const SizedBox(width: 8),
+      ],
     );
   }
 

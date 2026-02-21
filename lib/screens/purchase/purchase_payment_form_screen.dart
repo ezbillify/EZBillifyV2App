@@ -83,15 +83,22 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
         
         _paymentDate = DateTime.parse(widget.payment!['date'] ?? widget.payment!['created_at']);
         _amount = (widget.payment!['amount'] ?? 0).toDouble();
-        _amountController.text = _amount.toString();
+        _amountController.text = _amount.toStringAsFixed(2);
         _mode = _kebabToTitle(widget.payment!['mode'] ?? 'bank_transfer');
         _referenceId = widget.payment!['reference_id'] ?? "";
         _notes = widget.payment!['notes'] ?? "";
         _branchId = widget.payment!['branch_id']?.toString();
+        
+        // Safety: If vendor name is missing, fetch it
+        if (_vendorName == null && _vendorId != null) {
+          final v = await Supabase.instance.client.from('vendors').select('name').eq('id', _vendorId!).single();
+          _vendorName = v['name'];
+        }
+
         // Fetch branch name if present
         if (_branchId != null) {
-          final branch = await Supabase.instance.client.from('branches').select('name').eq('id', _branchId!).single();
-          _branchName = branch['name'];
+          final branch = await Supabase.instance.client.from('branches').select('name').eq('id', _branchId!).maybeSingle();
+          if (branch != null) _branchName = branch['name'];
         }
       } else {
         // Fetch default branch
@@ -323,6 +330,9 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
       if (widget.payment != null) {
          await Supabase.instance.client.from('purchase_payments').update(paymentData).eq('id', widget.payment!['id']);
       } else {
+         // Get real number and increment
+         _paymentNumber = await NumberingService.getNextDocumentNumber(companyId: _companyId!, documentType: 'PURCHASE_PAYMENT', branchId: _branchId);
+         paymentData['payment_number'] = _paymentNumber;
          await Supabase.instance.client.from('purchase_payments').insert(paymentData);
          
          // Update Bill Paid Amount
@@ -333,7 +343,7 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
          
          String newStatus = 'partial';
          if (newPaid >= total) newStatus = 'paid';
-         else if (newPaid <= 0) newStatus = 'open'; // unlikely here
+         else if (newPaid <= 0) newStatus = 'open';
          
          await Supabase.instance.client.from('purchase_bills').update({
            'paid_amount': newPaid,
@@ -362,77 +372,93 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
         color: context.scaffoldBg,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      child: Column(
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: Icon(Icons.close_rounded, color: context.textPrimary),
-                  onPressed: () => Navigator.pop(context),
-                ),
-                Expanded(
-                  child: Text(
-                    widget.payment == null ? "Record Payment" : "Edit Payment",
-                    style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
-                    textAlign: TextAlign.center,
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            // Header
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.close_rounded, color: context.textPrimary),
+                    onPressed: () => Navigator.pop(context),
                   ),
-                ),
-                const SizedBox(width: 48), // Spacer
-              ],
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          widget.payment == null ? "Record Payment" : "Edit Payment",
+                          style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
+                          textAlign: TextAlign.center,
+                        ),
+                        Text(_paymentNumber.isEmpty ? "Generating ID..." : _paymentNumber, style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                  if (widget.payment != null)
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+                      onPressed: _deletePayment,
+                    )
+                  else
+                    const SizedBox(width: 48),
+                ],
+              ),
             ),
-          ),
-          const Divider(height: 1),
-          
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildSectionTitle("Company Details"),
-                    const SizedBox(height: 12),
-                    _buildBranchSelector(),
-                    const SizedBox(height: 24),
-                    _buildSectionTitle("Payee Details"),
-                    const SizedBox(height: 12),
-                    _buildVendorSelector(),
-                    
-                    if (_vendorId != null) ...[
-                      const SizedBox(height: 24),
-                      _buildSectionTitle("Bill to Pay"),
+            const Divider(height: 1),
+            
+            Expanded(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(context).viewInsets.bottom + 40),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSectionTitle("Company Details"),
                       const SizedBox(height: 12),
-                      _buildBillSelector(),
-                    ],
-
-                    const SizedBox(height: 32),
-                    _buildPaymentDetailsSection(),
-                    
-                    const SizedBox(height: 32),
-                    _buildNotesSection(),
-                    
-                    const SizedBox(height: 40),
-                    SizedBox(
-                       width: double.infinity,
-                       height: 54,
-                       child: ElevatedButton(
-                         onPressed: _loading ? null : _savePayment,
-                         style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-                         child: _loading 
-                             ? const CircularProgressIndicator(color: Colors.white) 
-                             : const Text("Save Payment", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18)),
+                      _buildBranchSelector(),
+                      const SizedBox(height: 24),
+                      _buildSectionTitle("Payee Details"),
+                      const SizedBox(height: 12),
+                      _buildVendorSelector(),
+                      
+                      if (_vendorId != null) ...[
+                        const SizedBox(height: 24),
+                        _buildSectionTitle("Invoice to Pay"),
+                        const SizedBox(height: 12),
+                        _buildBillSelector(),
+                      ],
+  
+                      const SizedBox(height: 32),
+                      _buildPaymentDetailsSection(),
+                      
+                      const SizedBox(height: 32),
+                      _buildNotesSection(),
+                      
+                      const SizedBox(height: 40),
+                      SizedBox(
+                         width: double.infinity,
+                         height: 54,
+                         child: ElevatedButton(
+                           onPressed: _loading ? null : _savePayment,
+                           style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                           child: _loading 
+                               ? const CircularProgressIndicator(color: Colors.white) 
+                               : const Text("Save Payment", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18)),
+                         ),
                        ),
-                     ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -530,8 +556,8 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
             Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), shape: BoxShape.circle), child: const Icon(Icons.receipt_long, color: Colors.red)),
             const SizedBox(width: 16),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(_billId != null ? "${_billNumber ?? 'Unknown'} (Due: ₹$_billBalance)" : "Select Bill", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
-              if (_billId == null) Text("Tap to select bill", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+              Text(_billId != null ? "${_billNumber ?? 'Unknown'} (Due: ₹$_billBalance)" : "Select Invoice", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
+              if (_billId == null) Text("Tap to select invoice", style: TextStyle(fontSize: 12, color: context.textSecondary)),
             ])),
             const Icon(Icons.arrow_drop_down),
           ],
@@ -602,18 +628,65 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
         ),
         const SizedBox(height: 16),
         
+        const SizedBox(height: 16),
+        
         TextFormField(
           initialValue: _referenceId,
-           decoration: InputDecoration(
-             labelText: "Reference / Transaction ID",
-             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-             filled: true,
-             fillColor: context.cardBg,
+          decoration: InputDecoration(
+            labelText: "Reference / Transaction ID",
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+            filled: true,
+            fillColor: context.cardBg,
           ),
           onChanged: (v) => _referenceId = v,
         ),
       ],
     );
+  }
+
+  void _deletePayment() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text("Delete Payment?"),
+        content: const Text("This will reverse the payment and update the bill balance."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text("Cancel")),
+          TextButton(onPressed: () => Navigator.pop(c, true), child: const Text("Delete", style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _loading = true);
+    try {
+      // Reverse bill paid amount
+      final bill = await Supabase.instance.client.from('purchase_bills').select('paid_amount, total_amount').eq('id', _billId!).single();
+      final currentPaid = (bill['paid_amount'] ?? 0).toDouble();
+      final total = (bill['total_amount'] ?? 0).toDouble();
+      final newPaid = (currentPaid - _amount).clamp(0.0, total);
+      
+      String newStatus = 'partial';
+      if (newPaid >= total) newStatus = 'paid';
+      else if (newPaid <= 0) newStatus = 'open';
+
+      await Supabase.instance.client.from('purchase_bills').update({
+        'paid_amount': newPaid,
+        'status': newStatus
+      }).eq('id', _billId!);
+
+      await Supabase.instance.client.from('purchase_payments').delete().eq('id', widget.payment!['id']);
+
+      if (mounted) {
+        Navigator.pop(context, true);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Payment Deleted")));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Widget _buildNotesSection() {

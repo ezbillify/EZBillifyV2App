@@ -57,7 +57,7 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> with SingleTicker
           indicatorColor: AppColors.primaryBlue,
           indicatorWeight: 3,
           tabs: const [
-            Tab(text: "Bills"),
+            Tab(text: "Invoices"),
             Tab(text: "Orders (PO)"),
             Tab(text: "RFQs"),
             Tab(text: "GRNs"),

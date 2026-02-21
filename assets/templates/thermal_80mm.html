@@ -1,45 +1,86 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
     <style>
         body {
-            font-family: 'monospace';
-            width: 80mm;
-            padding: 5px;
-            font-size: 12px;
+            font-family: 'Courier New', Courier, monospace;
+            width: 72mm;
+            margin: 0;
+            padding: 2mm;
+            font-size: 10pt;
+            color: #000;
         }
-
-        .center {
-            text-align: center;
-        }
-
-        .divider {
-            border-top: 1px dashed black;
-            margin: 5px 0;
-        }
-
-        .row {
-            display: flex;
-            justify-content: space-between;
-        }
+        .center { text-align: center; }
+        .bold { font-weight: bold; }
+        .divider { border-top: 1px dashed #000; margin: 2mm 0; }
+        .row { display: flex; justify-content: space-between; margin-bottom: 1mm; }
+        .item-row { margin-bottom: 2mm; }
+        .header { margin-bottom: 4mm; }
+        .footer { margin-top: 6mm; font-size: 8pt; }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; border-bottom: 1px solid #000; font-size: 9pt; }
+        td { padding: 1mm 0; font-size: 9pt; }
+        .text-right { text-align: right; }
     </style>
 </head>
-
 <body>
-    <div class="center">
-        <h2>{{COMPANY_NAME}}</h2>
-        <p>{{DOC_TYPE}} #{{DOC_NUMBER}}</p>
+    <div class="header center">
+        <div class="bold" style="font-size: 14pt;">{{COMPANY_NAME}}</div>
+        <div style="font-size: 9pt;">{{COMPANY_ADDRESS}}</div>
+        <div style="font-size: 9pt;">GSTIN: {{COMPANY_GSTIN}}</div>
+        <div style="font-size: 9pt;">PH: {{COMPANY_PHONE}}</div>
     </div>
-    <div class="divider"></div>
-    {{ITEMS_SIMPLE}}
-    <div class="divider"></div>
-    <div class="row">
-        <span>TOTAL:</span>
-        <span>₹{{TOTAL}}</span>
-    </div>
-    <div class="divider"></div>
-    <p class="center">Thank you!</p>
-</body>
 
+    <div class="divider"></div>
+
+    <div class="center bold" style="font-size: 11pt; margin-bottom: 2mm;">{{DOC_TITLE}}</div>
+    
+    <div class="row">
+        <span>No: {{DOC_NUMBER}}</span>
+        <span>Date: {{DATE}}</span>
+    </div>
+    <div class="row">
+        <span>To: {{CUSTOMER_NAME}}</span>
+    </div>
+
+    <div class="divider"></div>
+
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 50%;">Item</th>
+                <th class="text-right" style="width: 20%;">Qty</th>
+                <th class="text-right" style="width: 30%;">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{ITEMS_ROWS_THERMAL}}
+        </tbody>
+    </table>
+
+    <div class="divider"></div>
+
+    <div class="row">
+        <span>Subtotal</span>
+        <span class="text-right">₹{{SUBTOTAL}}</span>
+    </div>
+    <div class="row">
+        <span>Tax Total</span>
+        <span class="text-right">₹{{TAX_TOTAL}}</span>
+    </div>
+    {{ROUND_OFF_ROW}}
+    <div class="row bold" style="font-size: 12pt; margin-top: 2mm;">
+        <span>GRAND TOTAL</span>
+        <span class="text-right">₹{{GRAND_TOTAL}}</span>
+    </div>
+
+    <div class="divider"></div>
+    
+    <div class="center footer">
+        <div>{{TERMS_SHORT}}</div>
+        <div style="margin-top: 2mm;">Thank you for your business!</div>
+        <div class="bold">Powered by EZBillify</div>
+    </div>
+</body>
 </html>

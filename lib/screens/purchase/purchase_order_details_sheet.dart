@@ -154,8 +154,10 @@ class _PurchaseOrderDetailsSheetState extends State<PurchaseOrderDetailsSheet> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
+                            final data = Map<String, dynamic>.from(widget.order);
+                            data['items'] = _items;
                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
-                            final path = await PrintService.downloadDocument(Map<String, dynamic>.from(widget.order), 'purchase_order');
+                            final path = await PrintService.downloadDocument(data, 'purchase_order');
                             if (path != null && mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
                             }
@@ -169,7 +171,9 @@ class _PurchaseOrderDetailsSheetState extends State<PurchaseOrderDetailsSheet> {
                       child: _buildActionButton(Icons.share_outlined, "Share Order", () async {
                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparing share...'), duration: Duration(seconds: 1)));
                         try {
-                          await PrintService.shareDocument(context, Map<String, dynamic>.from(widget.order), 'purchase_order');
+                          final data = Map<String, dynamic>.from(widget.order);
+                          data['items'] = _items;
+                          await PrintService.shareDocument(context, data, 'purchase_order');
                         } catch (e) {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme_service.dart';
-
+import '../../services/master_data_service.dart';
 class ItemFormSheet extends StatefulWidget {
   final Map<String, dynamic>? item; // If null, create new
   const ItemFormSheet({super.key, this.item});
@@ -131,7 +131,10 @@ class _ItemFormSheetState extends State<ItemFormSheet> {
         await Supabase.instance.client.from('items').insert(data);
       }
       
-      if (mounted) Navigator.pop(context, true);
+      if (mounted) {
+        await MasterDataService().invalidateItems();
+        Navigator.pop(context, true);
+      }
     } catch (e) {
       debugPrint("Error saving item: $e");
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));

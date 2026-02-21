@@ -42,13 +42,23 @@ class MasterDataService {
       debugPrint("Fetching items from Supabase for company: $companyId");
       final results = await _supabase
           .from('items')
-          .select('*, tax_rate:tax_rates(rate)')
+          .select('*, tax_rate:tax_rates(rate), inventory_stock(quantity)')
           .eq('company_id', companyId)
           .eq('is_active', true)
           .order('name', ascending: true)
           .limit(5000);
       
-      _items = List<Map<String, dynamic>>.from(results);
+      _items = List<Map<String, dynamic>>.from(results.map((item) {
+        final stock = List<dynamic>.from(item['inventory_stock'] ?? []);
+        double totalStock = 0;
+        for (var s in stock) {
+          totalStock += (s['quantity'] ?? 0).toDouble();
+        }
+        return {
+          ...item,
+          'total_stock': totalStock,
+        };
+      }));
       _lastItemsSync = DateTime.now();
       
       // Background save to local persistent storage
@@ -129,16 +139,32 @@ class MasterDataService {
     }
   }
 
-  void invalidateCache() {
+  Future<void> invalidateItems() async {
     _items = [];
-    _customers = [];
     _lastItemsSync = null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('cache_items');
+      await prefs.remove('cache_items_time');
+    } catch (e) {
+      debugPrint("Cache invalidate error: $e");
+    }
+  }
+
+  Future<void> invalidateCustomers() async {
+    _customers = [];
     _lastCustomersSync = null;
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.remove('cache_items');
-      prefs.remove('cache_items_time');
-      prefs.remove('cache_customers');
-      prefs.remove('cache_customers_time');
-    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('cache_customers');
+      await prefs.remove('cache_customers_time');
+    } catch (e) {
+      debugPrint("Cache invalidate error: $e");
+    }
+  }
+
+  void invalidateCache() {
+    invalidateItems();
+    invalidateCustomers();
   }
 }

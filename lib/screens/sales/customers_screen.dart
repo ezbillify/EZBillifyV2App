@@ -360,13 +360,18 @@ class _CustomersScreenState extends State<CustomersScreen> {
   }
 
   Widget _buildQuickContactActions(Map<String, dynamic> customer) {
+    final phone = customer['phone']?.toString().replaceAll(RegExp(r'\D'), '') ?? '';
+    final hasPhone = phone.length == 10;
+    final formattedPhone = hasPhone ? "+91$phone" : customer['phone'];
+    final whatsappPhone = hasPhone ? "91$phone" : phone;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        _buildContactBtn(Icons.phone_rounded, "Call", const Color(0xFF10B981), () => _launchURL("tel:${customer['phone']}")),
-        _buildContactBtn(Icons.message_rounded, "Message", const Color(0xFF3B82F6), () => _launchURL("sms:${customer['phone']}")),
+        _buildContactBtn(Icons.phone_rounded, "Call", const Color(0xFF10B981), () => _launchURL("tel:$formattedPhone")),
+        _buildContactBtn(Icons.message_rounded, "Message", const Color(0xFF3B82F6), () => _launchURL("sms:$formattedPhone")),
         _buildContactBtn(Icons.mail_rounded, "Email", const Color(0xFFF59E0B), () => _launchURL("mailto:${customer['email']}")),
-        _buildContactBtn(Icons.chat_bubble_rounded, "WhatsApp", const Color(0xFF22C55E), () => _launchURL("https://wa.me/${customer['phone']}")),
+        _buildContactBtn(Icons.chat_bubble_rounded, "WhatsApp", const Color(0xFF22C55E), () => _launchURL("https://api.whatsapp.com/send?phone=$whatsappPhone")),
       ],
     );
   }
@@ -615,22 +620,6 @@ class _CustomersScreenState extends State<CustomersScreen> {
                 ),
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  HapticFeedback.mediumImpact();
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Statement sharing coming soon!")));
-                },
-                icon: const Icon(Icons.share_rounded, size: 18),
-                label: const Text("Share PDF", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                  side: BorderSide(color: context.borderColor),
-                ),
-              ),
-            ),
           ],
         ),
       ],
@@ -784,9 +773,19 @@ class _CustomersScreenState extends State<CustomersScreen> {
   }
 
   void _launchURL(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        // Fallback for Android 11+ if canLaunchUrl returns false despite queries
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      debugPrint("Error launching URL: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+      }
     }
   }
 

@@ -8,6 +8,7 @@ import 'login_screen.dart';
 import 'admin_dashboard.dart';
 import 'employee_dashboard.dart';
 import 'workforce_dashboard.dart';
+import '../services/permission_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -112,11 +113,14 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   }
 
   void _startAnimations() async {
+    // Request all required permissions on Android immediately
+    await PermissionService.requestStartupPermissions();
+    
     _logoController.forward();
     _textController.forward();
     _taglineController.forward();
 
-    await Future.delayed(const Duration(seconds: 2));
+    await Future.delayed(const Duration(milliseconds: 500));
     if (!mounted) return;
     
     try {

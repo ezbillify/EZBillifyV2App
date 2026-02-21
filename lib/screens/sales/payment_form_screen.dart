@@ -136,154 +136,154 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.9,
-      decoration: BoxDecoration(
-        color: context.scaffoldBg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: Icon(Icons.close_rounded, color: context.textPrimary),
-                  onPressed: () => Navigator.pop(context),
-                ),
-                Expanded(
-                  child: Text(
-                    "Record Payment",
-                    style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-                const SizedBox(width: 48), // Spacer
-              ],
+    return Scaffold(
+      backgroundColor: context.scaffoldBg,
+      appBar: AppBar(
+        backgroundColor: context.surfaceBg,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_rounded, color: context.textPrimary),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Column(
+          children: [
+            Text(
+              "Record Payment",
+              style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
             ),
-          ),
-          const Divider(height: 1),
-          
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                     _buildSectionTitle("Company Details"),
-                     const SizedBox(height: 12),
-                     _buildBranchSelector(),
+            Text(_paymentNumber.isEmpty ? "Generating ID..." : _paymentNumber, style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        centerTitle: true,
+      ),
+      body: _loading
+        ? const Center(child: CircularProgressIndicator())
+        : SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                   _buildSectionTitle("Company Details"),
+                   const SizedBox(height: 12),
+                   _buildBranchSelector(),
+                   const SizedBox(height: 24),
+                   
+                   _buildSectionTitle("Customer"),
+                   const SizedBox(height: 12),
+                   _buildCustomerSelector(),
+                   
+                   if (_customerId != null) ...[
                      const SizedBox(height: 24),
-                     
-                     _buildSectionTitle("Customer"),
+                     _buildSectionTitle("Invoice to Pay"),
                      const SizedBox(height: 12),
-                     _buildCustomerSelector(),
-                     
-                     if (_customerId != null) ...[
-                       const SizedBox(height: 24),
-                       _buildSectionTitle("Invoice to Pay"),
-                       const SizedBox(height: 12),
-                       _buildInvoiceSelector(),
-                     ],
+                     _buildInvoiceSelector(),
+                   ],
 
-                     const SizedBox(height: 24),
-                     _buildSectionTitle("Payment Details"),
-                     const SizedBox(height: 12),
+                   const SizedBox(height: 24),
+                   _buildSectionTitle("Payment Details"),
+                   const SizedBox(height: 12),
 
-                     // Payment Number
-                     TextFormField(
-                       key: ValueKey(_paymentNumber),
-                       initialValue: _paymentNumber, // This will be the preview number
-                       readOnly: true, // Should be read-only if auto-numbered
-                       decoration: InputDecoration(
-                         labelText: "Payment Number",
-                         prefixIcon: const Icon(Icons.numbers),
-                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                         filled: true,
-                         fillColor: context.cardBg,
+                   // Payment Number
+                   TextFormField(
+                     key: ValueKey(_paymentNumber),
+                     initialValue: _paymentNumber, 
+                     readOnly: true, 
+                     style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+                     decoration: InputDecoration(
+                       labelText: "Payment Number",
+                       prefixIcon: const Icon(Icons.numbers),
+                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                       filled: true,
+                       fillColor: context.cardBg,
+                     ),
+                   ),
+                   const SizedBox(height: 16),
+                   
+                   // Date Selector
+                   _buildInfoCard("Payment Date", DateFormat('dd MMM, yyyy').format(_paymentDate), Icons.calendar_today_rounded, () async {
+                      final picked = await showCustomCalendarSheet(
+                        context: context, 
+                        initialDate: _paymentDate, 
+                        title: "Select Payment Date",
+                        lastDate: DateTime.now()
+                      );
+                      if (picked != null) setState(() => _paymentDate = picked);
+                   }),
+                   const SizedBox(height: 16),
+                   
+                   // Amount Field
+                   TextFormField(
+                     controller: _amountController,
+                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                     style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primaryBlue),
+                     decoration: InputDecoration(
+                       labelText: "Amount Received",
+                       prefixText: "₹ ",
+                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                       filled: true,
+                       fillColor: context.cardBg,
+                       contentPadding: const EdgeInsets.all(20),
+                     ),
+                     onChanged: (v) => _amount = double.tryParse(v) ?? 0,
+                     validator: (v) {
+                       if (v == null || v.isEmpty) return "Enter amount";
+                       final val = double.tryParse(v);
+                       if (val == null || val <= 0) return "Invalid amount";
+                       if (_invoiceId != null && val > _invoiceBalance + 0.99) return "Exceeds balance (₹$_invoiceBalance)"; 
+                       return null;
+                     },
+                   ),
+                   const SizedBox(height: 16),
+                   
+                   // Mode Selector
+                   DropdownButtonFormField<String>(
+                     value: _paymentMode,
+                     decoration: InputDecoration(
+                       labelText: "Payment Mode", 
+                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none), 
+                       filled: true, 
+                       fillColor: context.cardBg,
+                     ),
+                     items: ["Cash", "Bank Transfer", "Cheque", "UPI", "Other"].map((m) => DropdownMenuItem(value: m, child: Text(m, style: const TextStyle(fontFamily: 'Outfit')))).toList(),
+                     onChanged: (v) => setState(() => _paymentMode = v!),
+                   ),
+                   const SizedBox(height: 16),
+                   
+                   TextFormField(
+                     decoration: InputDecoration(labelText: "Reference # (Optional)", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none), filled: true, fillColor: context.cardBg),
+                     onChanged: (v) => _referenceNumber = v,
+                   ),
+                   const SizedBox(height: 16),
+                   
+                   TextFormField(
+                     maxLines: 3,
+                     decoration: InputDecoration(labelText: "Notes (Optional)", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none), filled: true, fillColor: context.cardBg),
+                     onChanged: (v) => _notes = v,
+                   ),
+                   
+                   const SizedBox(height: 48),
+                   SizedBox(
+                     width: double.infinity,
+                     height: 56,
+                     child: ElevatedButton(
+                       onPressed: _loading ? null : _savePayment,
+                       style: ElevatedButton.styleFrom(
+                         backgroundColor: AppColors.primaryBlue, 
+                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                         elevation: 0,
                        ),
+                       child: _loading 
+                           ? const CircularProgressIndicator(color: Colors.white) 
+                           : const Text("Save Payment", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18)),
                      ),
-                     const SizedBox(height: 16),
-                     
-                     // Date Selector
-                     _buildInfoCard("Payment Date", DateFormat('dd MMM, yyyy').format(_paymentDate), Icons.calendar_today_rounded, () async {
-                        final picked = await showCustomCalendarSheet(
-                          context: context, 
-                          initialDate: _paymentDate, 
-                          title: "Select Payment Date",
-                          lastDate: DateTime.now()
-                        );
-                        if (picked != null) setState(() => _paymentDate = picked);
-                     }),
-                     const SizedBox(height: 16),
-                     
-                     // Amount Field
-                     TextFormField(
-                       controller: _amountController,
-                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                       style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primaryBlue),
-                       decoration: InputDecoration(
-                         labelText: "Amount Received",
-                         prefixText: "₹ ",
-                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                         filled: true,
-                         fillColor: context.cardBg,
-                       ),
-                       onChanged: (v) => _amount = double.tryParse(v) ?? 0,
-                       validator: (v) {
-                         if (v == null || v.isEmpty) return "Enter amount";
-                         final val = double.tryParse(v);
-                         if (val == null || val <= 0) return "Invalid amount";
-                         if (_invoiceId != null && val > _invoiceBalance + 0.99) return "Exceeds balance (₹$_invoiceBalance)"; // Slight buffer for float
-                         return null;
-                       },
-                     ),
-                     const SizedBox(height: 16),
-                     
-                     // Mode Selector
-                     DropdownButtonFormField<String>(
-                       value: _paymentMode,
-                       decoration: InputDecoration(labelText: "Payment Mode", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), filled: true, fillColor: context.cardBg),
-                       items: ["Cash", "Bank Transfer", "Cheque", "UPI", "Other"].map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
-                       onChanged: (v) => setState(() => _paymentMode = v!),
-                     ),
-                     const SizedBox(height: 16),
-                     
-                     TextFormField(
-                       decoration: InputDecoration(labelText: "Reference # (Optional)", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), filled: true, fillColor: context.cardBg),
-                       onChanged: (v) => _referenceNumber = v,
-                     ),
-                     const SizedBox(height: 16),
-                     
-                     TextFormField(
-                       maxLines: 3,
-                       decoration: InputDecoration(labelText: "Notes (Optional)", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), filled: true, fillColor: context.cardBg),
-                       onChanged: (v) => _notes = v,
-                     ),
-                     
-                     const SizedBox(height: 40),
-                     SizedBox(
-                       width: double.infinity,
-                       height: 54,
-                       child: ElevatedButton(
-                         onPressed: _loading ? null : _savePayment,
-                         style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-                         child: _loading 
-                             ? const CircularProgressIndicator(color: Colors.white) 
-                             : const Text("Save Payment", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18)),
-                       ),
-                     ),
-                  ],
-                ),
+                   ),
+                   const SizedBox(height: 40),
+                ],
               ),
             ),
           ),
-        ],
-      ),
     );
   }
 

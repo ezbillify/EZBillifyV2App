@@ -73,7 +73,7 @@ class _PurchaseGrnDetailsSheetState extends State<PurchaseGrnDetailsSheet> {
                   controller: scrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   children: [
-                    _buildHeader(context, grnNumber, vendorName),
+                    _buildHeader(context, grnNumber, vendorName, widget.grn['reference_number']),
                     const SizedBox(height: 32),
                     _buildQuickStats(context, date, _items.length),
                     const SizedBox(height: 32),
@@ -139,14 +139,18 @@ class _PurchaseGrnDetailsSheetState extends State<PurchaseGrnDetailsSheet> {
                       children: [
                         Expanded(
                           child: _buildActionButton(Icons.print_outlined, "Print", () {
-                            PrintService.printDocument(Map<String, dynamic>.from(widget.grn), 'purchase_grn');
+                            final data = Map<String, dynamic>.from(widget.grn);
+                            data['items'] = _items;
+                            PrintService.printDocument(data, 'purchase_grn');
                           }),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
+                            final data = Map<String, dynamic>.from(widget.grn);
+                            data['items'] = _items;
                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
-                            final path = await PrintService.downloadDocument(Map<String, dynamic>.from(widget.grn), 'purchase_grn');
+                            final path = await PrintService.downloadDocument(data, 'purchase_grn');
                             if (path != null && mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
                             }
@@ -160,7 +164,9 @@ class _PurchaseGrnDetailsSheetState extends State<PurchaseGrnDetailsSheet> {
                       child: _buildActionButton(Icons.share_outlined, "Share GRN", () async {
                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparing share...'), duration: Duration(seconds: 1)));
                         try {
-                          await PrintService.shareDocument(context, Map<String, dynamic>.from(widget.grn), 'purchase_grn');
+                          final data = Map<String, dynamic>.from(widget.grn);
+                          data['items'] = _items;
+                          await PrintService.shareDocument(context, data, 'purchase_grn');
                         } catch (e) {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));
@@ -179,7 +185,7 @@ class _PurchaseGrnDetailsSheetState extends State<PurchaseGrnDetailsSheet> {
     );
   }
 
-  Widget _buildHeader(BuildContext context, String number, String vendor) {
+  Widget _buildHeader(BuildContext context, String number, String vendor, String? reference) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -189,6 +195,8 @@ class _PurchaseGrnDetailsSheetState extends State<PurchaseGrnDetailsSheet> {
             children: [
               Text(number, style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary)),
               Text(vendor, style: TextStyle(fontFamily: 'Outfit', fontSize: 16, color: context.textSecondary)),
+              if (reference != null && reference.isNotEmpty)
+                Text("Inv #: $reference", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: Colors.green, fontWeight: FontWeight.bold)),
             ],
           ),
         ),

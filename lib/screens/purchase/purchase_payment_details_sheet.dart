@@ -23,7 +23,7 @@ class PurchasePaymentDetailsSheet extends StatelessWidget {
         ? payment['bill']['bill_number']
         : 'N/A';
     final notes = payment['notes']?.toString() ?? '';
-    final reference = payment['reference']?.toString() ?? '';
+    final reference = payment['reference_id']?.toString() ?? '';
 
     return BackdropFilter(
       filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
@@ -108,13 +108,13 @@ class PurchasePaymentDetailsSheet extends StatelessWidget {
                     Row(
                       children: [
                         Expanded(
-                          child: _buildActionButton(Icons.print_outlined, "Print", () {
+                          child: _buildActionButton(context, Icons.print_outlined, "Print", () {
                             PrintService.printDocument(Map<String, dynamic>.from(payment), 'payment');
                           }),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
+                          child: _buildActionButton(context, Icons.file_download_outlined, "Download", () async {
                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
                             final path = await PrintService.downloadDocument(Map<String, dynamic>.from(payment), 'payment');
                             if (path != null) {
@@ -127,12 +127,15 @@ class PurchasePaymentDetailsSheet extends StatelessWidget {
                     const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
-                      child: _buildActionButton(Icons.share_outlined, "Share Receipt", () async {
+                      child: _buildActionButton(context, Icons.share_outlined, "Share Receipt", () async {
                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparing share...'), duration: Duration(seconds: 1)));
                         try {
-                          await PrintService.shareDocument(context, Map<String, dynamic>.from(payment), 'payment');
+                          final data = Map<String, dynamic>.from(payment);
+                          await PrintService.shareDocument(context, data, 'payment');
                         } catch (e) {
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));
+                          }
                         }
                       }),
                     ),
@@ -217,18 +220,17 @@ class PurchasePaymentDetailsSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildActionButton(IconData icon, String label, VoidCallback onTap) {
+  Widget _buildActionButton(BuildContext context, IconData icon, String label, VoidCallback onTap) {
     return ElevatedButton.icon(
       onPressed: onTap,
       icon: Icon(icon, size: 18),
       label: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
       style: ElevatedButton.styleFrom(
-        // Use hardcoded colors or context access since this is a StatelessWidget
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        backgroundColor: context.cardBg,
+        foregroundColor: context.textPrimary,
         elevation: 0,
         padding: const EdgeInsets.symmetric(vertical: 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: Color(0xFFE5E7EB))),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: context.borderColor)),
       ),
     );
   }

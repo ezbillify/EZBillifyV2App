@@ -22,6 +22,7 @@ class _VendorsScreenState extends State<VendorsScreen> {
   String _searchQuery = '';
   String _sortBy = 'created_at';
   bool _sortAscending = false;
+  final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
   @override
@@ -35,6 +36,7 @@ class _VendorsScreenState extends State<VendorsScreen> {
 
   @override
   void dispose() {
+    _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
   }
@@ -221,13 +223,18 @@ class _VendorsScreenState extends State<VendorsScreen> {
   }
 
   Widget _buildQuickContactActions(Map<String, dynamic> vendor) {
+    final phone = vendor['phone']?.toString().replaceAll(RegExp(r'\D'), '') ?? '';
+    final hasPhone = phone.length == 10;
+    final formattedPhone = hasPhone ? "+91$phone" : vendor['phone'];
+    final whatsappPhone = hasPhone ? "91$phone" : phone;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        _buildContactBtn(Icons.phone_rounded, "Call", const Color(0xFF10B981), () => _launchURL("tel:${vendor['phone']}")),
-        _buildContactBtn(Icons.message_rounded, "Message", const Color(0xFF3B82F6), () => _launchURL("sms:${vendor['phone']}")),
+        _buildContactBtn(Icons.phone_rounded, "Call", const Color(0xFF10B981), () => _launchURL("tel:$formattedPhone")),
+        _buildContactBtn(Icons.message_rounded, "Message", const Color(0xFF3B82F6), () => _launchURL("sms:$formattedPhone")),
         _buildContactBtn(Icons.mail_rounded, "Email", const Color(0xFFF59E0B), () => _launchURL("mailto:${vendor['email']}")),
-        _buildContactBtn(Icons.chat_bubble_rounded, "WhatsApp", const Color(0xFF22C55E), () => _launchURL("https://wa.me/${vendor['phone']}")),
+        _buildContactBtn(Icons.chat_bubble_rounded, "WhatsApp", const Color(0xFF22C55E), () => _launchURL("https://api.whatsapp.com/send?phone=$whatsappPhone")),
       ],
     );
   }
@@ -438,10 +445,9 @@ class _VendorsScreenState extends State<VendorsScreen> {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () async {
+                onPressed: () {
                   Navigator.pop(context); // Close detail sheet
-                  final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => VendorFormScreen(vendor: vendor)));
-                  if (result == true) _fetchVendors();
+                  _showVendorFormSheet(vendor: vendor);
                 },
                 icon: const Icon(Icons.edit_rounded, size: 18),
                 label: const Text("Edit Details", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
@@ -459,9 +465,19 @@ class _VendorsScreenState extends State<VendorsScreen> {
   }
 
   void _launchURL(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        // Fallback for Android 11+ if canLaunchUrl returns false despite queries
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      debugPrint("Error launching URL: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+      }
     }
   }
 
@@ -472,44 +488,87 @@ class _VendorsScreenState extends State<VendorsScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text("Vendors", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+        title: Text(widget.isSelecting ? "Select Vendor" : "Vendors", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
         titleTextStyle: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary, fontSize: 20),
         centerTitle: false,
         iconTheme: IconThemeData(color: context.textPrimary),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-           final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => const VendorFormScreen()));
-           if (result == true) _fetchVendors();
-        },
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              height: 54,
+              decoration: BoxDecoration(
+                color: _searchFocusNode.hasFocus ? AppColors.primaryBlue.withOpacity(0.04) : context.cardBg,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: _searchFocusNode.hasFocus ? AppColors.primaryBlue : context.borderColor),
+              ),
+              child: TextField(
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary),
+                decoration: InputDecoration(
+                  hintText: "Search vendor by name, email or phone...",
+                  hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.5), fontSize: 14),
+                  prefixIcon: Icon(Icons.search_rounded, color: _searchFocusNode.hasFocus ? AppColors.primaryBlue : context.textSecondary.withOpacity(0.5)),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 15),
+                  suffixIcon: _searchQuery.isNotEmpty 
+                    ? IconButton(
+                        icon: const Icon(Icons.close_rounded, color: AppColors.primaryBlue), 
+                        onPressed: () {
+                          setState(() {
+                            _searchQuery = '';
+                            _searchController.clear();
+                          });
+                          _fetchVendors();
+                        }
+                      ) 
+                    : null,
+                ),
+                onChanged: (v) {
+                  setState(() => _searchQuery = v);
+                  _fetchVendors();
+                },
+              ),
+            ),
+          ),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _vendors.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.store_rounded, size: 64, color: context.textSecondary.withOpacity(0.2)),
+                            const SizedBox(height: 16),
+                            Text("No vendors found", style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary)),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _vendors.length,
+                        itemBuilder: (context, index) {
+                          final vendor = _vendors[index];
+                          return FadeInUp(
+                            duration: Duration(milliseconds: 400 + (index % 5 * 100)),
+                            child: _buildVendorCard(vendor),
+                          );
+                        },
+                      ),
+          ),
+        ],
+      ),
+      floatingActionButton: widget.isSelecting ? null : FloatingActionButton.extended(
+        onPressed: () => _showVendorFormSheet(),
         backgroundColor: AppColors.primaryBlue,
         icon: const Icon(Icons.add_rounded, color: Colors.white),
         label: const Text("Add Vendor", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white)),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _vendors.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.store_rounded, size: 64, color: context.textSecondary.withOpacity(0.2)),
-                      const SizedBox(height: 16),
-                      Text("No vendors found", style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary)),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _vendors.length,
-                  itemBuilder: (context, index) {
-                    final vendor = _vendors[index];
-                    return FadeInUp(
-                      duration: Duration(milliseconds: 400 + (index % 5 * 100)),
-                      child: _buildVendorCard(vendor),
-                    );
-                  },
-                ),
     );
   }
 
@@ -601,5 +660,27 @@ class _VendorsScreenState extends State<VendorsScreen> {
         ),
       ),
     );
+  }
+
+  void _showVendorFormSheet({Map<String, dynamic>? vendor}) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      useSafeArea: true,
+      builder: (context) => BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: DraggableScrollableSheet(
+          initialChildSize: 0.9,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) => VendorFormScreen(
+            vendor: vendor,
+            isSheet: true,
+          ),
+        ),
+      ),
+    ).then((_) => _fetchVendors());
   }
 }

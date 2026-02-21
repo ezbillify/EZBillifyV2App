@@ -89,10 +89,19 @@ class _PrintTemplatePreviewScreenState extends State<PrintTemplatePreviewScreen>
                   _buildTemplateCard(
                     context,
                     TemplateType.thermal80mm,
-                    "Thermal GST V2 (80mm)",
-                    "Optimized for 80mm thermal printers. Compact layout with clear item breakdown and summarized tax info.",
+                    "Thermal Receipt (80mm)",
+                    "Standard width for most thermal printers. Optimized for clear itemized billing and readable fonts.",
                     Icons.print_rounded,
                     AppColors.primaryBlue,
+                  ),
+                  const SizedBox(height: 20),
+                  _buildTemplateCard(
+                    context,
+                    TemplateType.thermal58mm,
+                    "Compact Thermal (58mm)",
+                    "Perfect for small mobile Bluetooth printers. Concise layout that saves paper while showing key details.",
+                    Icons.horizontal_rule_rounded,
+                    const Color(0xFF0D9488),
                   ),
                   const SizedBox(height: 20),
                   _buildTemplateCard(

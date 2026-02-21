@@ -59,50 +59,89 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
       final profile = await Supabase.instance.client.from('users').select('id, company_id').eq('auth_id', user!.id).single();
       _companyId = profile['company_id'];
       _internalUserId = profile['id'];
-      
-      if (widget.quotation == null) {
-        // Fetch branches to select default if only one
+
+      final isEdit = widget.quotation != null && widget.quotation!['id'] != null;
+
+      if (isEdit) {
+        // FETCH EVERYTHING FRESH FOR EDIT
+        final quoteId = widget.quotation!['id'];
+        final quote = await Supabase.instance.client
+            .from('sales_quotations')
+            .select('*, branch:branches(name), customer:customers(name)')
+            .eq('id', quoteId)
+            .single();
+            
+        _quotationNumber = quote['quote_number'] ?? quote['quotation_number'] ?? '';
+        _branchId = quote['branch_id']?.toString();
+        _branchName = quote['branch']?['name'];
+        _customerId = quote['customer_id']?.toString();
+        _customerName = quote['customer']?['name'];
+        _quotationDate = DateTime.tryParse(quote['date'] ?? quote['quotation_date'] ?? '') ?? DateTime.now();
+        _validUntil = DateTime.tryParse(quote['expiry_date'] ?? quote['valid_until'] ?? '') ?? DateTime.now().add(const Duration(days: 30));
+        _status = quote['status'] ?? 'draft';
+        
+        // Fetch items
+        final itemsRes = await Supabase.instance.client.from('sales_quotation_items')
+            .select('*, item:items(name, uom, default_sales_price, default_purchase_price)')
+            .eq('quote_id', quoteId);
+        
+        _items = List<Map<String, dynamic>>.from(itemsRes.map((i) {
+          final qty = i['quantity'];
+          final up = i['unit_price'];
+          final tr = i['tax_rate'];
+          final pp = i['item']?['default_purchase_price'];
+
+          return <String, dynamic>{
+            'item_id': i['item_id'],
+            'name': i['item']?['name'] ?? i['description'] ?? 'Item',
+            'quantity': (qty is num) ? qty.toDouble() : (double.tryParse(qty?.toString() ?? '0') ?? 0),
+            'unit_price': (up is num) ? up.toDouble() : (double.tryParse(up?.toString() ?? '0') ?? 0.0),
+            'tax_rate': (tr is num) ? tr.toDouble() : (double.tryParse(tr?.toString() ?? '0') ?? 0.0),
+            'unit': i['item']?['uom'],
+            'purchase_price': (pp is num) ? pp.toDouble() : (double.tryParse(pp?.toString() ?? '0') ?? 0.0),
+          };
+        }));
+
+        _calculateTotals();
+      } else {
+        // NEW QUOTATION
         final branches = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
         if (branches.isNotEmpty) {
           _branchId = branches[0]['id'].toString();
           _branchName = branches[0]['name'];
         }
         await _generateQuotationNumber();
-      } else {
-        // Load existing quotation data
-        _quotationNumber = widget.quotation!['quote_number'] ?? widget.quotation!['quotation_number'] ?? '';
-        _branchId = widget.quotation!['branch_id']?.toString();
-        _branchName = widget.quotation!['branch']?['name'];
-        _customerId = widget.quotation!['customer_id']?.toString();
-        _customerName = widget.quotation!['customer']?['name'];
-        _quotationDate = DateTime.parse(widget.quotation!['date'] ?? widget.quotation!['quotation_date'] ?? DateTime.now().toIso8601String());
-        _validUntil = DateTime.tryParse(widget.quotation!['expiry_date'] ?? widget.quotation!['valid_until'] ?? '') ?? DateTime.now().add(const Duration(days: 30));
-        _status = widget.quotation!['status'] ?? 'draft';
-        
-        // Fetch items if not provided or just rely on what is passed (often just summary in list)
-        // Usually we need to fetch items from separate table if not joined
-        // Assuming joined for now or empty
-        if (widget.quotation!['items'] != null) {
-           _items = List<Map<String, dynamic>>.from(widget.quotation!['items']);
-        } else {
-           // Fetch items
-           final items = await Supabase.instance.client.from('sales_quotation_items')
-              .select('*, item:items(name, unit, default_sales_price, purchase_price, barcodes)')
-              .eq('quotation_id', widget.quotation!['id']);
-           
-           _items = items.map((i) => {
-             'item_id': i['item_id'],
-             'name': i['item']['name'],
-             'quantity': i['quantity'],
-             'unit_price': i['unit_price'],
-             'tax_rate': i['tax_rate'],
-             'unit': i['item']['unit'],
-             'purchase_price': i['item']['purchase_price'],
-             //'barcodes': i['item']['barcodes']
-           }).toList();
-        }
 
-        _calculateTotals();
+        // Handle pre-filled data
+        if (widget.quotation != null) {
+           _customerId = widget.quotation!['customer_id']?.toString();
+           _customerName = widget.quotation!['customer_name'] ?? widget.quotation!['customer']?['name'];
+           if (widget.quotation!['items'] != null) {
+              final rawItems = List<dynamic>.from(widget.quotation!['items']);
+              _items = rawItems.map((it) {
+                final qty = it['quantity'];
+                final up = it['unit_price'];
+                final tr = it['tax_rate'];
+                final pp = it['purchase_price'];
+
+                return {
+                  'item_id': it['item_id'],
+                  'name': it['name'] ?? it['item']?['name'] ?? 'Item',
+                  'quantity': (qty is num) ? qty.toDouble() : (double.tryParse(qty?.toString() ?? '0') ?? 0),
+                  'unit_price': (up is num) ? up.toDouble() : (double.tryParse(up?.toString() ?? '0') ?? 0.0),
+                  'tax_rate': (tr is num) ? tr.toDouble() : (double.tryParse(tr?.toString() ?? '0') ?? 0.0),
+                  'unit': it['unit'] ?? it['item']?['uom'],
+                  'purchase_price': (pp is num) ? pp.toDouble() : (double.tryParse(pp?.toString() ?? '0') ?? 0.0),
+                };
+              }).toList();
+           }
+           if (widget.quotation!['branch_id'] != null) {
+              _branchId = widget.quotation!['branch_id'].toString();
+              final bMatch = branches.firstWhere((b) => b['id'].toString() == _branchId, orElse: () => {});
+              if (bMatch.isNotEmpty) _branchName = bMatch['name'];
+           }
+           _calculateTotals();
+        }
       }
     } catch (e) {
       debugPrint("Error initializing: $e");
@@ -643,8 +682,8 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
               'quantity': qty,
               'unit_price': inclusivePrice,
               'tax_rate': rate,
-              'unit': item['unit'],
-              'purchase_price': (item['purchase_price'] ?? 0).toDouble(),
+              'unit': item['uom'],
+              'purchase_price': (item['default_purchase_price'] ?? 0).toDouble(),
             });
           }
         });
@@ -655,7 +694,7 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
         final salesPrice = (item['default_sales_price'] ?? 0).toDouble();
         final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
         final salesPriceInclTax = salesPrice * (1 + rate / 100);
-        final unit = item['unit'] ?? 'unt';
+        final unit = item['uom'] ?? 'unt';
 
         final isSelected = count > 0;
 

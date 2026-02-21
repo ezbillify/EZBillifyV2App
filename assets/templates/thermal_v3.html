@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            width: var(--print-width, 72mm);
+            margin: 0;
+            padding: 1mm;
+            font-size: 8pt;
+            color: #000;
+            line-height: 1.2;
+            background-color: #fff;
+        }
+
+        .center {
+            text-align: center;
+        }
+
+        .bold {
+            font-weight: 900;
+        }
+
+        .uppercase {
+            text-transform: uppercase;
+        }
+
+        .header {
+            padding: 3mm 0;
+        }
+
+        .company-name {
+            font-size: 11pt;
+            letter-spacing: 0px;
+            margin-bottom: 2px;
+        }
+
+        .branch-name {
+            font-size: 9pt;
+            border-bottom: 1.5pt solid #000;
+            display: inline-block;
+            margin-bottom: 4px;
+        }
+
+        .divider-double {
+            border-bottom: 3pt solid #000;
+            padding: 2pt 0;
+            margin-bottom: 4pt;
+        }
+
+        .divider-single {
+            border-top: 2pt solid #000;
+            margin: 4pt 0;
+        }
+
+        .divider-dashed {
+            border-top: 1pt dashed #000;
+            margin: 4pt 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        th {
+            text-align: left;
+            border-bottom: 2pt solid #000;
+            padding: 3pt 0;
+            font-size: 7pt;
+            font-weight: 900;
+        }
+
+        td {
+            padding: 4pt 0;
+            font-size: 7pt;
+            vertical-align: top;
+            font-weight: 900;
+        }
+
+        .text-right {
+            text-align: right;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .items-row {
+            border-bottom: 1pt solid #000;
+        }
+
+        .item-name {
+            font-size: 10pt;
+            letter-spacing: 0.3px;
+        }
+
+        .total-row {
+            font-size: 10pt;
+            line-height: 1.6;
+        }
+
+        .grand-total {
+            font-size: 12pt;
+            border-top: 3pt solid #000;
+            border-bottom: 3pt solid #000;
+            padding: 6pt 0;
+        }
+
+        .tax-table {
+            border: 2pt solid #000;
+            margin: 6pt 0;
+        }
+
+        .tax-table th {
+            background: #000;
+            color: #fff;
+            padding: 4pt;
+            text-align: center;
+            border: 1pt solid #000;
+        }
+
+        .tax-table td {
+            border: 1pt solid #000;
+            padding: 4pt;
+            text-align: center;
+        }
+
+        .footer {
+            padding: 8pt 0;
+            font-size: 10pt;
+        }
+
+        .qr-section {
+            margin-bottom: 8pt;
+        }
+
+        .qr-box {
+            display: inline-block;
+            padding: 6pt;
+            border: 2pt solid #000;
+        }
+
+        .upi-text {
+            font-size: 8pt;
+            margin-top: 2px;
+        }
+
+        .powered-by {
+            border-top: 2pt solid #000;
+            margin-top: 10pt;
+            padding-top: 4pt;
+            font-size: 8pt;
+            letter-spacing: 1px;
+        }
+
+        img.logo {
+            max-height: 60pt;
+            max-width: 90%;
+            filter: grayscale(1) contrast(200%) brightness(1.1);
+            margin-bottom: 6pt;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header center">
+        {{LOGO_HTML}}
+        <div class="bold company-name uppercase">{{COMPANY_NAME}}</div>
+        {{BRANCH_NAME_HTML}}
+        <div class="bold">GSTIN: {{COMPANY_GSTIN}}</div>
+        {{FSSAI_HTML}}
+        <div class="bold" style="white-space: pre-line;">{{COMPANY_ADDRESS}}</div>
+        <div class="bold">
+            {{CONTACT_INFO}}
+        </div>
+    </div>
+
+    <div class="divider-double"></div>
+
+    <table>
+        <tr>
+            <td class="bold">{{DOC_TITLE}}</td>
+        </tr>
+        <tr>
+            <td class="bold" style="word-break: break-all;">NO: {{DOC_NUMBER}}</td>
+        </tr>
+    </table>
+
+    <table style="font-size: 9pt;">
+        <tr>
+            <td class="bold">DATE: {{DATE}}</td>
+            <td class="bold text-right">{{TIME}}</td>
+        </tr>
+    </table>
+
+    <div class="divider-single"></div>
+
+    <table>
+        <tr>
+            <td class="bold" style="width: 25%;">CUST:</td>
+            <td class="bold uppercase">{{CUSTOMER_NAME}}</td>
+        </tr>
+        {{CUSTOMER_DETAILS}}
+    </table>
+
+    <div class="divider-single"></div>
+
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 40%;">DESCRIPTION</th>
+                <th style="width: 15%;" class="text-center">QTY</th>
+                <th style="width: 22%;" class="text-right">RATE</th>
+                <th style="width: 23%;" class="text-right">AMOUNT</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{ITEMS_ROWS}}
+        </tbody>
+    </table>
+
+    <div class="divider-single" style="border-top-width: 3px;"></div>
+
+    <table class="total-row">
+        <tr>
+            <td class="bold">TAXABLE TOTAL</td>
+            <td class="bold text-right">{{SUBTOTAL}}</td>
+        </tr>
+        {{TAX_TOTAL_ROW}}
+        {{DISCOUNT_ROW}}
+        <tr class="grand-total">
+            <td class="bold">NET PAYABLE</td>
+            <td class="bold text-right">₹{{GRAND_TOTAL}}</td>
+        </tr>
+    </table>
+
+    {{TAX_BREAKUP_SECTION}}
+
+    <div class="footer center">
+        {{QR_SECTION}}
+
+        <div class="bold">Thank You! Visit Again</div>
+        <div style="font-size: 8pt; font-style: italic; font-weight: 800;">Returns subject to terms & conditions</div>
+
+        <div class="bold powered-by uppercase">Powered by EZBILLIFY</div>
+    </div>
+</body>
+
+</html>

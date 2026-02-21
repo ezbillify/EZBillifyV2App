@@ -85,17 +85,18 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
         
         // Fetch items
         final items = await Supabase.instance.client.from('sales_dc_items')
-            .select('*, item:items(name, unit, default_sales_price, tax_rate:tax_rates(rate))')
+            .select('*, item:items(name, uom, default_sales_price)')
             .eq('dc_id', widget.challan!['id']);
         
-        _items = items.map((i) => {
-          'item_id': i['item_id'],
-          'name': i['item']['name'],
-          'quantity': i['quantity'],
-          'unit_price': i['unit_price'],
-          'tax_rate': i['item']['tax_rate']['rate'],
-          'unit': i['item']['unit'],
-        }).toList();
+        _items = List<Map<String, dynamic>>.from(items.map((i) {
+          return <String, dynamic>{
+            'item_id': i['item_id'],
+            'name': i['item']?['name'] ?? 'Item',
+            'quantity': (i['quantity'] is num) ? (i['quantity'] as num).toDouble() : (double.tryParse(i['quantity']?.toString() ?? '0') ?? 0),
+            'unit_price': (i['item']?['default_sales_price'] is num) ? (i['item']['default_sales_price'] as num).toDouble() : 0.0,
+            'unit': i['item']?['uom'],
+          };
+        }));
       }
     } catch (e) {
       debugPrint("Error initializing: $e");
@@ -382,7 +383,7 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
                  'name': item['name'],
                  'quantity': 1,
                  'unit_price': double.parse(((item['default_sales_price'] ?? 0).toDouble()).toStringAsFixed(2)),
-                 'unit': item['unit'],
+                 'unit': item['uom'],
                });
             }
          });

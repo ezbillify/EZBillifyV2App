@@ -20,6 +20,8 @@ class _PurchaseBillsScreenState extends State<PurchaseBillsScreen> {
   List<Map<String, dynamic>> _bills = [];
   String _filterStatus = 'all';
   String _searchQuery = '';
+  String _sortBy = 'created_at';
+  bool _sortAscending = false;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
@@ -58,14 +60,24 @@ class _PurchaseBillsScreenState extends State<PurchaseBillsScreen> {
       }
 
       if (_searchQuery.isNotEmpty) {
-        query = query.or('bill_number.ilike.%$_searchQuery%,vendors.name.ilike.%$_searchQuery%');
+        query = query.or('bill_number.ilike.%$_searchQuery%');
       }
       
-      final response = await query.order('created_at', ascending: false);
+      final response = await query.order(_sortBy, ascending: _sortAscending);
+      
+      List<Map<String, dynamic>> results = List<Map<String, dynamic>>.from(response);
+      
+      if (_searchQuery.isNotEmpty) {
+        results = results.where((o) {
+          final billMatch = (o['bill_number'] ?? '').toString().toLowerCase().contains(_searchQuery.toLowerCase());
+          final vendorMatch = (o['vendor']?['name'] ?? '').toString().toLowerCase().contains(_searchQuery.toLowerCase());
+          return billMatch || vendorMatch;
+        }).toList();
+      }
       
       if (mounted) {
         setState(() {
-          _bills = List<Map<String, dynamic>>.from(response);
+          _bills = results;
           _loading = false;
         });
       }
@@ -98,7 +110,7 @@ class _PurchaseBillsScreenState extends State<PurchaseBillsScreen> {
         },
         backgroundColor: AppColors.primaryBlue,
         icon: const Icon(Icons.add_rounded, color: Colors.white),
-        label: const Text("Create Bill", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white)),
+        label: const Text("Create Invoice", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white)),
       ),
       body: RefreshIndicator(
         onRefresh: _fetchBills,
@@ -119,8 +131,26 @@ class _PurchaseBillsScreenState extends State<PurchaseBillsScreen> {
       pinned: true,
       backgroundColor: context.scaffoldBg,
       elevation: 0,
-      title: Text("Purchase Bills", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+      title: Text("Purchase Invoices", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
       actions: [
+        PopupMenuButton<String>(
+          icon: Icon(Icons.sort_rounded, color: context.textPrimary),
+          onSelected: (val) {
+            setState(() {
+              if (val == 'newest') { _sortBy = 'created_at'; _sortAscending = false; }
+              else if (val == 'oldest') { _sortBy = 'created_at'; _sortAscending = true; }
+              else if (val == 'amount_high') { _sortBy = 'total_amount'; _sortAscending = false; }
+              else if (val == 'amount_low') { _sortBy = 'total_amount'; _sortAscending = true; }
+            });
+            _fetchBills();
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(value: 'newest', child: Text('Newest First')),
+            const PopupMenuItem(value: 'oldest', child: Text('Oldest First')),
+            const PopupMenuItem(value: 'amount_high', child: Text('Amount: High to Low')),
+            const PopupMenuItem(value: 'amount_low', child: Text('Amount: Low to High')),
+          ],
+        ),
         IconButton(
           icon: Icon(Icons.store_outlined, color: context.textPrimary),
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => const VendorsScreen())),
@@ -222,7 +252,7 @@ class _PurchaseBillsScreenState extends State<PurchaseBillsScreen> {
             children: [
               Icon(Icons.receipt_long_rounded, size: 64, color: context.textSecondary.withOpacity(0.2)),
               const SizedBox(height: 16),
-              Text("No bills found", style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary)),
+              Text("No invoices found", style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary)),
             ],
           ),
         ),

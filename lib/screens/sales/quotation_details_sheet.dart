@@ -35,7 +35,7 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
     try {
       final res = await Supabase.instance.client
           .from('sales_quotation_items')
-          .select('*, item:items(name, sku)')
+          .select('*, item:items(name, uom, default_sales_price, default_purchase_price, hsn_code)')
           .eq('quote_id', _quotation['id']);
       
       if (mounted) {
@@ -46,7 +46,13 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
       }
     } catch (e) {
       debugPrint("Error fetching items: $e");
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text("Error loading items: $e"),
+          backgroundColor: Colors.red,
+        ));
+      }
     }
   }
 
@@ -59,12 +65,14 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
         minChildSize: 0.5,
         maxChildSize: 0.95,
         expand: false,
-        builder: (context, scrollController) => Container(
-          decoration: BoxDecoration(
-            color: context.surfaceBg,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-          ),
-          child: Column(
+        builder: (context, scrollController) => Material(
+          color: Colors.transparent,
+          child: Container(
+            decoration: BoxDecoration(
+              color: context.surfaceBg,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+            ),
+            child: Column(
             children: [
               const SizedBox(height: 12),
               Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
@@ -92,6 +100,7 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),
@@ -302,14 +311,18 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
     Navigator.push(context, MaterialPageRoute(builder: (c) => InvoiceFormScreen(
       invoice: {
         'customer_id': _quotation['customer_id'],
-        'customer_name': _quotation['customer']?['name'],
+        'customer_name': _quotation['customer']?['name'] ?? _quotation['customer_name'],
         'branch_id': _quotation['branch_id'],
-        'items': _items.map((i) => {
-          'item_id': i['item_id'],
-          'name': i['item']['name'],
-          'quantity': i['quantity'],
-          'unit_price': i['unit_price'],
-          'tax_rate': i['tax_rate'],
+        'items': _items.map((i) {
+          return <String, dynamic>{
+            'item_id': i['item_id'],
+            'name': i['item']?['name'] ?? i['description'] ?? 'Item',
+            'quantity': i['quantity'],
+            'unit_price': (i['unit_price'] ?? 0).toDouble(),
+            'tax_rate': (i['tax_rate'] ?? 0).toDouble(),
+            'unit': i['item']?['uom'],
+            'purchase_price': (i['item']?['default_purchase_price'] ?? 0).toDouble(),
+          };
         }).toList(),
         'quotation_id': _quotation['id'],
       },
@@ -320,14 +333,18 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
     Navigator.push(context, MaterialPageRoute(builder: (c) => SalesOrderFormScreen(
       order: {
         'customer_id': _quotation['customer_id'],
-        'customer_name': _quotation['customer']?['name'],
+        'customer_name': _quotation['customer']?['name'] ?? _quotation['customer_name'],
         'branch_id': _quotation['branch_id'],
-        'items': _items.map((i) => {
-          'item_id': i['item_id'],
-          'name': i['item']['name'],
-          'quantity': i['quantity'],
-          'unit_price': i['unit_price'],
-          'tax_rate': i['tax_rate'],
+        'items': _items.map((i) {
+          return <String, dynamic>{
+            'item_id': i['item_id'],
+            'name': i['item']?['name'] ?? i['description'] ?? 'Item',
+            'quantity': i['quantity'],
+            'unit_price': (i['unit_price'] ?? 0).toDouble(),
+            'tax_rate': (i['tax_rate'] ?? 0).toDouble(),
+            'unit': i['item']?['uom'],
+            'purchase_price': (i['item']?['default_purchase_price'] ?? 0).toDouble(),
+          };
         }).toList(),
         'quotation_id': _quotation['id'],
       },

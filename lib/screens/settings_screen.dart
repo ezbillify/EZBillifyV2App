@@ -17,6 +17,7 @@ import 'settings/branding_settings_screen.dart';
 import 'settings/plans_billing_screen.dart';
 import 'settings/integrations_screen.dart';
 import 'settings/print_template_preview_screen.dart';
+import 'settings/printer_settings_screen.dart';
 import 'settings/my_profile_screen.dart';
 import 'settings/security_settings_screen.dart';
 import 'settings/appearance_settings_screen.dart';
@@ -295,6 +296,18 @@ class SettingsScreen extends ConsumerWidget {
                 onTap: () {
                   Navigator.push(context, MaterialPageRoute(
                     builder: (c) => const PrintTemplatePreviewScreen(),
+                  ));
+                },
+              ),
+              _buildSettingsTile(
+                context: context,
+                icon: Icons.print_rounded,
+                title: "Thermal Printer",
+                subtitle: "Connect & configure 58/80mm printer",
+                color: const Color(0xFF334155),
+                onTap: () {
+                  Navigator.push(context, MaterialPageRoute(
+                    builder: (c) => const PrinterSettingsScreen(),
                   ));
                 },
               ),

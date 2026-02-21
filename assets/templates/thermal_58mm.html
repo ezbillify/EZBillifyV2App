@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            width: 48mm;
+            margin: 0;
+            padding: 1mm;
+            font-size: 8pt;
+            color: #000;
+        }
+
+        .center {
+            text-align: center;
+        }
+
+        .bold {
+            font-weight: bold;
+        }
+
+        .divider {
+            border-top: 1px dashed #000;
+            margin: 1mm 0;
+        }
+
+        .row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5mm;
+        }
+
+        .header {
+            margin-bottom: 2mm;
+        }
+
+        .footer {
+            margin-top: 4mm;
+            font-size: 7pt;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            border-bottom: 1px solid #000;
+            font-size: 7pt;
+        }
+
+        td {
+            padding: 0.5mm 0;
+            font-size: 7pt;
+        }
+
+        .text-right {
+            text-align: right;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header center">
+        <div class="bold" style="font-size: 11pt;">{{COMPANY_NAME}}</div>
+        <div style="font-size: 7pt;">{{COMPANY_ADDRESS}}</div>
+        <div style="font-size: 7pt;">GSTIN: {{COMPANY_GSTIN}}</div>
+        <div style="font-size: 7pt;">PH: {{COMPANY_PHONE}}</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="center bold" style="font-size: 9pt; margin-bottom: 1mm;">{{DOC_TITLE}}</div>
+
+    <div class="row">
+        <span>No: {{DOC_NUMBER}}</span>
+    </div>
+    <div class="row">
+        <span>Date: {{DATE}}</span>
+    </div>
+    <div class="row">
+        <span>Customer: {{CUSTOMER_NAME}}</span>
+    </div>
+
+    <div class="divider"></div>
+
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 50%;">Item</th>
+                <th class="text-right" style="width: 20%;">Qty</th>
+                <th class="text-right" style="width: 30%;">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{ITEMS_ROWS_THERMAL}}
+        </tbody>
+    </table>
+
+    <div class="divider"></div>
+
+    <div class="row">
+        <span>Subtotal</span>
+        <span class="text-right">₹{{SUBTOTAL}}</span>
+    </div>
+    <div class="row">
+        <span>Tax Total</span>
+        <span class="text-right">₹{{TAX_TOTAL}}</span>
+    </div>
+    <div class="row bold" style="font-size: 10pt; margin-top: 1mm;">
+        <span>TOTAL</span>
+        <span class="text-right">₹{{GRAND_TOTAL}}</span>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="center footer">
+        <div>Thank you for your business!</div>
+        <div class="bold">Powered by EZBillify</div>
+    </div>
+</body>
+
+</html>

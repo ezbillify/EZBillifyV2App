@@ -19,6 +19,8 @@ class _PurchaseRfqsScreenState extends State<PurchaseRfqsScreen> {
   List<Map<String, dynamic>> _rfqs = [];
   String _filterStatus = 'all';
   String _searchQuery = '';
+  String _sortBy = 'created_at';
+  bool _sortAscending = false;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
@@ -57,14 +59,24 @@ class _PurchaseRfqsScreenState extends State<PurchaseRfqsScreen> {
       }
 
       if (_searchQuery.isNotEmpty) {
-        query = query.or('rfq_number.ilike.%$_searchQuery%,vendors.name.ilike.%$_searchQuery%');
+        query = query.or('rfq_number.ilike.%$_searchQuery%');
       }
       
-      final response = await query.order('created_at', ascending: false);
+      final response = await query.order(_sortBy, ascending: _sortAscending);
+      
+      List<Map<String, dynamic>> results = List<Map<String, dynamic>>.from(response);
+      
+      if (_searchQuery.isNotEmpty) {
+        results = results.where((o) {
+          final rfqMatch = (o['rfq_number'] ?? '').toString().toLowerCase().contains(_searchQuery.toLowerCase());
+          final vendorMatch = (o['vendor']?['name'] ?? '').toString().toLowerCase().contains(_searchQuery.toLowerCase());
+          return rfqMatch || vendorMatch;
+        }).toList();
+      }
       
       if (mounted) {
         setState(() {
-          _rfqs = List<Map<String, dynamic>>.from(response);
+          _rfqs = results;
           _loading = false;
         });
       }
@@ -118,6 +130,23 @@ class _PurchaseRfqsScreenState extends State<PurchaseRfqsScreen> {
       backgroundColor: context.scaffoldBg,
       elevation: 0,
       title: Text("Requests for Quotation", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+      actions: [
+        PopupMenuButton<String>(
+          icon: Icon(Icons.sort_rounded, color: context.textPrimary),
+          onSelected: (val) {
+            setState(() {
+              if (val == 'newest') { _sortBy = 'created_at'; _sortAscending = false; }
+              else if (val == 'oldest') { _sortBy = 'created_at'; _sortAscending = true; }
+            });
+            _fetchRfqs();
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(value: 'newest', child: Text('Newest First')),
+            const PopupMenuItem(value: 'oldest', child: Text('Oldest First')),
+          ],
+        ),
+        const SizedBox(width: 8),
+      ],
     );
   }
 

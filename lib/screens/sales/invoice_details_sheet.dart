@@ -28,25 +28,36 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
   void initState() {
     super.initState();
     _invoice = widget.invoice;
-    _fetchInvoiceItems();
+    _refreshData();
   }
 
-  Future<void> _fetchInvoiceItems() async {
+  Future<void> _refreshData() async {
     setState(() => _loading = true);
     try {
+      // 1. Fetch Latest Invoice Status/Balance
+      final latest = await Supabase.instance.client
+          .from('sales_invoices')
+          .select('*, customer:customers(name)')
+          .eq('id', _invoice['id'])
+          .single();
+      
+      // 2. Fetch Items
       final res = await Supabase.instance.client
           .from('sales_invoice_items')
-          .select('*, item:items(name, sku)')
+          .select('*, item:items(name, sku, hsn_code)')
           .eq('invoice_id', _invoice['id']);
       
       if (mounted) {
         setState(() {
+          _invoice = Map<String, dynamic>.from(latest);
           _items = List<Map<String, dynamic>>.from(res);
           _loading = false;
         });
+        // Also update parent list
+        widget.onRefresh();
       }
     } catch (e) {
-      debugPrint("Error fetching invoice items: $e");
+      debugPrint("Error refreshing invoice: $e");
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -60,12 +71,14 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
         minChildSize: 0.5,
         maxChildSize: 0.95,
         expand: false,
-        builder: (context, scrollController) => Container(
-          decoration: BoxDecoration(
-            color: context.surfaceBg,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-          ),
-          child: Column(
+        builder: (context, scrollController) => Material(
+          color: Colors.transparent,
+          child: Container(
+            decoration: BoxDecoration(
+              color: context.surfaceBg,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+            ),
+            child: Column(
             children: [
               const SizedBox(height: 12),
               Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
@@ -91,6 +104,7 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),
@@ -210,11 +224,13 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
         if (_invoice['status'] != 'paid')
           SizedBox(
             width: double.infinity,
-            child: _buildActionButton(Icons.payments_outlined, "Record Payment", () {
-              Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (c) => PaymentFormScreen(
+            child: _buildActionButton(Icons.payments_outlined, "Record Payment", () async {
+              final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => PaymentFormScreen(
                 initialInvoice: _invoice,
               )));
+              if (result == true) {
+                _refreshData();
+              }
             }, filled: true),
           ),
         const SizedBox(height: 12),
@@ -246,7 +262,8 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
                 final path = await PrintService.downloadDocument(printData, 'invoice');
                 if (path != null && mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
+                  String msg = path == 'system_dialog' ? 'Opening Save dialog...' : 'PDF saved successfully';
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.green));
                 }
               }),
             ),

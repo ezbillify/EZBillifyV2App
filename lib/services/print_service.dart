@@ -1,923 +1,592 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:printing/printing.dart';
+import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
-import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:printing/printing.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:cross_file/cross_file.dart';
+import 'dart:ui' as ui;
+import 'package:image/image.dart' as img;
+import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
+import 'print_settings_service.dart';
+import 'auth_service.dart';
+import 'settings_service.dart';
 
 class PrintService {
-  static Future<void> printDocument(Map<String, dynamic> data, String docType) async {
+  static Future<void> printDocument(Map<String, dynamic> data, String docType, [BuildContext? context]) async {
     try {
-      debugPrint('PrintService: Attempting to print $docType');
+      debugPrint('PrintService: Starting print job for $docType');
       
-      // Sanitize data before generation
-      final fileName = _getDocFileName(data, docType);
-      debugPrint('PrintService: Document filename: $fileName');
+      final printerConfig = await PrintSettingsService.getPrinterConfig();
+      final printerType = printerConfig['type'] ?? 'network';
+      final ip = printerConfig['ip'];
+      final btAddress = printerConfig['btAddress'];
 
+      if ((printerType == 'bluetooth' && btAddress != null) || 
+          (printerType == 'network' && ip != null && ip.isNotEmpty)) {
+        debugPrint('PrintService: Route -> Direct Hardware Print (V3 Raster)');
+        // Ensure we have branch/company data for the "WOW" look
+        final richData = await _fetchMissingPrintData(data);
+        await _printDirectlyToThermal(richData, docType, printerConfig);
+        return;
+      }
+
+      debugPrint('PrintService: Route -> System Modal (A4 Fallback)');
+      final richData = await _fetchMissingPrintData(data);
+      final fileName = _getDocFileName(richData, docType);
       await Printing.layoutPdf(
         onLayout: (PdfPageFormat format) async {
-          debugPrint('PrintService: onLayout triggered, converting HTML to PDF...');
-          final html = await _generateA4Html(data, docType);
-          return await Printing.convertHtml(
-            format: format,
-            html: html,
-          );
+          final html = await _generateA4Html(richData, docType);
+          return await Printing.convertHtml(format: PdfPageFormat.a4, html: html);
         },
         name: fileName,
       );
-      
-      debugPrint('PrintService: Print layout successfully sent to system.');
     } catch (e, stack) {
-      debugPrint('PrintService FATAL ERROR in printDocument: $e');
+      debugPrint('PrintService FATAL ERROR: $e');
       debugPrint(stack.toString());
       rethrow;
     }
   }
 
-  /// Download PDF to device storage and return the file path
-  static Future<String?> downloadDocument(Map<String, dynamic> data, String docType) async {
+  static Future<Map<String, dynamic>> _fetchMissingPrintData(Map<String, dynamic> data) async {
     try {
-      final pdfBytes = await _generatePdfBytes(data, docType);
-      final fileName = _getDocFileName(data, docType);
+      debugPrint('PrintService: Fetching missing data for thermal print...');
+      final user = await AuthService().getCurrentUser();
+      
+      final String companyId = data['company_id'] ?? user?.companyId ?? '';
+      if (companyId.isEmpty) return data;
+      
+      final branchId = data['branch_id'] ?? user?.branchId;
+      debugPrint('PrintService: companyId = $companyId, branchId = $branchId');
 
-      // Save to app documents directory
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/$fileName');
-      await file.writeAsBytes(pdfBytes);
+      final settings = SettingsService();
+      final company = await settings.getCompanyProfile(companyId);
+      Map<String, dynamic>? branch;
+      
+      try {
+        if (branchId != null) {
+          final branches = await settings.getBranches(companyId);
+          if (branches.isNotEmpty) {
+            branch = branches.firstWhere((b) => b['id'].toString() == branchId.toString(), orElse: () => branches[0]);
+            debugPrint('PrintService: Branch found: ${branch['name']}');
+          }
+        }
+      } catch (e) {
+        debugPrint('PrintService: Branch fetch error (non-fatal): $e');
+      }
 
-      debugPrint('PrintService: PDF saved to ${file.path}');
-      return file.path;
+      final activeData = branch ?? company;
+      
+      // Address Parsing Hardening
+      dynamic addressRaw = activeData['address'] ?? company['address'];
+      if (addressRaw is String && addressRaw.startsWith('{')) {
+        try {
+          addressRaw = json.decode(addressRaw);
+        } catch (_) {}
+      }
+
+      String? _val(dynamic v) => (v != null && v.toString().trim().isNotEmpty && v.toString() != 'null') ? v.toString().trim() : null;
+
+      final richData = {
+        ...data,
+        'company_name': _val(company['name']) ?? _val(company['company_name']) ?? _val(data['company_name']) ?? 'EZBILLIFY SHOP',
+        'branch_name': _val(branch?['name']) ?? _val(branch?['branch_name']) ?? _val(data['branch_name']),
+        'company_address': addressRaw,
+        'company_gstin': _val(activeData['gstin']) ?? _val(activeData['gst_no']) ?? _val(company['gstin']) ?? _val(data['company_gstin']) ?? '',
+        'company_phone': _val(activeData['phone']) ?? _val(company['phone']) ?? _val(data['company_phone']) ?? '',
+        'thermal_logo': _val(activeData['thermal_logo_url']) ?? _val(company['thermal_logo_url']) ?? _val(activeData['logo_url']) ?? _val(company['logo_url']),
+        'upi_id': _val(activeData['upi_id']) ?? _val(activeData['upi']) ?? _val(company['upi_id']) ?? _val(company['upi']) ?? _val(data['upi_id']),
+        'fssai_lic_no': _val(activeData['fssai_lic_no']) ?? _val(activeData['lic_no']) ?? _val(activeData['license_no']) ?? _val(activeData['fssai']) ?? _val(activeData['fssai_no']) ?? _val(company['fssai_lic_no']) ?? _val(company['lic_no']) ?? '',
+      };
+      
+      debugPrint('PrintService: Data prepared (Branch: ${richData['branch_name']}, FSSAI: ${richData['fssai_lic_no']})');
+      return richData;
     } catch (e) {
-      debugPrint('PrintService.downloadDocument error: $e');
+      debugPrint('PrintService FATAL DATA FETCH ERROR: $e');
+      return data;
+    }
+  }
+
+  static Future<void> _printDirectlyToThermal(
+    Map<String, dynamic> data, 
+    String docType, 
+    Map<String, String?> config
+  ) async {
+    final paperSize = config['paperSize'] ?? '80mm';
+    final printerType = config['type'] ?? 'network';
+    final is58mm = paperSize == '58mm';
+    final ip = config['ip'];
+    final btAddress = config['btAddress'];
+
+    final paperWidth = is58mm ? 56.0 : 80.0;
+    // 3. Connect First
+    dynamic transport;
+    BluetoothCharacteristic? writeChar;
+    
+    try {
+      if (printerType == 'bluetooth' && btAddress != null) {
+        final device = BluetoothDevice.fromId(btAddress);
+        BluetoothAdapterState state = await FlutterBluePlus.adapterState.first;
+        if (state == BluetoothAdapterState.unknown) {
+           state = await FlutterBluePlus.adapterState.where((s) => s != BluetoothAdapterState.unknown).first.timeout(const Duration(seconds: 2));
+        }
+        if (state != BluetoothAdapterState.on) throw Exception("Bluetooth is off");
+
+        final connectionState = await device.connectionState.first;
+        if (connectionState != BluetoothConnectionState.connected) {
+          await device.connect(timeout: const Duration(seconds: 15), autoConnect: false);
+        }
+        
+        final services = await device.discoverServices().timeout(const Duration(seconds: 10));
+        for (var service in services) {
+          for (var char in service.characteristics) {
+             if (char.properties.write || char.properties.writeWithoutResponse) {
+               writeChar = char; break;
+             }
+          }
+          if (writeChar != null) break;
+        }
+        transport = device;
+      } else if (printerType == 'network' && ip != null) {
+        transport = await Socket.connect(ip, 9100, timeout: const Duration(seconds: 5));
+      }
+
+      if (transport == null || (printerType == 'bluetooth' && writeChar == null)) throw Exception("Printer not reachable");
+
+      final profile = await CapabilityProfile.load();
+      final generator = Generator(is58mm ? PaperSize.mm58 : PaperSize.mm80, profile);
+
+      // --- FULL NATIVE ENGINE ---
+      
+      // 1. Header
+      debugPrint('PrintService: Printing Header...');
+      List<int> headerBytes = [];
+      headerBytes += generator.reset();
+      
+      // Logo (Network Image)
+      final logoUrl = data['thermal_logo']?.toString();
+      if (logoUrl != null && logoUrl.startsWith('http')) {
+        try {
+          final response = await http.get(Uri.parse(logoUrl)).timeout(const Duration(seconds: 5));
+          final imgObj = img.decodeImage(response.bodyBytes);
+          if (imgObj != null) {
+             headerBytes += generator.image(img.grayscale(img.copyResize(imgObj, width: is58mm ? 180 : 250)), align: PosAlign.center);
+          }
+        } catch (e) {
+          debugPrint('Logo fetch failed: $e');
+        }
+      }
+
+      // Shop Info
+      headerBytes += generator.text((data['company_name'] ?? '').toString().toUpperCase(), 
+          styles: const PosStyles(align: PosAlign.center, bold: true, height: PosTextSize.size2, width: PosTextSize.size2));
+      
+      final branchName = data['branch_name']?.toString();
+      if (branchName != null && branchName.isNotEmpty) {
+        headerBytes += generator.text(branchName.toUpperCase(), styles: const PosStyles(align: PosAlign.center, bold: true));
+      }
+      
+      final addressRaw = data['company_address'];
+      String addressStr = '';
+      if (addressRaw is Map) {
+        final line1 = addressRaw['line1'] ?? addressRaw['address_line_1'] ?? '';
+        final city = addressRaw['city'] ?? '';
+        final state = addressRaw['state'] ?? '';
+        final pincode = addressRaw['pincode'] ?? '';
+        addressStr = [line1, city, state, pincode].where((s) => s != null && s.toString().isNotEmpty).join(', ');
+      } else {
+        addressStr = addressRaw?.toString() ?? '';
+      }
+      
+      if (addressStr.isNotEmpty) {
+        headerBytes += generator.text(addressStr, styles: const PosStyles(align: PosAlign.center));
+      }
+      
+      final gstin = data['company_gstin']?.toString() ?? '';
+      if (gstin.isNotEmpty) {
+        headerBytes += generator.text('GSTIN: $gstin', styles: const PosStyles(align: PosAlign.center, bold: true));
+      }
+      
+      final fssai = data['fssai_lic_no']?.toString() ?? '';
+      if (fssai.isNotEmpty && fssai != 'null' && fssai != '-') {
+        headerBytes += generator.text('FSSAI: $fssai', styles: const PosStyles(align: PosAlign.center));
+      }
+
+      final phone = data['company_phone']?.toString() ?? '';
+      if (phone.isNotEmpty) {
+        headerBytes += generator.text('PH: $phone', styles: const PosStyles(align: PosAlign.center));
+      }
+      
+      headerBytes += generator.text('--------------------------------', styles: const PosStyles(align: PosAlign.center));
+      headerBytes += generator.text((docType.toUpperCase()), styles: const PosStyles(align: PosAlign.center, bold: true, height: PosTextSize.size2));
+      
+      headerBytes += generator.row([
+        PosColumn(text: 'NO: ${(data['invoice_number'] ?? data['bill_number'] ?? '-').toString()}', width: 7),
+        PosColumn(text: _formatDate(data['date']?.toString()), width: 5, styles: const PosStyles(align: PosAlign.right)),
+      ]);
+      final customer = data['customer'];
+      final custName = (customer is Map ? customer['name'] : (customer ?? "WALK-IN")).toString().toUpperCase();
+      headerBytes += generator.text('CUST: $custName', styles: const PosStyles(bold: true));
+      headerBytes += generator.text('--------------------------------', styles: const PosStyles(align: PosAlign.center));
+      
+      await _directTransport(transport, writeChar, headerBytes);
+
+      // 2. Items
+      debugPrint('PrintService: Printing Items...');
+      List<int> itemBytes = [];
+      final items = data['items'] as List? ?? [];
+      Map<String, Map<String, double>> taxGroups = {};
+      
+      for (var item in items) {
+        final name = (item['item'] is Map ? item['item']['name'] : (item['name'] ?? 'N/A')).toString().toUpperCase();
+        final hsn = (item['hsn_code'] ?? (item['item'] is Map ? item['item']['hsn_code'] : null))?.toString();
+        final qty = (item['quantity'] ?? 1).toDouble();
+        final total = (item['total_amount'] ?? 0).toDouble();
+        
+        final rate = (item['tax_rate'] ?? 0).toDouble();
+        final taxAmt = (item['tax_amount'] ?? 0).toDouble();
+        final taxable = total - taxAmt;
+
+        if (rate > 0) {
+          final key = rate.toStringAsFixed(0);
+          if (!taxGroups.containsKey(key)) {
+            taxGroups[key] = {'rate': rate, 'taxable': 0, 'taxAmt': 0};
+          }
+          taxGroups[key]!['taxable'] = (taxGroups[key]!['taxable'] ?? 0) + taxable;
+          taxGroups[key]!['taxAmt'] = (taxGroups[key]!['taxAmt'] ?? 0) + taxAmt;
+        }
+
+        // Force reset font to standard to prevent bleeding from previous item
+        itemBytes += generator.text(name, styles: const PosStyles(bold: true, fontType: PosFontType.fontA));
+        
+        if (hsn != null && hsn != 'null' && hsn.isNotEmpty) {
+           itemBytes += generator.text('HSN: $hsn', styles: const PosStyles(fontType: PosFontType.fontB));
+        }
+        
+        itemBytes += generator.row([
+          PosColumn(text: 'Qty: ${qty.toStringAsFixed(0)}', width: 6, styles: const PosStyles(fontType: PosFontType.fontA)),
+          PosColumn(text: 'Rs. ${total.toStringAsFixed(2)}', width: 6, styles: const PosStyles(align: PosAlign.right, bold: true, fontType: PosFontType.fontA)),
+        ]);
+        itemBytes += generator.emptyLines(1);
+      }
+      itemBytes += generator.text('--------------------------------', styles: const PosStyles(align: PosAlign.center));
+      await _directTransport(transport, writeChar, itemBytes);
+
+      // 3. Tax Breakup
+      if (taxGroups.isNotEmpty) {
+        List<int> taxBytes = [];
+        taxBytes += generator.text('TAX BREAKUP', styles: const PosStyles(align: PosAlign.center, bold: true));
+        taxBytes += generator.row([
+          PosColumn(text: 'TAX%', width: 3, styles: const PosStyles(bold: true)),
+          PosColumn(text: 'TAXABLE', width: 5, styles: const PosStyles(align: PosAlign.right, bold: true)),
+          PosColumn(text: 'AMT', width: 4, styles: const PosStyles(align: PosAlign.right, bold: true)),
+        ]);
+        
+        taxGroups.forEach((key, val) {
+          taxBytes += generator.row([
+            PosColumn(text: '${val['rate']?.toStringAsFixed(0)}%', width: 3),
+            PosColumn(text: val['taxable']!.toStringAsFixed(2), width: 5, styles: const PosStyles(align: PosAlign.right)),
+            PosColumn(text: val['taxAmt']!.toStringAsFixed(2), width: 4, styles: const PosStyles(align: PosAlign.right)),
+          ]);
+        });
+        taxBytes += generator.text('--------------------------------', styles: const PosStyles(align: PosAlign.center));
+        await _directTransport(transport, writeChar, taxBytes);
+      }
+
+      // 4. Footer
+      debugPrint('PrintService: Printing Footer...');
+      await Future.delayed(const Duration(milliseconds: 500)); // Paper buffer breathing room
+      
+      List<int> footerBytes = [];
+      final totalAmt = (data['total_amount'] ?? 0).toDouble().toStringAsFixed(2);
+      final subTotal = (data['sub_total'] ?? 0).toDouble().toStringAsFixed(2);
+      final taxTotalValue = (data['tax_total'] ?? data['total_tax'] ?? 0).toDouble();
+      
+      footerBytes += generator.row([
+        PosColumn(text: 'SUBTOTAL', width: 6),
+        PosColumn(text: 'Rs. $subTotal', width: 6, styles: const PosStyles(align: PosAlign.right)),
+      ]);
+      
+      if (taxTotalValue > 0) {
+        footerBytes += generator.row([
+          PosColumn(text: 'TAX TOTAL', width: 6),
+          PosColumn(text: 'Rs. ${taxTotalValue.toStringAsFixed(2)}', width: 6, styles: const PosStyles(align: PosAlign.right)),
+        ]);
+      }
+      
+      footerBytes += generator.row([
+        PosColumn(text: 'GRAND TOTAL', width: 7, styles: const PosStyles(bold: true, height: PosTextSize.size2)),
+        PosColumn(text: 'Rs. $totalAmt', width: 5, styles: const PosStyles(align: PosAlign.right, bold: true, height: PosTextSize.size2)),
+      ]);
+      
+      // QR Section
+      final upiId = data['upi_id']?.toString();
+      if (upiId != null && upiId.isNotEmpty && upiId != 'null') {
+        footerBytes += generator.emptyLines(1);
+        footerBytes += generator.text('SCAN TO PAY', styles: const PosStyles(align: PosAlign.center, bold: true));
+        
+        final qrUrl = 'https://quickchart.io/qr?size=300&text=${Uri.encodeComponent('upi://pay?pa=$upiId&pn=EZBILLIFY&am=$totalAmt&cu=INR')}';
+        try {
+          final response = await http.get(Uri.parse(qrUrl)).timeout(const Duration(seconds: 5));
+          final qrImg = img.decodeImage(response.bodyBytes);
+          if (qrImg != null) {
+            final processedQr = img.grayscale(img.copyResize(qrImg, width: 220));
+            footerBytes += generator.image(processedQr, align: PosAlign.center);
+          }
+        } catch (e) {
+          debugPrint('QR Fetch Error: $e');
+        }
+        footerBytes += generator.text(upiId, styles: const PosStyles(align: PosAlign.center));
+      }
+      
+      footerBytes += generator.emptyLines(1);
+      footerBytes += generator.text('THANK YOU!', styles: const PosStyles(align: PosAlign.center, bold: true));
+      footerBytes += generator.text('POWERED BY EZBILLIFY', styles: const PosStyles(align: PosAlign.center));
+      footerBytes += generator.feed(2);
+      footerBytes += generator.cut();
+      
+      await _directTransport(transport, writeChar, footerBytes);
+      debugPrint('PrintService: Native Print complete.');
+
+    } catch (e, stack) {
+      debugPrint('PrintService Failure: $e');
+      debugPrint(stack.toString());
+      rethrow;
+    } finally {
+      await Future.delayed(const Duration(seconds: 2));
+      if (transport is BluetoothDevice) await transport.disconnect().catchError((_) {});
+      if (transport is Socket) await transport.close();
+    }
+  }
+
+  static Future<void> _directTransport(dynamic transport, BluetoothCharacteristic? char, List<int> bytes) async {
+    if (transport is Socket) {
+      transport.add(bytes);
+      await transport.flush();
+    } else if (char != null) {
+      const chunkSize = 120;
+      for (var i = 0; i < bytes.length; i += chunkSize) {
+        final end = (i + chunkSize < bytes.length) ? i + chunkSize : bytes.length;
+        await char.write(bytes.sublist(i, end), withoutResponse: true);
+        await Future.delayed(const Duration(milliseconds: 15));
+      }
+    }
+  }
+
+  static String _generateHeaderHtml(Map<String, dynamic> data, bool is58mm) {
+    // Legacy mapping - hybrid mode uses native text now
+    return '';
+  }
+
+  static String _generateFooterHtml(Map<String, dynamic> data, bool is58mm) {
+    // Legacy mapping - hybrid mode uses native text now
+    return '';
+  }
+
+  static String _getDocFileName(Map<String, dynamic> data, String docType) => 
+    '${docType}_${data['invoice_number'] ?? DateTime.now().millisecondsSinceEpoch}';
+
+  static String _formatDate(String? dateStr) {
+    if (dateStr == null) return 'N/A';
+    try {
+      final date = DateTime.parse(dateStr);
+      return '${date.day}/${date.month}/${date.year}';
+    } catch (_) {
+      return dateStr;
+    }
+  }
+
+  static Future<void> printTestPage() async {
+    final printerConfig = await PrintSettingsService.getPrinterConfig();
+    final testData = {
+      'company_name': 'EZBILLIFY POS TEST',
+      'company_address': 'Sector 5, HSR Layout, Bangalore - 560102',
+      'company_gstin': '29ABCDE1234F1Z5',
+      'fssai_lic_no': '12345678901234',
+      'invoice_number': 'BILL-2024-001',
+      'date': DateTime.now().toIso8601String(),
+      'time': DateFormat('hh:mm a').format(DateTime.now()),
+      'customer': {'name': 'Retail Customer', 'phone': '9876543210'},
+      'total_amount': 210.00,
+      'sub_total': 200.00,
+      'tax_total': 10.00,
+      'upi_id': 'ezbillify@paytm',
+      'items': [
+        {
+          'item': {'name': 'PREMIUM SODA PITCHER', 'hsn_code': '2202'},
+          'quantity': 2,
+          'unit_price': 100.00,
+          'total_amount': 210.00,
+          'tax_rate': 5.0,
+          'tax_amount': 10.0,
+          'hsn_code': '2202'
+        }
+      ]
+    };
+    final richData = await _fetchMissingPrintData(testData);
+    await _printDirectlyToThermal(richData, 'Test Print', printerConfig);
+  }
+
+  static Future<String?> downloadDocument(Map<String, dynamic> data, String docType, [BuildContext? context]) async {
+    try {
+      final richData = await _fetchMissingPrintData(data);
+      final fileName = _getDocFileName(richData, docType);
+      
+      if (Platform.isAndroid) {
+        // On Android, the most reliable "Download" is using the system Layout PDF 
+        // which lets the user "Save as PDF" to any folder (including Downloads).
+        await Printing.layoutPdf(
+          onLayout: (format) async => await _generatePdfBytes(richData, docType),
+          name: fileName,
+        );
+        return 'system_dialog'; 
+      }
+
+      final pdfBytes = await _generatePdfBytes(richData, docType);
+      final directory = await getApplicationDocumentsFiles();
+      final path = '${directory.path}/$fileName.pdf';
+      final file = File(path);
+      await file.writeAsBytes(pdfBytes);
+      return path;
+    } catch (e) {
+      debugPrint('PrintService Download Error: $e');
       return null;
     }
   }
 
-  /// Share PDF using share_plus (more reliable than printing package on some devices)
   static Future<void> shareDocument(BuildContext context, Map<String, dynamic> data, String docType) async {
     try {
-      debugPrint('EZ_DEBUG: Starting shareDocument for $docType');
+      final richData = await _fetchMissingPrintData(data);
+      final pdfBytes = await _generatePdfBytes(richData, docType);
+      final fileName = _getDocFileName(richData, docType);
       
-      // 1. Generate PDF
-      final pdfBytes = await _generatePdfBytes(data, docType);
-      debugPrint('EZ_DEBUG: PDF bytes generated (${pdfBytes.length} bytes)');
-
-      // 2. Save to temporary file
-      final dir = await getTemporaryDirectory();
-      final fileName = _getDocFileName(data, docType);
-      final file = File('${dir.path}/$fileName');
-      await file.writeAsBytes(pdfBytes);
-      debugPrint('EZ_DEBUG: PDF saved to: ${file.path}');
-
-      // 3. Share the file
-      final box = context.findRenderObject() as RenderBox?;
-      final bounds = box != null ? box.localToGlobal(Offset.zero) & box.size : null;
-
-      debugPrint('EZ_DEBUG: Calling Share.shareXFiles');
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        text: 'Sharing $docType: ${data['invoice_number'] ?? data['document_number'] ?? ''}',
-        sharePositionOrigin: bounds,
+      await Printing.sharePdf(
+        bytes: pdfBytes,
+        filename: '$fileName.pdf',
       );
-      
-      debugPrint('EZ_DEBUG: shareDocument completed');
     } catch (e) {
-      debugPrint('EZ_DEBUG ERROR in shareDocument: $e');
-      rethrow;
+      debugPrint('PrintService Share Error: $e');
     }
   }
 
-  /// Generate PDF bytes from data (reusable by print, download, share)
   static Future<Uint8List> _generatePdfBytes(Map<String, dynamic> data, String docType) async {
-    final html = await _generateA4Html(data, docType);
-    debugPrint('PrintService: Converting HTML to PDF...');
-    debugPrint('PrintService: Converting HTML to PDF (format: A4)...');
-    try {
-      return await Printing.convertHtml(
-        format: PdfPageFormat.a4,
-        html: html,
-      ).timeout(const Duration(seconds: 60), onTimeout: () {
-        throw Exception('PDF generation timed out (60s)');
-      });
-    } catch (e) {
-      debugPrint('PrintService ERROR: $e');
-      rethrow;
-    }
-  }
-
-  /// Get a consistent file name for the document
-  static String _getDocFileName(Map<String, dynamic> data, String docType) {
-    final num = data['invoice_number'] ?? data['document_number'] ?? data['id'] ?? 'doc';
-    // Remove slashes and other characters that might break file paths or print spoolers
-    final safeNum = num.toString().replaceAll(RegExp(r'[/\\]'), '-').replaceAll(RegExp(r'[^a-zA-Z0-9\-]'), '');
-    return '${docType}_$safeNum.pdf';
+    final templateType = await PrintSettingsService.getTemplate(docType);
+    final isThermal = templateType == TemplateType.thermal80mm || templateType == TemplateType.thermal58mm;
+    final html = isThermal ? await _generateThermalHtml(data, docType, templateType) : await _generateA4Html(data, docType);
+    final pdfFormat = isThermal 
+      ? PdfPageFormat((templateType == TemplateType.thermal80mm ? 80.0 : 58.0) * PdfPageFormat.mm, double.infinity, marginAll: 2 * PdfPageFormat.mm)
+      : PdfPageFormat.a4;
+    return await Printing.convertHtml(format: pdfFormat, html: html);
   }
 
   static Future<String> _generateA4Html(Map<String, dynamic> data, String docType) async {
     String template = await rootBundle.loadString('assets/templates/a4_standard.html');
-
-    // --- Enrich data: re-fetch full customer + items from Supabase ---
-    debugPrint('PrintService: Enriching data from Supabase...');
-    await _enrichPrintData(data, docType).timeout(const Duration(seconds: 5), onTimeout: () {
-      debugPrint('PrintService: Enrichment timed out, using existing data');
-    });
-
-    // --- Fetch branch/company details ---
-    debugPrint('PrintService: Fetching branch details...');
-    final branch = await _fetchBranchDetails(data).timeout(const Duration(seconds: 5), onTimeout: () {
-      return {};
-    });
-
-    // --- Data Preparation ---
-    final allItems = (data['items'] as List?) ?? [];
-    final totalAmount = _toDouble(data['total_amount'] ?? allItems.fold<double>(0, (sum, i) => sum + _toDouble(i['total_amount'])));
-    final totalTax = _toDouble(data['tax_total'] ?? data['tax_total_amount'] ?? data['tax_amount'] ?? allItems.fold<double>(0, (sum, i) => sum + _toDouble(i['tax_amount'])));
-    final subTotal = _toDouble(data['sub_total'] ?? data['subtotal_amount'] ?? (totalAmount - totalTax));
-
-    // --- State / Tax Logic ---
-    // --- State / Tax Logic (Matches web's stateCheck and placeOfSupply logic) ---
-    final branchState = (branch['state'] ?? '').toString().trim();
-    final customerStateRaw = data['customer']?['state']?.toString() ?? '';
-    final customerState = customerStateRaw.isNotEmpty ? customerStateRaw : branchState;
-    
-    // Intra-state if states match (case-insensitive)
-    final isIntraState = branchState.toLowerCase() == customerState.toLowerCase();
-    
-    // In GST, POS is the destination (customer) state. Only fallback to branch if customer state is unknown.
-    final placeOfSupply = customerState.isNotEmpty ? customerState : branchState;
-
-    // --- Document Type Logic ---
-    final docTitle = _getDocTitle(docType);
-    final docNumberLabel = _getDocNumberLabel(docType);
-    final docNumber = data['invoice_number'] ?? data['quote_number'] ?? data['so_number'] ?? data['order_number'] ?? data['po_number'] ?? data['document_number'] ?? data['challan_number'] ?? data['credit_note_number'] ?? '-';
-    
-    // --- Document Subtitle ---
-    final isEInvoiceActive = data['irn'] != null && data['einvoice_status'] != 'CANCELLED';
-    final docSubtitle = isEInvoiceActive ? '(E-Invoice - Original For Recipient)' : '(Original For Recipient)';
-
-    // --- Date formatting ---
-    final dateStr = _formatDate(data['date'] ?? data['invoice_date']);
-    final dueDateStr = _formatDate(data['due_date'] ?? data['expiry_date']);
-    final dueDateLabel = (docType == 'quote' || docType == 'quotation') ? 'Valid Until:' : (docType == 'order' || docType == 'sales_order') ? 'Delivery Date:' : 'Due Date:';
-
-    // --- Company Details ---
-    final companyName = branch['company_name'] ?? branch['name'] ?? 'Your Company';
-    final branchName = branch['name']?.toString() ?? '';
-    final showBranchName = branchName.isNotEmpty && branchName != companyName;
-    
-    final companyAddress = branch['address']?.toString() ?? '';
-    final companyGstin = (branch['gstin']?.toString() ?? branch['company_gstin']?.toString() ?? '').toUpperCase();
-    final companyState = branch['state']?.toString() ?? '-';
-    final companyEmail = branch['email']?.toString() ?? '';
-    final companyPhone = _buildPhoneString(branch);
-    final fssai = branch['fssai_lic_no']?.toString();
-
-    // --- Logo ---
-    final logoUrl = branch['logo_url']?.toString() ?? branch['logo']?.toString();
-    final logoCell = (logoUrl != null && logoUrl.isNotEmpty)
-        ? '<img src="$logoUrl" class="logo-img" alt="Logo" />'
-        : '';
-
-    // --- FSSAI Row ---
-    final fssaiRow = (fssai != null && fssai.isNotEmpty)
-        ? '<tr class="no-border"><td class="no-border" style="font-weight: bold; color: #059669; padding-right: 8pt;">FSSAI:</td><td class="no-border" style="font-weight: bold; color: #059669;">$fssai</td></tr>'
-        : '';
-
-    // --- Due Date Row ---
-    final dueDateRow = dueDateStr.isNotEmpty
-        ? '<tr><td class="label-text" style="padding: 4pt 0;">$dueDateLabel</td><td class="value-text" style="text-align: right; padding: 4pt 0;">$dueDateStr</td></tr>'
-        : '';
-
-    // --- Customer Details ---
-    final customerName = data['customer']?['name']?.toString() ?? 'Walk-in Customer';
-    final customerAddress = _normalizeAddress(data['customer']?['address']);
-    final customerGstin = data['customer']?['gstin']?.toString() ?? '-';
-    final customerStateDisplay = data['customer']?['state']?.toString() ?? '-';
-
-    // --- Shipping ---
-    final shippingAddress = data['shipping_address']?.toString() ?? '';
-    final shippingContent = (shippingAddress.isNotEmpty && shippingAddress != customerAddress)
-        ? '<div style="font-weight: bold; font-size: 10pt; text-transform: uppercase;">$customerName</div><div style="font-size: 9pt; white-space: pre-line; margin: 4pt 0;">$shippingAddress</div>'
-        : '<div style="color: #94A3B8; font-style: italic; margin-top: 10pt;">Same as Billing Address</div>';
-
-    // --- Tax Headers ---
-    final taxHeaders = isIntraState
-        ? '<th style="width: 40pt;">MRP</th><th style="width: 40pt;">Qty</th><th style="width: 50pt;">Rate</th><th style="width: 35pt;">Disc</th><th style="width: 55pt;">Taxable</th><th style="width: 45pt;">CGST</th><th style="width: 45pt;">SGST</th>'
-        : '<th style="width: 40pt;">MRP</th><th style="width: 40pt;">Qty</th><th style="width: 55pt;">Rate</th><th style="width: 35pt;">Disc</th><th style="width: 60pt;">Taxable</th><th style="width: 55pt;">IGST</th>';
-
-    // --- Items Rows ---
-    final itemsHtml = StringBuffer();
-    for (int i = 0; i < allItems.length; i++) {
-      final item = allItems[i];
-      final qty = _toDouble(item['quantity']);
-      final unitPrice = _toDouble(item['unit_price']);
-      final mrp = _toDouble(item['item']?['mrp'] ?? item['mrp']);
-      final discount = _toDouble(item['discount'] ?? item['discount_amount']);
-      final amount = _toDouble(item['total_amount'] ?? (qty * unitPrice));
-      final taxAmt = _toDouble(item['tax_amount'] ?? 0);
-      final taxable = _toDouble(item['taxable_amount'] ?? (amount - taxAmt));
-      
-      final hsnCode = item['hsn_code']?.toString() ?? item['item']?['hsn_code']?.toString() ?? '-';
-      final itemName = item['item']?['print_name']?.toString() ?? item['description'] ?? item['item']?['name']?.toString() ?? 'N/A';
-      final itemCode = item['item_code']?.toString() ?? '';
-      final uom = item['uom']?.toString() ?? '';
-
-      itemsHtml.write('<tr>');
-      itemsHtml.write('<td class="text-center">${i + 1}</td>');
-      itemsHtml.write('<td class="text-left"><div><strong>$itemName</strong></div>${itemCode.isNotEmpty ? '<div style="font-size: 7pt; color: #666;">Code: $itemCode</div>' : ''}</td>');
-      itemsHtml.write('<td class="text-center">$hsnCode</td>');
-      itemsHtml.write('<td class="text-center">${mrp > 0 ? mrp.toStringAsFixed(2) : '-'}</td>');
-      itemsHtml.write('<td class="text-center"><strong>${qty.toStringAsFixed(qty == qty.roundToDouble() ? 0 : 2)}</strong> <br><span style="font-size: 7pt;">$uom</span></td>');
-      itemsHtml.write('<td class="text-right">${unitPrice.toStringAsFixed(2)}</td>');
-      itemsHtml.write('<td class="text-center">${discount > 0 ? discount.toStringAsFixed(2) : '-'}</td>');
-      itemsHtml.write('<td class="text-right">${taxable.toStringAsFixed(2)}</td>');
-      
-      if (isIntraState) {
-        itemsHtml.write('<td class="text-right">${(taxAmt / 2).toStringAsFixed(2)}</td>');
-        itemsHtml.write('<td class="text-right">${(taxAmt / 2).toStringAsFixed(2)}</td>');
-      } else {
-        itemsHtml.write('<td class="text-right">${taxAmt.toStringAsFixed(2)}</td>');
-      }
-      
-      itemsHtml.write('<td class="text-right"><strong>${amount.toStringAsFixed(2)}</strong></td>');
-      itemsHtml.write('</tr>');
-    }
-
-    // --- Tax Summary Rows ---
-    final taxSummaryHtml = StringBuffer();
-    if (isIntraState) {
-      taxSummaryHtml.write('<tr><td class="total-row-label">CGST</td><td class="total-row-value">₹${(totalTax / 2).toStringAsFixed(2)}</td></tr>');
-      taxSummaryHtml.write('<tr><td class="total-row-label">SGST</td><td class="total-row-value">₹${(totalTax / 2).toStringAsFixed(2)}</td></tr>');
-    } else {
-      taxSummaryHtml.write('<tr><td class="total-row-label">IGST</td><td class="total-row-value">₹${totalTax.toStringAsFixed(2)}</td></tr>');
-    }
-
-    // --- Round Off ---
-    final roundOff = _toDouble(data['round_off']);
-    final roundOffRow = roundOff != 0
-        ? '<tr><td class="total-row-label">Round Off</td><td class="total-row-value">${roundOff > 0 ? '+' : ''}${roundOff.toStringAsFixed(2)}</td></tr>'
-        : '';
-
-    // --- Tax Breakup ---
-    final taxBreakupHtml = _buildTaxBreakup(allItems, isIntraState, subTotal, totalTax);
-
-    // --- Bank Details ---
-    final bankName = branch['bank_name']?.toString() ?? '-';
-    final bankAcc = branch['account_number']?.toString() ?? '-';
-    final bankIfsc = branch['ifsc_code']?.toString() ?? '-';
-    final bankBranch = branch['bank_branch']?.toString() ?? branch['name']?.toString() ?? '-';
-
-    // --- UPI QR ---
-    final upiId = branch['upi_id']?.toString();
-    final upiQrCell = (upiId != null && upiId.isNotEmpty)
-        ? '<img src="https://quickchart.io/qr?size=150&text=${Uri.encodeComponent('upi://pay?pa=$upiId&pn=${branch['name'] ?? ''}&am=${totalAmount.toStringAsFixed(2)}&tn=$docNumber&cu=INR')}" class="qr-img" alt="QR" /><div class="qr-label">SCAN TO PAY<br>$upiId</div>'
-        : '';
-
-    // --- Terms ---
-    final termsText = data['terms_conditions']?.toString() ?? data['notes']?.toString() ?? '';
-    final termsContent = termsText.isNotEmpty
-        ? termsText
-        : '1. Goods once sold will not be taken back.\n2. Interest @18% p.a. for delayed payment.\n3. Warranty as per manufacturer terms.';
-
-    // --- Amount in Words ---
-    final amountInWords = _amountToWords(totalAmount);
-
-    // --- Compliance Section (IRN & E-Way Bill) ---
-    final irn = data['irn']?.toString();
-    final ewayBill = data['eway_bill_no']?.toString();
-    String complianceSection = '';
-    
-    if (isEInvoiceActive || (ewayBill != null && ewayBill.isNotEmpty)) {
-      final irnQr = data['einvoice_qr_code'] ?? 'https://quickchart.io/qr?size=150&text=${Uri.encodeComponent(irn ?? '')}';
-      final ackNo = data['einvoice_ack_no'] ?? '-';
-      final ackDate = _formatDate(data['einvoice_ack_date']);
-      
-      complianceSection = '''
-      <tr>
-        <td colspan="2" style="border-top: var(--border); padding: 6pt; background: #f9fafb;">
-          <table style="width: 100%;">
-            <tr>
-              <td style="width: 80pt; vertical-align: middle;">
-                <div class="label-text" style="font-size: 6.5pt; margin-bottom: 2pt;">E-Invoice QR</div>
-                <img src="$irnQr" style="width: 60pt; height: 60pt; border: 1px solid #ddd; padding: 2pt; background: white;" />
-              </td>
-              <td>
-                <table style="font-size: 8pt;">
-                  <tr><td style="color: #666; width: 80pt;">IRN:</td><td style="font-weight: bold; word-break: break-all; font-family: monospace; font-size: 7pt;">${irn ?? 'N/A'}</td></tr>
-                  <tr><td style="color: #666;">Ack No & Date:</td><td style="font-weight: bold;">$ackNo | $ackDate</td></tr>
-                  ${ewayBill != null && ewayBill.isNotEmpty ? '<tr><td style="color: #059669; font-weight: bold;">E-Way Bill No:</td><td style="font-weight: bold; color: #059669; font-size: 9pt;">$ewayBill</td></tr>' : ''}
-                </table>
-                <div style="margin-top: 4pt; font-size: 6pt; color: #999; font-style: italic;">
-                  Certified that the particulars given above are true and correct and the amount indicated represents the price actually charged.
-                </div>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-      ''';
-    }
-
-    // --- Replace all placeholders ---
-    template = template
-        .replaceAll('{{COMPANY_NAME}}', _escapeHtml(companyName))
-        .replaceAll('{{BRANCH_LABEL_HTML}}', showBranchName ? '<span class="branch-subtext"> - ${_escapeHtml(branchName)}</span>' : '')
-        .replaceAll('{{COMPANY_ADDRESS}}', _escapeHtml(companyAddress))
-        .replaceAll('{{COMPANY_GSTIN}}', _escapeHtml(companyGstin))
-        .replaceAll('{{COMPANY_STATE}}', _escapeHtml(companyState))
-        .replaceAll('{{COMPANY_EMAIL}}', _escapeHtml(companyEmail))
-        .replaceAll('{{COMPANY_PHONE}}', _escapeHtml(companyPhone))
-        .replaceAll('{{FSSAI_ROW}}', fssaiRow)
-        .replaceAll('{{LOGO_CELL}}', logoCell)
-        .replaceAll('{{DOC_TITLE}}', docTitle)
-        .replaceAll('{{DOC_SUBTITLE}}', docSubtitle)
-        .replaceAll('{{DOC_NUMBER_LABEL}}', docNumberLabel)
-        .replaceAll('{{DOC_NUMBER}}', _escapeHtml(docNumber.toString()))
-        .replaceAll('{{DATE}}', dateStr)
-        .replaceAll('{{DUE_DATE_ROW_NEW}}', dueDateRow)
-        .replaceAll('{{POS}}', _escapeHtml(placeOfSupply))
-        .replaceAll('{{CUSTOMER_NAME}}', _escapeHtml(customerName))
-        .replaceAll('{{CUSTOMER_ADDRESS}}', _escapeHtml(customerAddress))
-        .replaceAll('{{CUSTOMER_GSTIN}}', _escapeHtml(customerGstin))
-        .replaceAll('{{CUSTOMER_STATE}}', _escapeHtml(customerStateDisplay))
-        .replaceAll('{{SHIPPING_CONTENT_CLEAN}}', shippingContent)
-        .replaceAll('{{TAX_COLUMNS_HEADER_NEW}}', taxHeaders)
-        .replaceAll('{{ITEMS_ROWS_NATIVE}}', itemsHtml.toString())
-        .replaceAll('{{AMOUNT_IN_WORDS}}', _escapeHtml(amountInWords))
-        .replaceAll('{{SUBTOTAL}}', subTotal.toStringAsFixed(2))
-        .replaceAll('{{TAX_SUMMARY_ROWS_NATIVE}}', taxSummaryHtml.toString())
-        .replaceAll('{{ROUND_OFF_ROW_NEW}}', roundOffRow)
-        .replaceAll('{{GRAND_TOTAL}}', totalAmount.toStringAsFixed(2))
-        .replaceAll('{{BANK_NAME}}', _escapeHtml(bankName))
-        .replaceAll('{{BANK_ACC}}', _escapeHtml(bankAcc))
-        .replaceAll('{{BANK_IFSC}}', _escapeHtml(bankIfsc))
-        .replaceAll('{{BANK_BRANCH}}', _escapeHtml(bankBranch))
-        .replaceAll('{{UPI_QR_CELL_NEW}}', upiQrCell)
-        .replaceAll('{{TERMS_CONTENT_CLEAN}}', termsContent)
-        .replaceAll('{{TAX_BREAKUP_SECTION_NATIVE}}', taxBreakupHtml)
-        .replaceAll('{{COMPLIANCE_SECTION_NATIVE}}', complianceSection)
-        .replaceAll('{{COMPANY_NAME_SHORT}}', _escapeHtml(branch['name']?.toString() ?? companyName));
-
-    return template;
+    return _populateTemplate(template, data, docType);
   }
 
-  // --- Helper: Normalize address (JSON object or string → readable string) ---
-  // Matches web's normalizeAddress exactly
-  static String _normalizeAddress(dynamic addr) {
-    if (addr == null) return '';
-    
-    Map<String, dynamic>? addrMap;
-    
-    if (addr is Map) {
-      addrMap = Map<String, dynamic>.from(addr);
-    } else if (addr is String) {
-      final trimmed = addr.trim();
-      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-        try {
-          addrMap = Map<String, dynamic>.from(jsonDecode(trimmed));
-        } catch (_) {
-          return addr;
-        }
-      } else {
-        return addr;
-      }
-    }
-    
-    if (addrMap != null) {
-      final parts = [
-        addrMap['line1'],
-        addrMap['line2'],
-        addrMap['address'],
-        addrMap['city'],
-        addrMap['state'],
-        addrMap['postal_code'],
-        addrMap['pincode'],
-        addrMap['zip']
-      ].where((e) => e != null && e.toString().trim().isNotEmpty).toList();
-      
-      if (parts.isEmpty && addrMap.containsKey('full_address')) {
-        return addrMap['full_address'].toString();
-      }
-      
-      return parts.join('\n');
-    }
-    
-    return addr.toString();
+  static Future<String> _generateThermalHtml(Map<String, dynamic> data, String docType, TemplateType templateType) async {
+    final is58mm = templateType == TemplateType.thermal58mm;
+    String template = await rootBundle.loadString('assets/templates/thermal_v3.html');
+    return _populateTemplate(template, data, docType, is58mm);
   }
 
-  // --- Helper: Extract state from address (JSON object or string) ---
-  static String _extractState(dynamic addr) {
-    if (addr == null) return '';
-    if (addr is Map) return addr['state']?.toString() ?? '';
-    if (addr is String) {
-      final trimmed = addr.trim();
-      if (trimmed.startsWith('{')) {
-        try {
-          final decoded = jsonDecode(trimmed);
-          if (decoded is Map) return decoded['state']?.toString() ?? '';
-        } catch (_) {}
-      }
-    }
-    return '';
-  }
+  static String _populateTemplate(String template, Map<String, dynamic> data, String docType, [bool is58mm = false]) {
+    String output = template;
+    final width = is58mm ? "48mm" : "72mm";
+    output = output.replaceAll('var(--print-width, 72mm)', width);
 
-  // --- Helper: Enrich print data with full customer/vendor + items + branch ---
-  // Mirrors the web's PrintPageContainer mergedData logic exactly
-  static Future<void> _enrichPrintData(Map<String, dynamic> data, String docType) async {
-    try {
-      final supabase = Supabase.instance.client;
+    // Basic replacements
+    output = output.replaceAll('{{COMPANY_NAME}}', (data['company_name'] ?? 'EZBILLIFY SHOP').toString().toUpperCase());
+    output = output.replaceAll('{{DOC_TITLE}}', docType.replaceAll('_', ' ').toUpperCase());
+    output = output.replaceAll('{{DATE}}', _formatDate(data['date']?.toString()));
+    output = output.replaceAll('{{DOC_NUMBER}}', (data['invoice_number'] ?? data['bill_number'] ?? data['po_number'] ?? data['rfq_number'] ?? data['grn_number'] ?? data['debit_note_number'] ?? data['payment_number'] ?? '-').toString());
+    output = output.replaceAll('{{DOC_NUMBER_LABEL}}', docType.contains('order') ? 'Order #' : (docType.contains('rfq') ? 'RFQ #' : (docType.contains('grn') ? 'GRN #' : (docType.contains('debit') ? 'Debit Note #' : (docType.contains('payment') ? 'Receipt #' : 'Number:')))));
+    
+    // Address & Company Info
+    final addressRaw = data['company_address'];
+    String addressStr = '';
+    if (addressRaw is Map) {
+      addressStr = [addressRaw['line1'], addressRaw['city'], addressRaw['state'], addressRaw['pincode']].where((s) => s != null).join(', ');
+    } else addressStr = addressRaw?.toString() ?? '';
+    output = output.replaceAll('{{COMPANY_ADDRESS}}', addressStr);
+    output = output.replaceAll('{{COMPANY_GSTIN}}', data['company_gstin']?.toString() ?? '-');
+    output = output.replaceAll('{{COMPANY_PHONE}}', data['company_phone']?.toString() ?? '-');
+    output = output.replaceAll('{{COMPANY_EMAIL}}', '-');
+    output = output.replaceAll('{{COMPANY_STATE}}', '-');
+    output = output.replaceAll('{{FSSAI_ROW}}', '');
+    output = output.replaceAll('{{LOGO_CELL}}', '');
+    output = output.replaceAll('{{BRANCH_LABEL_HTML}}', '');
 
-      // 1. Fetch full customer/vendor details and normalize address
-      final customerId = data['customer_id']?.toString();
-      final vendorId = data['vendor_id']?.toString();
-      
-      if (customerId != null && customerId.isNotEmpty) {
-        final customerData = await supabase
-            .from('customers')
-            .select('name, billing_address, gstin, phone, email, shipping_addresses')
-            .eq('id', customerId)
-            .maybeSingle();
-        if (customerData != null) {
-          final normalized = Map<String, dynamic>.from(customerData);
-          normalized['address'] = _normalizeAddress(customerData['billing_address'] ?? customerData['address']);
-          if ((normalized['state'] == null || normalized['state'].toString().isEmpty) &&
-              customerData['billing_address'] != null) {
-            normalized['state'] = _extractState(customerData['billing_address']);
-          }
-          data['customer'] = normalized;
-        }
-      } else if (vendorId != null && vendorId.isNotEmpty) {
-        final vendorData = await supabase
-            .from('vendors')
-            .select('name, billing_address, gstin, phone, email')
-            .eq('id', vendorId)
-            .maybeSingle();
-        if (vendorData != null) {
-          final normalized = Map<String, dynamic>.from(vendorData);
-          normalized['address'] = _normalizeAddress(vendorData['billing_address'] ?? vendorData['address']);
-          if ((normalized['state'] == null || normalized['state'].toString().isEmpty) &&
-              vendorData['billing_address'] != null) {
-            normalized['state'] = _extractState(vendorData['billing_address']);
-          }
-          data['customer'] = normalized; // Use 'customer' key for template parity
-        }
-      }
+    // Party Info (Vendor for PO/Bills, Customer for Invoices)
+    final party = data['vendor'] ?? data['customer'];
+    final partyName = (party is Map ? party['name'] : (party ?? 'WALK-IN customer')).toString().toUpperCase();
+    final partyAddress = (party is Map ? (party['address'] ?? party['billing_address']) : '').toString();
+    output = output.replaceAll('{{CUSTOMER_NAME}}', partyName);
+    output = output.replaceAll('{{CUSTOMER_ADDRESS}}', partyAddress.isEmpty ? '-' : partyAddress);
+    output = output.replaceAll('{{CUSTOMER_GSTIN}}', (party is Map ? (party['gstin'] ?? party['gst_no']) : '')?.toString() ?? '-');
+    output = output.replaceAll('{{CUSTOMER_STATE}}', '-');
+    output = output.replaceAll('{{SHIPPING_CONTENT_CLEAN}}', partyAddress);
 
-      // 2. Re-fetch items with full item details
-      final docId = data['id']?.toString();
-      if (docId != null && docId.isNotEmpty) {
-        final tableInfo = _getItemsTableInfo(docType);
-        if (tableInfo != null) {
-          final items = await supabase
-              .from(tableInfo['table']!)
-              .select('*, item:items(name, sku, uom, print_name, mrp, hsn_code)')
-              .eq(tableInfo['fk']!, docId);
-          if (items.isNotEmpty) {
-            data['items'] = List<Map<String, dynamic>>.from(items);
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('PrintService._enrichPrintData error: $e');
-    }
-  }
-
-  // --- Helper: Get items table name and FK for each doc type ---
-  static Map<String, String>? _getItemsTableInfo(String docType) {
-    switch (docType.toLowerCase()) {
-      case 'invoice':
-      case 'invoices':
-        return {'table': 'sales_invoice_items', 'fk': 'invoice_id'};
-      case 'quote':
-      case 'quotation':
-      case 'quotes':
-        return {'table': 'sales_quotation_items', 'fk': 'quotation_id'};
-      case 'order':
-      case 'sales_order':
-      case 'sales_orders':
-        return {'table': 'sales_order_items', 'fk': 'order_id'};
-      case 'dc':
-      case 'delivery_challan':
-      case 'delivery_challans':
-        return {'table': 'delivery_challan_items', 'fk': 'challan_id'};
-      case 'credit_note':
-      case 'credit_notes':
-        return {'table': 'credit_note_items', 'fk': 'credit_note_id'};
-      case 'bill':
-      case 'purchase_bill':
-        return {'table': 'purchase_bill_items', 'fk': 'bill_id'};
-      case 'purchase_order':
-      case 'po':
-        return {'table': 'purchase_order_items', 'fk': 'po_id'};
-      case 'grn':
-      case 'purchase_grn':
-        return {'table': 'purchase_grn_items', 'fk': 'grn_id'};
-      case 'debit_note':
-      case 'purchase_debit_note':
-        return {'table': 'purchase_debit_note_items', 'fk': 'debit_note_id'};
-      case 'rfq':
-      case 'purchase_rfq':
-        return {'table': 'purchase_rfq_items', 'fk': 'rfq_id'};
-      default:
-        return null;
-    }
-  }
-
-  // --- Helper: Fetch branch details from Supabase ---
-  // Mirrors the web API route logic: fetches branch with bank_accounts, 
-  // then merges default bank account fields into branch (bank_name, account_number, etc.)
-  static Future<Map<String, dynamic>> _fetchBranchDetails(Map<String, dynamic> data) async {
-    try {
-      final supabase = Supabase.instance.client;
-      Map<String, dynamic>? branchData;
-      String? companyId;
-
-      // STRATEGY 1: Use branch_id from the document (most reliable)
-      final branchId = data['branch_id']?.toString();
-      if (branchId != null && branchId.isNotEmpty) {
-        branchData = await supabase
-            .from('branches')
-            .select('*, company:companies(*)')
-            .eq('id', branchId)
-            .maybeSingle();
-        if (branchData != null) {
-          companyId = branchData['company_id']?.toString();
-          debugPrint('PrintService: Fetched branch by branch_id: ${branchData['name']}');
-        }
-      }
-
-      // STRATEGY 2: Use company_id from the document
-      if (branchData == null) {
-        companyId = data['company_id']?.toString();
-        if (companyId != null && companyId.isNotEmpty) {
-          final branches = await supabase
-              .from('branches')
-              .select('*, company:companies(*)')
-              .eq('company_id', companyId)
-              .order('is_primary', ascending: false)
-              .limit(1);
-          if (branches.isNotEmpty) {
-            branchData = Map<String, dynamic>.from(branches[0]);
-            debugPrint('PrintService: Fetched branch by company_id: ${branchData['name']}');
-          }
-        }
-      }
-
-      // STRATEGY 3: Fallback - lookup via current user
-      if (branchData == null) {
-        final user = supabase.auth.currentUser;
-        if (user == null) return {};
-
-        final profile = await supabase.from('users').select('company_id').eq('auth_id', user.id).maybeSingle();
-        if (profile == null) return {};
-
-        companyId = profile['company_id']?.toString();
-        final fallbackBranches = await supabase
-            .from('branches')
-            .select('*, company:companies(*)')
-            .eq('company_id', companyId!)
-            .order('is_primary', ascending: false)
-            .limit(1);
-
-        if (fallbackBranches.isNotEmpty) {
-          branchData = Map<String, dynamic>.from(fallbackBranches[0]);
-          debugPrint('PrintService: Fetched branch via user fallback: ${branchData['name']}');
-        }
-      }
-
-      if (branchData == null) return {};
-
-      final b = Map<String, dynamic>.from(branchData);
-
-      // --- Merge company details (matches web's mergedData.branch logic) ---
-      final company = b['company'];
-      if (company != null && company is Map) {
-        b['company_name'] = company['name'] ?? b['name'];
-        b['company_gstin'] = company['gstin'] ?? b['gstin'];
-        b['company_address'] = company['address'] ?? b['address'];
+    // Items
+    final items = data['items'] as List? ?? [];
+    String itemsHtml = "";
+    double subtotal = 0;
+    double taxTotal = 0;
+    
+    for (int i = 0; i < items.length; i++) {
+        final item = items[i];
+        final qty = (item['quantity'] ?? 0).toDouble();
+        final unitPrice = (item['unit_price'] ?? 0).toDouble();
+        final taxAmt = (item['tax_amount'] ?? 0).toDouble();
+        final lineTotal = (item['total_amount'] ?? 0).toDouble();
+        final name = item['description'] ?? item['item']?['name'] ?? 'Item';
         
-        // Fallback from company if branch doesn't have them
-        if (b['phone'] == null || b['phone'].toString().isEmpty) b['phone'] = company['phone'];
-        if (b['secondary_phone'] == null || b['secondary_phone'].toString().isEmpty) b['secondary_phone'] = company['secondary_phone'];
-        if (b['email'] == null || b['email'].toString().isEmpty) b['email'] = company['email'];
-        if (b['gstin'] == null || b['gstin'].toString().isEmpty) b['gstin'] = company['gstin'];
-        if (b['address'] == null || b['address'].toString().isEmpty) b['address'] = company['address'];
-        if (b['fssai_lic_no'] == null || b['fssai_lic_no'].toString().isEmpty) b['fssai_lic_no'] = company['fssai_lic_no'];
-      } else {
-        b['company_name'] = b['name'] ?? 'Your Company';
-        b['company_gstin'] = b['gstin'];
-        b['company_address'] = b['address'];
-      }
+        subtotal += (lineTotal - taxAmt);
+        taxTotal += taxAmt;
 
-      // --- Normalize branch address ---
-      b['address'] = _normalizeAddress(b['address']);
-
-      // --- Fetch and merge bank account details ---
-      // This matches the web API route logic exactly:
-      // 1. Try branch-level bank_accounts (default first)
-      // 2. Fallback to company-level bank_accounts
-      bool bankInfoSet = false;
-
-      if (companyId != null) {
-        // Fetch bank accounts for this branch
-        final branchBankAccounts = await supabase
-            .from('bank_accounts')
-            .select('*')
-            .eq('branch_id', b['id'])
-            .order('is_default', ascending: false);
-
-        if (branchBankAccounts.isNotEmpty) {
-          final defaultAcc = branchBankAccounts[0]; // is_default DESC = default first
-          b['bank_name'] = defaultAcc['bank_name'];
-          b['account_number'] = defaultAcc['account_number'];
-          b['ifsc_code'] = defaultAcc['ifsc_code'];
-          b['bank_branch'] = defaultAcc['branch_name'];
-          b['upi_id'] = defaultAcc['upi_id'];
-          bankInfoSet = true;
-          debugPrint('PrintService: Bank from branch: ${b['bank_name']}');
-        }
-
-        // Fallback: Company-level default bank account
-        if (!bankInfoSet) {
-          final companyBankAccounts = await supabase
-              .from('bank_accounts')
-              .select('*')
-              .eq('company_id', companyId)
-              .eq('is_default', true)
-              .maybeSingle();
-
-          if (companyBankAccounts != null) {
-            b['bank_name'] = companyBankAccounts['bank_name'];
-            b['account_number'] = companyBankAccounts['account_number'];
-            b['ifsc_code'] = companyBankAccounts['ifsc_code'];
-            b['bank_branch'] = companyBankAccounts['branch_name'];
-            b['upi_id'] = companyBankAccounts['upi_id'];
-            debugPrint('PrintService: Bank from company default: ${b['bank_name']}');
-          }
-        }
-      }
-
-      debugPrint('PrintService: Final branch data - name: ${b['name']}, gstin: ${b['gstin']}, state: ${b['state']}, bank: ${b['bank_name']}');
-      return b;
-    } catch (e) {
-      debugPrint('PrintService._fetchBranchDetails error: $e');
-      return {};
+        itemsHtml += "<tr>";
+        itemsHtml += "<td style='text-align:center'>${i + 1}</td>";
+        itemsHtml += "<td><b>$name</b></td>";
+        itemsHtml += "<td style='text-align:center'>${item['hsn_code'] ?? '-'}</td>";
+        itemsHtml += "<td style='text-align:right'>$qty</td>";
+        itemsHtml += "<td style='text-align:right'>$unitPrice</td>";
+        itemsHtml += "<td style='text-align:right'>${lineTotal.toStringAsFixed(2)}</td>";
+        itemsHtml += "</tr>";
     }
+    output = output.replaceAll('{{ITEMS_ROWS_NATIVE}}', itemsHtml);
+    output = output.replaceAll('{{SUBTOTAL}}', subtotal.toStringAsFixed(2));
+    output = output.replaceAll('{{TAX_TOTAL}}', taxTotal.toStringAsFixed(2));
+    output = output.replaceAll('{{GRAND_TOTAL}}', (data['total_amount'] ?? subtotal + taxTotal).toDouble().toStringAsFixed(2));
+    output = output.replaceAll('{{TAX_SUMMARY_ROWS_NATIVE}}', "<tr><td class='total-row-label'>Tax Total</td><td class='total-row-value'>₹${taxTotal.toStringAsFixed(2)}</td></tr>");
+    
+    // Bank & QR
+    output = output.replaceAll('{{BANK_NAME}}', '-');
+    output = output.replaceAll('{{BANK_ACC}}', '-');
+    output = output.replaceAll('{{BANK_IFSC}}', '-');
+    output = output.replaceAll('{{BANK_BRANCH}}', '-');
+    output = output.replaceAll('{{TERMS_CONTENT_CLEAN}}', data['terms_conditions'] ?? 'Standard terms apply.');
+    output = output.replaceAll('{{AMOUNT_IN_WORDS}}', '');
+    output = output.replaceAll('{{UPI_QR_CELL_NEW}}', '');
+    output = output.replaceAll('{{COMPANY_NAME_SHORT}}', data['company_name']?.toString() ?? 'EZB');
+    output = output.replaceAll('{{COMPLIANCE_SECTION_NATIVE}}', '');
+    output = output.replaceAll('{{TAX_BREAKUP_SECTION_NATIVE}}', '');
+    output = output.replaceAll('{{ROUND_OFF_ROW_NEW}}', '');
+    output = output.replaceAll('{{TAX_COLUMNS_HEADER_NEW}}', '<th>Qty</th><th>Unit Price</th>');
+    output = output.replaceAll('{{POS}}', '-');
+    output = output.replaceAll('{{DUE_DATE_ROW_NEW}}', '');
+    output = output.replaceAll('{{DOC_SUBTITLE}}', '');
+
+    return output;
   }
 
-  // --- Helper: Document title ---
-  static String _getDocTitle(String docType) {
-    switch (docType.toLowerCase()) {
-      case 'invoice':
-      case 'invoices':
-        return 'TAX INVOICE';
-      case 'quote':
-      case 'quotation':
-      case 'quotes':
-        return 'QUOTATION';
-      case 'order':
-      case 'sales_order':
-      case 'sales_orders':
-        return 'SALES ORDER';
-      case 'purchase_order':
-      case 'po':
-        return 'PURCHASE ORDER';
-      case 'credit_note':
-      case 'credit_notes':
-        return 'CREDIT NOTE';
-      case 'dc':
-      case 'delivery_challan':
-      case 'delivery_challans':
-        return 'DELIVERY CHALLAN';
-      case 'payment':
-        return 'PAYMENT RECEIPT';
-      case 'bill':
-      case 'purchase_bill':
-        return 'PURCHASE BILL';
-      case 'grn':
-      case 'purchase_grn':
-        return 'GOODS RECEIPT NOTE';
-      case 'debit_note':
-      case 'purchase_debit_note':
-        return 'DEBIT NOTE';
-      case 'rfq':
-      case 'purchase_rfq':
-        return 'REQUEST FOR QUOTATION';
-      default:
-        return 'TAX INVOICE';
-    }
-  }
-
-  // --- Helper: Document number label ---
-  static String _getDocNumberLabel(String docType) {
-    switch (docType.toLowerCase()) {
-      case 'quote':
-      case 'quotation':
-        return 'Quote No:';
-      case 'order':
-      case 'sales_order':
-        return 'Order No:';
-      case 'purchase_order':
-      case 'po':
-        return 'PO No:';
-      case 'credit_note':
-        return 'CN No:';
-      case 'dc':
-      case 'delivery_challan':
-        return 'Challan No:';
-      case 'payment':
-        return 'Payment No:';
-      case 'bill':
-      case 'purchase_bill':
-        return 'Bill No:';
-      case 'grn':
-      case 'purchase_grn':
-        return 'GRN No:';
-      case 'debit_note':
-      case 'purchase_debit_note':
-        return 'DN No:';
-      case 'rfq':
-      case 'purchase_rfq':
-        return 'RFQ No:';
-      default:
-        return 'Invoice No:';
-    }
-  }
-
-  // --- Helper: Format date ---
-  static String _formatDate(dynamic dateValue) {
-    if (dateValue == null) return '';
-    try {
-      final date = DateTime.parse(dateValue.toString());
-      return DateFormat('dd/MM/yyyy').format(date);
-    } catch (_) {
-      return dateValue.toString();
-    }
-  }
-
-  // --- Helper: Build phone string ---
-  static String _buildPhoneString(Map<String, dynamic> branch) {
-    final phone = branch['phone']?.toString() ?? branch['company']?['phone']?.toString() ?? '';
-    final secondary = branch['secondary_phone']?.toString() ?? branch['company']?['secondary_phone']?.toString() ?? '';
-    if (phone.isEmpty) return '-';
-    if (secondary.isNotEmpty) return '$phone, $secondary';
-    return phone;
-  }
-
-  // --- Helper: Tax Breakup ---
-  static String _buildTaxBreakup(List items, bool isIntraState, double subTotal, double totalTax) {
-    // Group items by HSN + tax rate
-    final taxGroups = <String, Map<String, dynamic>>{};
-    for (final item in items) {
-      final hsn = item['hsn_code']?.toString() ?? item['item']?['hsn_code']?.toString() ?? 'N/A';
-      final rate = _toDouble(item['tax_rate']);
-      final taxable = _toDouble(item['taxable_amount'] ?? (_toDouble(item['total_amount']) - _toDouble(item['tax_amount'])));
-      final taxAmt = _toDouble(item['tax_amount']);
-
-      final key = '$hsn-$rate';
-      if (!taxGroups.containsKey(key)) {
-        taxGroups[key] = {'hsn': hsn, 'rate': rate, 'taxable': 0.0, 'taxAmt': 0.0};
-      }
-      taxGroups[key]!['taxable'] = (taxGroups[key]!['taxable'] as double) + taxable;
-      taxGroups[key]!['taxAmt'] = (taxGroups[key]!['taxAmt'] as double) + taxAmt;
-    }
-
-    if (taxGroups.isEmpty) return '';
-
-    final rows = StringBuffer();
-    for (final row in taxGroups.values) {
-      final hsn = row['hsn'];
-      final rate = row['rate'] as double;
-      final taxable = row['taxable'] as double;
-      final taxAmt = row['taxAmt'] as double;
-
-      rows.write('<tr>');
-      rows.write('<td style="border: 1px solid #000; padding: 3pt;">$hsn</td>');
-      rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: right;">${taxable.toStringAsFixed(2)}</td>');
-      if (isIntraState) {
-        rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: center;">${(rate / 2).toStringAsFixed(1)}%</td>');
-        rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: right;">${(taxAmt / 2).toStringAsFixed(2)}</td>');
-        rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: center;">${(rate / 2).toStringAsFixed(1)}%</td>');
-        rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: right;">${(taxAmt / 2).toStringAsFixed(2)}</td>');
-      } else {
-        rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: center;">${rate.toStringAsFixed(1)}%</td>');
-        rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: right;">${taxAmt.toStringAsFixed(2)}</td>');
-      }
-      rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: right;">${taxAmt.toStringAsFixed(2)}</td>');
-      rows.write('</tr>');
-    }
-
-    // Totals row (cleaner breakdown)
-    rows.write('<tr style="background: #f3f4f6; font-weight: bold;">');
-    rows.write('<td style="border: 1px solid #000; padding: 3pt;">Total</td>');
-    rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: right;">${subTotal.toStringAsFixed(2)}</td>');
-    if (isIntraState) {
-      rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: center;">-</td>');
-      rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: right;">${(totalTax / 2).toStringAsFixed(2)}</td>');
-      rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: center;">-</td>');
-      rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: right;">${(totalTax / 2).toStringAsFixed(2)}</td>');
-    } else {
-      rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: center;">-</td>');
-      rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: right;">${totalTax.toStringAsFixed(2)}</td>');
-    }
-    rows.write('<td style="border: 1px solid #000; padding: 3pt; text-align: right;">${totalTax.toStringAsFixed(2)}</td>');
-    rows.write('</tr>');
-
-    final headerCols = isIntraState
-        ? '<th style="border: 1px solid #000; padding: 3pt; text-align: center;">CGST Rate</th><th style="border: 1px solid #000; padding: 3pt; text-align: right;">CGST Amt</th><th style="border: 1px solid #000; padding: 3pt; text-align: center;">SGST Rate</th><th style="border: 1px solid #000; padding: 3pt; text-align: right;">SGST Amt</th>'
-        : '<th style="border: 1px solid #000; padding: 3pt; text-align: center;">IGST Rate</th><th style="border: 1px solid #000; padding: 3pt; text-align: right;">IGST Amt</th>';
-
-    return '''
-    <table style="width: 100%; font-size: 8pt; border-collapse: collapse;">
-      <thead>
-        <tr style="background: #f9fafb; font-weight: bold;">
-          <th style="border: 1px solid #000; padding: 3pt; text-align: left;">HSN/SAC</th>
-          <th style="border: 1px solid #000; padding: 3pt; text-align: right;">Taxable Value</th>
-          $headerCols
-          <th style="border: 1px solid #000; padding: 3pt; text-align: right;">Total Tax</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.toString()}
-      </tbody>
-    </table>
-    ''';
-  }
-
-  // --- Helper: Number to double ---
-  static double _toDouble(dynamic value) {
-    if (value == null) return 0;
-    if (value is num) return value.toDouble();
-    return double.tryParse(value.toString()) ?? 0;
-  }
-
-  // --- Helper: Escape HTML ---
-  static String _escapeHtml(String text) {
-    return text
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
-  }
-
-  // --- Helper: Amount in Words ---
-  static String _amountToWords(double amount) {
-    if (amount == 0 || amount.isNaN) return 'Zero';
-    try {
-      final rounded = amount.round();
-      return 'Indian Rupees ${_numberToWords(rounded)}';
-    } catch (_) {
-      return 'Indian Rupees ${amount.toStringAsFixed(0)} Only';
-    }
-  }
-
-  static String _numberToWords(int number) {
-    if (number == 0) return 'Zero';
-    if (number < 0) return 'Minus ${_numberToWords(-number)}';
-
-    final ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
-                   'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
-                   'Seventeen', 'Eighteen', 'Nineteen'];
-    final tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-
-    String words = '';
-
-    if (number >= 10000000) {
-      words += '${_numberToWords(number ~/ 10000000)} Crore ';
-      number %= 10000000;
-    }
-    if (number >= 100000) {
-      words += '${_numberToWords(number ~/ 100000)} Lakh ';
-      number %= 100000;
-    }
-    if (number >= 1000) {
-      words += '${_numberToWords(number ~/ 1000)} Thousand ';
-      number %= 1000;
-    }
-    if (number >= 100) {
-      words += '${ones[number ~/ 100]} Hundred ';
-      number %= 100;
-    }
-    if (number > 0) {
-      if (words.isNotEmpty) words += 'and ';
-      if (number < 20) {
-        words += ones[number];
-      } else {
-        words += tens[number ~/ 10];
-        if (number % 10 > 0) {
-          words += ' ${ones[number % 10]}';
-        }
-      }
-    }
-
-    return words.trim();
+  static Future<Directory> getApplicationDocumentsFiles() async {
+    if (Platform.isIOS) return await getApplicationDocumentsDirectory();
+    return await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
   }
 }

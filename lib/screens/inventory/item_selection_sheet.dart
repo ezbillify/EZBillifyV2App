@@ -138,7 +138,7 @@ class _ItemSelectionSheetState extends State<ItemSelectionSheet> {
                         tileColor: context.cardBg,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: context.borderColor)),
                         title: Text(item['name'], style: TextStyle(fontWeight: FontWeight.bold, color: context.textPrimary)),
-                        subtitle: Text("Price: ${item['selling_price']} | Stock: ${item['total_stock']}", style: TextStyle(color: context.textSecondary)),
+                        subtitle: Text("Price: ₹${item['default_sales_price'] ?? item['mrp'] ?? 0} | Stock: ${item['total_stock'] ?? 0}", style: TextStyle(color: context.textSecondary)),
                         trailing: const Icon(Icons.add_circle_outline, color: AppColors.primaryBlue),
                         onTap: () => Navigator.pop(context, item),
                       );

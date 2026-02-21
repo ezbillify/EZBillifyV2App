@@ -33,7 +33,7 @@ class _CreditNoteDetailsSheetState extends State<CreditNoteDetailsSheet> {
     try {
       final res = await Supabase.instance.client
           .from('sales_credit_note_items')
-          .select('*, item:items(name, sku)')
+          .select('*, item:items(name, sku, hsn_code)')
           .eq('cn_id', _creditNote['id']);
       
       if (mounted) {

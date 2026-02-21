@@ -17,7 +17,10 @@ class PurchasePaymentsScreen extends StatefulWidget {
 class _PurchasePaymentsScreenState extends State<PurchasePaymentsScreen> {
   bool _loading = true;
   List<Map<String, dynamic>> _payments = [];
+  String _filterStatus = 'all';
   String _searchQuery = '';
+  String _sortBy = 'date';
+  bool _sortAscending = false;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
@@ -50,16 +53,31 @@ class _PurchasePaymentsScreenState extends State<PurchasePaymentsScreen> {
           .from('purchase_payments')
           .select('*, vendor:vendors(name), bill:purchase_bills(bill_number)')
           .eq('company_id', profile['company_id']);
+          
+      if (_filterStatus != 'all') {
+        query = query.eq('mode', _filterStatus);
+      }
 
       if (_searchQuery.isNotEmpty) {
-        query = query.or('payment_number.ilike.%$_searchQuery%,vendors.name.ilike.%$_searchQuery%');
+        query = query.or('payment_number.ilike.%$_searchQuery%');
       }
       
-      final response = await query.order('date', ascending: false);
+      final response = await query.order(_sortBy, ascending: _sortAscending);
+      
+      List<Map<String, dynamic>> results = List<Map<String, dynamic>>.from(response);
+      
+      if (_searchQuery.isNotEmpty) {
+        results = results.where((o) {
+          final payMatch = (o['payment_number'] ?? '').toString().toLowerCase().contains(_searchQuery.toLowerCase());
+          final vendorMatch = (o['vendor']?['name'] ?? '').toString().toLowerCase().contains(_searchQuery.toLowerCase());
+          final modeMatch = (o['mode'] ?? '').toString().toLowerCase().contains(_searchQuery.toLowerCase());
+          return payMatch || vendorMatch || modeMatch;
+        }).toList();
+      }
       
       if (mounted) {
         setState(() {
-          _payments = List<Map<String, dynamic>>.from(response);
+          _payments = results;
           _loading = false;
         });
       }
@@ -107,7 +125,28 @@ class _PurchasePaymentsScreenState extends State<PurchasePaymentsScreen> {
       pinned: true,
       backgroundColor: context.scaffoldBg,
       elevation: 0,
-      title: Text("Purchase Payments", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+      title: Text("Payments", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+      actions: [
+        PopupMenuButton<String>(
+          icon: Icon(Icons.sort_rounded, color: context.textPrimary),
+          onSelected: (val) {
+            setState(() {
+              if (val == 'newest') { _sortBy = 'date'; _sortAscending = false; }
+              else if (val == 'oldest') { _sortBy = 'date'; _sortAscending = true; }
+              else if (val == 'amount_high') { _sortBy = 'amount'; _sortAscending = false; }
+              else if (val == 'amount_low') { _sortBy = 'amount'; _sortAscending = true; }
+            });
+            _fetchPayments();
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(value: 'newest', child: Text('Newest First')),
+            const PopupMenuItem(value: 'oldest', child: Text('Oldest First')),
+            const PopupMenuItem(value: 'amount_high', child: Text('Amount: High to Low')),
+            const PopupMenuItem(value: 'amount_low', child: Text('Amount: Low to High')),
+          ],
+        ),
+        const SizedBox(width: 8),
+      ],
     );
   }
 
@@ -173,11 +212,58 @@ class _PurchasePaymentsScreenState extends State<PurchasePaymentsScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                _buildFilterChip('All Payments', 'all'),
+                _buildFilterChip('Cash', 'cash'),
+                _buildFilterChip('Bank', 'bank_transfer'),
+                _buildFilterChip('UPI', 'upi'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
         ],
       ),
     );
   }
+
+  Widget _buildFilterChip(String label, String value) {
+    final isSelected = _filterStatus == value;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        label: Text(label),
+        selected: isSelected,
+        onSelected: (v) {
+          setState(() => _filterStatus = value);
+          _fetchPaymentsByStatus(value);
+        },
+        backgroundColor: context.cardBg,
+        selectedColor: AppColors.primaryBlue.withOpacity(0.1),
+        labelStyle: TextStyle(
+          color: isSelected ? AppColors.primaryBlue : context.textSecondary,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          fontFamily: 'Outfit',
+          fontSize: 13,
+        ),
+        showCheckmark: false,
+        shape: RoundedRectangleBorder(
+           borderRadius: BorderRadius.circular(12),
+           side: BorderSide(color: isSelected ? AppColors.primaryBlue : context.borderColor),
+        ),
+      ),
+    );
+  }
+
+  void _fetchPaymentsByStatus(String status) {
+    // We can filter client side or re-fetch. Standardizing with client side for chips usually if list is small.
+    // But let's just re-fetch for safety with large datasets.
+    _fetchPayments();
+  }
+
 
   Widget _buildPaymentList() {
     if (_loading) return const SliverFillRemaining(child: Center(child: CircularProgressIndicator()));

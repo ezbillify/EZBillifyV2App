@@ -83,6 +83,42 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
         .subscribe();
   }
 
+  /// Paginated fetch helper — mirrors the web app's fetchAll() to avoid the
+  /// Supabase 1000-row default limit silently truncating results.
+  Future<List<Map<String, dynamic>>> _fetchAll({
+    required String table,
+    required String select,
+    required String companyId,
+    String? eqBranch,
+  }) async {
+    const pageSize = 1000;
+    int page = 0;
+    List<Map<String, dynamic>> allRecords = [];
+    bool hasMore = true;
+
+    while (hasMore) {
+      var query = Supabase.instance.client
+          .from(table)
+          .select(select)
+          .eq('company_id', companyId);
+
+      if (eqBranch != null) query = query.eq('branch_id', eqBranch);
+
+      final response = await query.range(page * pageSize, (page + 1) * pageSize - 1);
+      final rows = List<Map<String, dynamic>>.from(response as List);
+
+      allRecords.addAll(rows);
+
+      if (rows.length < pageSize) {
+        hasMore = false;
+      } else {
+        page++;
+        if (page > 50) break; // Safety cap
+      }
+    }
+    return allRecords;
+  }
+
   Future<void> _fetchDashboardData() async {
     try {
       final user = Supabase.instance.client.auth.currentUser;
@@ -106,7 +142,7 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
       final companyId = profile['company_id'];
       debugPrint("Inventory Hub: Fetching data for company $companyId");
 
-      // 1. Total Items & Out of Stock
+      // 1. Total Items & Out of Stock - Use exact counts for performance
       try {
         if (_selectedBranchId == null) {
           final totalRes = await Supabase.instance.client
@@ -120,7 +156,7 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
               .from('items')
               .select('id')
               .eq('company_id', companyId)
-              .lte('total_stock', 0) // Better: <= 0 handles potential negative errors
+              .lte('total_stock', 0)
               .count(CountOption.exact);
           _outOfStockCount = oosRes.count ?? 0;
         } else {
@@ -148,26 +184,28 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
       // 2. Critical Alerts Preview & Actual Count
       try {
         if (_selectedBranchId == null) {
-          // Fetch ALL possible low stock items to get true count
-          final allLowStockRes = await Supabase.instance.client
-              .from('items')
-              .select('name, total_stock, min_stock_level')
-              .eq('company_id', companyId);
+          // Fetch ALL possible low stock items using paginated helper
+          final allItems = await _fetchAll(
+            table: 'items',
+            select: 'name, total_stock, min_stock_level',
+            companyId: companyId,
+          );
           
-          final filtered = List<Map<String, dynamic>>.from(allLowStockRes)
+          final filtered = allItems
               .where((i) => (i['total_stock'] ?? 0) < (i['min_stock_level'] ?? 1))
               .toList();
           
           _lowStockCount = filtered.length;
           _lowStockItems = filtered.take(3).toList();
         } else {
-          final allLowStockRes = await Supabase.instance.client
-              .from('inventory_stock')
-              .select('quantity, item:items(name, min_stock_level)')
-              .eq('company_id', companyId)
-              .eq('branch_id', _selectedBranchId!);
+          final allStock = await _fetchAll(
+            table: 'inventory_stock',
+            select: 'quantity, item:items(name, min_stock_level)',
+            companyId: companyId,
+            eqBranch: _selectedBranchId,
+          );
           
-          final filtered = List<Map<String, dynamic>>.from(allLowStockRes)
+          final filtered = allStock
               .where((s) => (s['quantity'] ?? 0) < (s['item']?['min_stock_level'] ?? 1))
               .toList();
 
@@ -182,7 +220,7 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
         debugPrint("Inventory Hub: Alerts error: $e");
       }
 
-      // 3. Recent Transactions
+      // 3. Recent Transactions - Just limit(5) is fine here
       try {
         var txQuery = Supabase.instance.client
             .from('inventory_transactions')
@@ -199,14 +237,15 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
         debugPrint("Inventory Hub: TX error: $e");
       }
 
-      // 4. Category Chart (Sample aggregation)
+      // 4. Category Chart (Sampling for performance)
       try {
         if (_selectedBranchId == null) {
+          // Don't fetch ALL for chart to avoid UI lag, 1000 items is a good statistical sample
           final sampleRes = await Supabase.instance.client
               .from('items')
               .select('category:categories(name)')
               .eq('company_id', companyId)
-              .limit(200);
+              .limit(1000);
               
           final Map<String, int> counts = {};
           for (var row in List<Map<String, dynamic>>.from(sampleRes)) {
@@ -222,7 +261,7 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
               .select('item:items(category:categories(name))')
               .eq('company_id', companyId)
               .eq('branch_id', _selectedBranchId!)
-              .limit(200);
+              .limit(1000);
           
           final Map<String, int> counts = {};
           for (var row in List<Map<String, dynamic>>.from(sampleRes)) {
@@ -239,39 +278,22 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
         debugPrint("Inventory Hub: Chart error: $e");
       }
 
-      // 5. Precise Value Calculation (Sum of all branches for total accuracy)
+      // 5. Precise Value Calculation (ALL records sum)
       try {
-        if (_selectedBranchId == null) {
-          // Use inventory_stock for ALL branches to get precise audited value
-          final valRes = await Supabase.instance.client
-              .from('inventory_stock')
-              .select('quantity, average_cost')
-              .eq('company_id', companyId);
-          
-          _totalInventoryValue = 0;
-          for (var row in List<Map<String, dynamic>>.from(valRes)) {
-              final qty = (row['quantity'] ?? 0).toDouble();
-              final cost = (row['average_cost'] ?? 0).toDouble();
-              if (qty > 0 && cost > 0) {
-                _totalInventoryValue += (qty * cost);
-              }
-          }
-        } else {
-          // Sum up for specific branch
-          final valRes = await Supabase.instance.client
-              .from('inventory_stock')
-              .select('quantity, average_cost')
-              .eq('company_id', companyId)
-              .eq('branch_id', _selectedBranchId!);
-          
-          _totalInventoryValue = 0;
-          for (var row in List<Map<String, dynamic>>.from(valRes)) {
-              final qty = (row['quantity'] ?? 0).toDouble();
-              final cost = (row['average_cost'] ?? 0).toDouble();
-              if (qty > 0 && cost > 0) {
-                _totalInventoryValue += (qty * cost);
-              }
-          }
+        final valRes = await _fetchAll(
+          table: 'inventory_stock',
+          select: 'quantity, average_cost',
+          companyId: companyId,
+          eqBranch: _selectedBranchId,
+        );
+        
+        _totalInventoryValue = 0;
+        for (var row in valRes) {
+            final qty = (row['quantity'] ?? 0).toDouble();
+            final cost = (row['average_cost'] ?? 0).toDouble();
+            if (qty > 0 && cost > 0) {
+              _totalInventoryValue += (qty * cost);
+            }
         }
       } catch (e) {
         debugPrint("Inventory Hub: Value error: $e");
