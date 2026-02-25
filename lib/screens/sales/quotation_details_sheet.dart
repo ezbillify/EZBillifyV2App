@@ -46,62 +46,79 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
       }
     } catch (e) {
       debugPrint("Error fetching items: $e");
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _refreshData() async {
+    try {
+      final updatedQuotation = await Supabase.instance.client
+          .from('sales_quotations')
+          .select('*, branch:branches(name), customer:customers(name)')
+          .eq('id', _quotation['id'])
+          .single();
+      
       if (mounted) {
-        setState(() => _loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("Error loading items: $e"),
-          backgroundColor: Colors.red,
-        ));
+        setState(() {
+          _quotation = updatedQuotation;
+        });
+        await _fetchItems();
+        widget.onRefresh(); // Notify list screen
       }
+    } catch (e) {
+      debugPrint("Error refreshing quotation: $e");
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return BackdropFilter(
-      filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-      child: DraggableScrollableSheet(
-        initialChildSize: 0.85,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (context, scrollController) => Material(
-          color: Colors.transparent,
-          child: Container(
-            decoration: BoxDecoration(
-              color: context.surfaceBg,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-            ),
-            child: Column(
-            children: [
-              const SizedBox(height: 12),
-              Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
-              const SizedBox(height: 24),
-              Expanded(
-                child: ListView(
-                  controller: scrollController,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  children: [
-                    _buildHeader(),
-                    const SizedBox(height: 32),
-                    _buildQuickStats(),
-                    const SizedBox(height: 32),
-                    _buildSectionHeader("Line Items"),
-                    const SizedBox(height: 16),
-                    _buildItemsList(),
-                    const SizedBox(height: 32),
-                    _buildSummaryCard(),
-                    const SizedBox(height: 32),
-                    _buildConversions(),
-                    const SizedBox(height: 32),
-                    _buildActions(),
-                    const SizedBox(height: 50),
-                  ],
-                ),
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) => Material(
+        color: context.surfaceBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        elevation: 16,
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: context.borderColor,
+                borderRadius: BorderRadius.circular(2),
               ),
-            ],
-          ),
-          ),
+            ),
+            const SizedBox(height: 24),
+            Expanded(
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                children: [
+                  _buildHeader(),
+                  const SizedBox(height: 24),
+                  _buildWorkflowTimeline(),
+                  const SizedBox(height: 32),
+                  _buildQuickStats(),
+                  const SizedBox(height: 32),
+                  _buildSectionHeader("Line Items"),
+                  const SizedBox(height: 16),
+                  _buildItemsList(),
+                  const SizedBox(height: 32),
+                  _buildSummaryCard(),
+                  const SizedBox(height: 32),
+                  _buildConversions(),
+                  const SizedBox(height: 32),
+                  _buildActions(),
+                  const SizedBox(height: 50),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -129,6 +146,108 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
           child: Text(status.toUpperCase(), style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 12, color: statusColor)),
         ),
       ],
+    );
+  }
+
+  Widget _buildWorkflowTimeline() {
+    final status = _quotation['status']?.toString().toLowerCase() ?? 'draft';
+    final isConverted = status == 'converted';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      decoration: BoxDecoration(
+        color: context.cardBg,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: context.borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _buildTimelineStep("Quote", true, true),
+              _buildTimelineDivider(isConverted),
+              _buildTimelineStep("Order", isConverted, isConverted),
+              _buildTimelineDivider(false),
+              _buildTimelineStep("Invoice", false, false),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                isConverted ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                size: 14,
+                color: isConverted ? Colors.green : AppColors.primaryBlue,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                isConverted 
+                  ? "Conversion Complete" 
+                  : status == 'rejected' ? "Quotation Rejected" : "Ready for Conversion",
+                style: TextStyle(
+                  fontFamily: 'Outfit', 
+                  fontSize: 12, 
+                  color: isConverted ? Colors.green : status == 'rejected' ? Colors.red : context.textSecondary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineStep(String label, bool isReached, bool isDone) {
+    final color = isDone ? Colors.green : isReached ? AppColors.primaryBlue : context.textSecondary.withOpacity(0.3);
+    return Expanded(
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: color, width: 2),
+              color: isDone ? Colors.green.withOpacity(0.1) : Colors.transparent,
+            ),
+            child: Icon(
+              isDone ? Icons.check_rounded : (isReached ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded),
+              size: 16,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontFamily: 'Outfit',
+              fontSize: 11,
+              fontWeight: isReached ? FontWeight.bold : FontWeight.normal,
+              color: isReached ? context.textPrimary : context.textSecondary.withOpacity(0.5),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineDivider(bool isActive) {
+    return Container(
+      width: 40,
+      height: 2,
+      margin: const EdgeInsets.only(bottom: 20),
+      decoration: BoxDecoration(
+        color: isActive ? Colors.green : context.borderColor,
+        borderRadius: BorderRadius.circular(1),
+      ),
     );
   }
 
@@ -184,23 +303,33 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
       );
     }
     return Column(
-      children: _items.map((item) => Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: context.cardBg.withOpacity(0.5), borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor.withOpacity(0.5))),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(item['item']?['name'] ?? 'Item', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  Text("${item['quantity']} x ₹${item['unit_price']}", style: TextStyle(fontSize: 12, color: context.textSecondary)),
-                ],
-              ),
+      children: _items.map((item) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Material(
+          color: context.cardBg,
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: context.borderColor.withOpacity(0.5)),
             ),
-            Text("₹${(item['quantity'] * item['unit_price']).toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-          ],
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item['item']?['name'] ?? 'Item', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      Text("${item['quantity']} x ₹${item['unit_price']}", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+                    ],
+                  ),
+                ),
+                Text("₹${(item['quantity'] * item['unit_price']).toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              ],
+            ),
+          ),
         ),
       )).toList(),
     );
@@ -233,29 +362,75 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
   }
 
   Widget _buildConversions() {
+    final status = _quotation['status']?.toString().toLowerCase() ?? 'draft';
+    if (status == 'converted') return const SizedBox.shrink();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionHeader("Conversions"),
+        _buildSectionHeader("Next Steps"),
         const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: _buildActionButton(Icons.shopping_bag_outlined, "To Sales Order", () {
-                Navigator.pop(context);
-                _convertToSalesOrder();
-              }, filled: true),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildActionButton(Icons.receipt_long_outlined, "To Invoice", () {
-                Navigator.pop(context);
-                _convertToInvoice();
-              }, filled: true),
-            ),
-          ],
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.primaryBlue.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.primaryBlue.withOpacity(0.1)),
+          ),
+          child: Column(
+            children: [
+              _buildConversionRow(
+                Icons.shopping_bag_outlined,
+                "Convert to Sales Order",
+                "Create a formal order for these items",
+                () {
+                  Navigator.pop(context);
+                  _convertToSalesOrder();
+                },
+              ),
+              const Divider(height: 24),
+              _buildConversionRow(
+                Icons.receipt_long_outlined,
+                "Convert to Invoice",
+                "Generate final bill and request payment",
+                () {
+                  Navigator.pop(context);
+                  _convertToInvoice();
+                },
+              ),
+            ],
+          ),
         ),
       ],
+    );
+  }
+
+  Widget _buildConversionRow(IconData icon, String title, String subtitle, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.primaryBlue.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: AppColors.primaryBlue, size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary)),
+                Text(subtitle, style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right_rounded, color: context.textSecondary.withOpacity(0.5)),
+        ],
+      ),
     );
   }
 
@@ -264,9 +439,11 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
       children: [
         Row(
           children: [
-            Expanded(child: _buildActionButton(Icons.edit_outlined, "Edit", () {
-              Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (c) => QuotationFormScreen(quotation: _quotation)));
+            Expanded(child: _buildActionButton(Icons.edit_outlined, "Edit", () async {
+              final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => QuotationFormScreen(quotation: _quotation)));
+              if (result == true) {
+                _refreshData();
+              }
             })),
             const SizedBox(width: 12),
             Expanded(child: _buildActionButton(Icons.print_outlined, "Print", () {
@@ -307,8 +484,8 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
     );
   }
 
-  void _convertToInvoice() {
-    Navigator.push(context, MaterialPageRoute(builder: (c) => InvoiceFormScreen(
+  void _convertToInvoice() async {
+    final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => InvoiceFormScreen(
       invoice: {
         'customer_id': _quotation['customer_id'],
         'customer_name': _quotation['customer']?['name'] ?? _quotation['customer_name'],
@@ -327,10 +504,14 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
         'quotation_id': _quotation['id'],
       },
     )));
+    
+    if (result == true && mounted) {
+      Navigator.pop(context, true);
+    }
   }
 
-  void _convertToSalesOrder() {
-    Navigator.push(context, MaterialPageRoute(builder: (c) => SalesOrderFormScreen(
+  void _convertToSalesOrder() async {
+    final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => SalesOrderFormScreen(
       order: {
         'customer_id': _quotation['customer_id'],
         'customer_name': _quotation['customer']?['name'] ?? _quotation['customer_name'],
@@ -349,6 +530,10 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
         'quotation_id': _quotation['id'],
       },
     )));
+
+    if (result == true && mounted) {
+      Navigator.pop(context, true);
+    }
   }
 
   Widget _buildActionButton(IconData icon, String label, VoidCallback onTap, {bool filled = false}) {

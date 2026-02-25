@@ -5,6 +5,7 @@ import 'package:animate_do/animate_do.dart';
 import '../../core/theme_service.dart';
 import 'purchase_debit_note_form_screen.dart';
 import 'purchase_debit_note_details_sheet.dart';
+import '../../services/purchase_refresh_service.dart';
 
 class PurchaseDebitNotesScreen extends StatefulWidget {
   final bool showAppBar;
@@ -22,39 +23,86 @@ class _PurchaseDebitNotesScreenState extends State<PurchaseDebitNotesScreen> {
   bool _sortAscending = false;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  String? _cachedCompanyId;
+  RealtimeChannel? _realtimeChannel;
 
   @override
   void initState() {
     super.initState();
     _searchFocusNode.addListener(() { if (mounted) setState(() {}); });
-    _fetchDebitNotes();
+    _initDebitNotes();
+    PurchaseRefreshService.refreshNotifier.addListener(_fetchDebitNotes);
+  }
+
+  Future<void> _initDebitNotes() async {
+    // 600ms stagger for purchase debit note tab
+    await Future.delayed(const Duration(milliseconds: 600));
+    await _fetchDebitNotes();
+    if (mounted) _setupRealtime();
+  }
+
+  void _setupRealtime() {
+    final companyId = _cachedCompanyId;
+    if (companyId == null) return;
+    
+    _realtimeChannel = Supabase.instance.client
+        .channel('public:purchase_debit_notes:company_id=eq.$companyId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'purchase_debit_notes',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'company_id',
+            value: companyId,
+          ),
+          callback: (payload) => _fetchDebitNotes(),
+        )
+        .subscribe();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _searchFocusNode.dispose();
+    if (_realtimeChannel != null) {
+      Supabase.instance.client.removeChannel(_realtimeChannel!);
+    }
+    PurchaseRefreshService.refreshNotifier.removeListener(_fetchDebitNotes);
     super.dispose();
   }
 
   Future<void> _fetchDebitNotes() async {
+    if (_notes.isEmpty && mounted) setState(() => _loading = true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return;
       
-      final profile = await Supabase.instance.client
-          .from('users')
-          .select('company_id')
-          .eq('auth_id', user.id)
-          .single();
+      final String companyId;
+      if (_cachedCompanyId != null) {
+        companyId = _cachedCompanyId!;
+      } else {
+        final profile = await Supabase.instance.client
+            .from('users')
+            .select('company_id')
+            .eq('auth_id', user.id)
+            .maybeSingle();
+        
+        if (profile == null || profile['company_id'] == null) {
+          if (mounted) setState(() => _loading = false);
+          return;
+        }
+        companyId = profile['company_id'];
+        _cachedCompanyId = companyId;
+      }
       
       var query = Supabase.instance.client
           .from('purchase_debit_notes')
           .select('*, vendor:vendors(name)')
-          .eq('company_id', profile['company_id']);
+          .eq('company_id', companyId);
 
       if (_searchQuery.isNotEmpty) {
-        query = query.or('debit_note_number.ilike.%$_searchQuery%');
+        query = query.or('dn_number.ilike.%$_searchQuery%');
       }
       
       final response = await query.order(_sortBy, ascending: _sortAscending);
@@ -63,7 +111,7 @@ class _PurchaseDebitNotesScreenState extends State<PurchaseDebitNotesScreen> {
       
       if (_searchQuery.isNotEmpty) {
         results = results.where((o) {
-          final noteMatch = (o['debit_note_number'] ?? '').toString().toLowerCase().contains(_searchQuery.toLowerCase());
+          final noteMatch = (o['dn_number'] ?? o['debit_note_number'] ?? '').toString().toLowerCase().contains(_searchQuery.toLowerCase());
           final vendorMatch = (o['vendor']?['name'] ?? '').toString().toLowerCase().contains(_searchQuery.toLowerCase());
           return noteMatch || vendorMatch;
         }).toList();
@@ -262,6 +310,8 @@ class _PurchaseDebitNotesScreenState extends State<PurchaseDebitNotesScreen> {
             context: context,
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
+            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+            clipBehavior: Clip.antiAlias,
             useSafeArea: true,
             builder: (context) => PurchaseDebitNoteDetailsSheet(
               debitNote: note,
@@ -281,7 +331,7 @@ class _PurchaseDebitNotesScreenState extends State<PurchaseDebitNotesScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                    child: Text(note['debit_note_number'] ?? '#---', style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 13, color: Colors.red)),
+                    child: Text(note['dn_number'] ?? note['debit_note_number'] ?? '#---', style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 13, color: Colors.red)),
                   ),
                   Text("₹${NumberFormat('#,##,###.00').format(amount)}", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
                 ],

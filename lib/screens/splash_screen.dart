@@ -113,9 +113,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   }
 
   void _startAnimations() async {
-    // Request all required permissions on Android immediately
-    await PermissionService.requestStartupPermissions();
-    
+    // Animations start
     _logoController.forward();
     _textController.forward();
     _taglineController.forward();
@@ -132,7 +130,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
       }
 
       final appUser = await AuthService().fetchUserProfile(session.user.id).timeout(
-        const Duration(seconds: 5),
+        const Duration(seconds: 15),
         onTimeout: () => null,
       );
 

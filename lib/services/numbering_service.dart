@@ -71,7 +71,7 @@ class NumberingService {
 
         seq = await supabase
             .from('document_sequences')
-            .insert({
+            .insert(<String, dynamic>{
               'company_id': companyId,
               'branch_id': branchId,
               'document_type': documentType,
@@ -93,7 +93,7 @@ class NumberingService {
       if (seq['suffix'] != targetSuffix && (seq['reset_yearly'] ?? true)) {
         seq = await supabase
             .from('document_sequences')
-            .update({
+            .update(<String, dynamic>{
               'current_value': 0,
               'suffix': targetSuffix,
               'updated_at': DateTime.now().toIso8601String(),
@@ -110,7 +110,7 @@ class NumberingService {
       if (!previewOnly) {
         await supabase
             .from('document_sequences')
-            .update({
+            .update(<String, dynamic>{
               'current_value': nextVal,
               'updated_at': DateTime.now().toIso8601String()
             })

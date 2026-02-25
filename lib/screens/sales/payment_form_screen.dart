@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../services/sales_refresh_service.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme_service.dart';
 import '../../services/numbering_service.dart';
@@ -316,9 +317,10 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       builder: (context) => Container(
         height: MediaQuery.of(context).size.height * 0.5,
-        decoration: BoxDecoration(color: context.scaffoldBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
+        decoration: BoxDecoration(color: context.surfaceBg),
         child: Column(children: [
           Padding(padding: const EdgeInsets.all(16), child: Text("Select Branch", style: TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: context.textPrimary))),
           const SizedBox(height: 8),
@@ -403,6 +405,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
           final filtered = _unpaidInvoices.where((inv) => 
@@ -412,7 +415,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
           return Container(
             height: MediaQuery.of(context).size.height * 0.8,
             padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-            decoration: BoxDecoration(color: context.scaffoldBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
+            decoration: BoxDecoration(color: context.surfaceBg),
             child: Column(
               children: [
                 const SizedBox(height: 12),
@@ -501,6 +504,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
           final filtered = results.where((c) => 
@@ -511,7 +515,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
           return Container(
             height: MediaQuery.of(context).size.height * 0.8,
             padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-            decoration: BoxDecoration(color: context.scaffoldBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
+            decoration: BoxDecoration(color: context.surfaceBg),
             child: Column(children: [
               const SizedBox(height: 12),
               Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
@@ -611,6 +615,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
         'status': newStatus,
       }).eq('id', _invoiceId!);
 
+      SalesRefreshService.triggerRefresh();
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       debugPrint("Error saving payment: $e");

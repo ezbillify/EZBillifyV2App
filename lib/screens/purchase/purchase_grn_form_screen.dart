@@ -7,6 +7,7 @@ import '../inventory/item_selection_sheet.dart';
 import 'vendors_screen.dart';
 import '../../widgets/calendar_sheet.dart';
 import '../../services/master_data_service.dart';
+import '../../services/purchase_refresh_service.dart';
 
 class PurchaseGrnFormScreen extends StatefulWidget {
   final Map<String, dynamic>? grn; // Null for new
@@ -140,7 +141,9 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
     // Simplistic implementation using modal sheet
     showModalBottomSheet(
       context: context,
-      backgroundColor: context.surfaceBg,
+      backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       builder: (context) {
         return FutureBuilder<List<Map<String, dynamic>>>(
           future: Supabase.instance.client.from('purchase_orders')
@@ -267,27 +270,28 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
       },
       showScanner: true,
       itemContentBuilder: (context, item, count, onAdd, onRemove) {
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Material(
             color: count > 0 ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 2))]
-          ),
-          child: InkWell(
-            onTap: onAdd,
-            borderRadius: BorderRadius.circular(16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                   Container(
-                     width: 48,
-                     height: 48,
-                     decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                     child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue),
-                   ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onAdd,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5)),
+                ),
+                child: Row(
+                  children: [
+                     Container(
+                       width: 48,
+                       height: 48,
+                       decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                       child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue),
+                     ),
                    const SizedBox(width: 16),
                    Expanded(
                      child: Column(
@@ -323,8 +327,9 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
               ),
             ),
           ),
-        );
-      },
+        ),
+      );
+    },
     );
   }
 
@@ -351,6 +356,8 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       useSafeArea: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
@@ -407,25 +414,52 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
                           () => setModalState(() => selectedItems.remove(item))
                         );
                       }
-                      return ListTile(
-                        title: Text(labelMapper(item)),
-                        onTap: () {
-                          if (isMultiple) {
-                            setModalState(() {
-                              if (selectedItems.contains(item)) selectedItems.remove(item);
-                              else selectedItems.add(item);
-                            });
-                          } else {
-                            onSelect?.call(item);
-                            Navigator.pop(context);
-                          }
-                        },
-                        trailing: isMultiple ? Checkbox(value: selectedItems.contains(item), onChanged: (v) {
-                          setModalState(() {
-                             if (v == true) selectedItems.add(item);
-                             else selectedItems.remove(item);
-                          });
-                        }) : null,
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Material(
+                          color: count > 0 ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
+                          borderRadius: BorderRadius.circular(16),
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: () {
+                              if (isMultiple) {
+                                setModalState(() {
+                                  if (selectedItems.contains(item)) selectedItems.remove(item);
+                                  else selectedItems.add(item);
+                                });
+                              } else {
+                                onSelect?.call(item);
+                                Navigator.pop(context);
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5), width: 1),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(child: Text(labelMapper(item), style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary))),
+                                  if (isMultiple)
+                                    Checkbox(
+                                      value: selectedItems.contains(item),
+                                      onChanged: (v) {
+                                        setModalState(() {
+                                          if (v == true) selectedItems.add(item);
+                                          else selectedItems.remove(item);
+                                        });
+                                      },
+                                      activeColor: AppColors.primaryBlue,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                    )
+                                  else if (count > 0)
+                                    const Icon(Icons.check_circle_rounded, color: AppColors.primaryBlue)
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
                       );
                     },
                   ),
@@ -543,6 +577,7 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
       }
 
       if (mounted) {
+        PurchaseRefreshService.triggerRefresh();
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("GRN Saved Successfully")));
       }
@@ -567,7 +602,7 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
             Text(_grnNumber.isEmpty ? "Generating ID..." : _grnNumber, style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
           ],
         ),
-        backgroundColor: context.surfaceBg,
+        backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: IconThemeData(color: context.textPrimary),
       ),

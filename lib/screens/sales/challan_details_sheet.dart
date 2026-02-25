@@ -4,7 +4,6 @@ import 'package:intl/intl.dart';
 import 'dart:ui' as ui;
 import '../../core/theme_service.dart';
 import 'delivery_challan_form_screen.dart';
-import 'invoice_form_screen.dart';
 import '../../services/print_service.dart';
 
 class ChallanDetailsSheet extends StatefulWidget {
@@ -51,14 +50,16 @@ class _ChallanDetailsSheetState extends State<ChallanDetailsSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return BackdropFilter(
-      filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-      child: DraggableScrollableSheet(
-        initialChildSize: 0.85,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (context, scrollController) => Container(
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) => Material(
+        color: context.surfaceBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        elevation: 8,
+        child: Container(
           decoration: BoxDecoration(
             color: context.surfaceBg,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
@@ -80,8 +81,6 @@ class _ChallanDetailsSheetState extends State<ChallanDetailsSheet> {
                     _buildSectionHeader("Items Dispatched"),
                     const SizedBox(height: 16),
                     _buildItemsList(),
-                    const SizedBox(height: 32),
-                    _buildNextSteps(),
                     const SizedBox(height: 32),
                     _buildActions(),
                     const SizedBox(height: 50),
@@ -121,22 +120,26 @@ class _ChallanDetailsSheetState extends State<ChallanDetailsSheet> {
   }
 
   Widget _buildLogisticsStats() {
-    final dateStr = _challan['challan_date']?.toString() ?? _challan['created_at']?.toString() ?? '';
+    final dateStr = _challan['challan_date']?.toString() ?? _challan['created_at']?.toString() ?? _challan['date']?.toString() ?? '';
     final date = DateTime.tryParse(dateStr) ?? DateTime.now();
     
+    final shipping = _challan['shipping_details'] ?? {};
+    final vehicleNo = shipping['vehicle_no'] ?? _challan['vehicle_number'] ?? 'N/A';
+    final transportMode = shipping['mode'] ?? _challan['transport_mode'] ?? 'Road';
+
     return Column(
       children: [
         Row(
           children: [
             _buildStatCard("Challan Date", DateFormat('dd MMM, yyyy').format(date), Icons.calendar_today_rounded),
             const SizedBox(width: 16),
-            _buildStatCard("Vehicle #", _challan['vehicle_number'] ?? 'N/A', Icons.commute),
+            _buildStatCard("Vehicle #", vehicleNo, Icons.commute),
           ],
         ),
         const SizedBox(height: 16),
          Row(
           children: [
-            _buildStatCard("Transport", _challan['transport_mode'] ?? 'Road', Icons.local_shipping),
+            _buildStatCard("Transport", transportMode, Icons.local_shipping),
             const SizedBox(width: 16),
             Expanded(child: Container()), // Spacer
           ],
@@ -166,52 +169,48 @@ class _ChallanDetailsSheetState extends State<ChallanDetailsSheet> {
   Widget _buildItemsList() {
     if (_loading) return const Center(child: CircularProgressIndicator());
     return Column(
-      children: _items.map((item) => Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: context.cardBg.withOpacity(0.5), borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor.withOpacity(0.5))),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(item['item']?['name'] ?? 'Item', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  Text("Quantity: ${item['quantity']}", style: TextStyle(fontSize: 12, color: context.textSecondary)),
-                ],
-              ),
+      children: _items.map((item) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Material(
+          color: context.cardBg,
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: context.borderColor.withOpacity(0.5)),
             ),
-          ],
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item['item']?['name'] ?? 'Item', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      Text("Quantity: ${item['quantity']}", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       )).toList(),
     );
   }
 
-  Widget _buildNextSteps() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionHeader("Next Steps"),
-        const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: _buildActionButton(Icons.receipt_long_outlined, "Convert to Invoice", () {
-            Navigator.pop(context);
-            _convertToInvoice();
-          }, filled: true),
-        ),
-      ],
-    );
-  }
 
   Widget _buildActions() {
     return Column(
       children: [
         Row(
           children: [
-            Expanded(child: _buildActionButton(Icons.edit_outlined, "Edit", () {
-              Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (c) => DeliveryChallanFormScreen(challan: _challan)));
+            Expanded(child: _buildActionButton(Icons.edit_outlined, "Edit", () async {
+              final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => DeliveryChallanFormScreen(challan: _challan)));
+              if (result == true && mounted) {
+                 Navigator.pop(context, true);
+              }
             })),
             const SizedBox(width: 12),
             Expanded(child: _buildActionButton(Icons.print_outlined, "Print", () {
@@ -250,25 +249,6 @@ class _ChallanDetailsSheetState extends State<ChallanDetailsSheet> {
         ),
       ],
     );
-  }
-
-  void _convertToInvoice() {
-    Navigator.push(context, MaterialPageRoute(builder: (c) => InvoiceFormScreen(
-      invoice: {
-        'customer_id': _challan['customer_id'],
-        'customer_name': _challan['customer']?['name'],
-        'branch_id': _challan['branch_id'],
-        'items': _items.map((i) {
-          return <String, dynamic>{
-            'item_id': i['item_id'],
-            'name': i['item']?['name'] ?? 'Item',
-            'quantity': i['quantity'],
-            'unit_price': i['unit_price'],
-          };
-        }).toList(),
-        'challan_id': _challan['id'],
-      },
-    )));
   }
 
   Widget _buildActionButton(IconData icon, String label, VoidCallback onTap, {bool filled = false}) {

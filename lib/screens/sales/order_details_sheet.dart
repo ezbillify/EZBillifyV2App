@@ -50,22 +50,40 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
     }
   }
 
+  Future<void> _refreshData() async {
+    try {
+      final updatedOrder = await Supabase.instance.client
+          .from('sales_orders')
+          .select('*, branch:branches(name), customer:customers(name)')
+          .eq('id', _order['id'])
+          .single();
+      
+      if (mounted) {
+        setState(() {
+          _order = updatedOrder;
+        });
+        await _fetchItems();
+        widget.onRefresh(); // Notify list screen
+      }
+    } catch (e) {
+      debugPrint("Error refreshing order: $e");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return BackdropFilter(
-      filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-      child: DraggableScrollableSheet(
-        initialChildSize: 0.85,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (context, scrollController) => Container(
-          decoration: BoxDecoration(
-            color: context.surfaceBg,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-          ),
-          child: Column(
-            children: [
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) => Material(
+        color: context.surfaceBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        elevation: 16,
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
               const SizedBox(height: 12),
               Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
               const SizedBox(height: 24),
@@ -93,7 +111,6 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
               ),
             ],
           ),
-        ),
       ),
     );
   }
@@ -119,23 +136,33 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
       );
     }
     return Column(
-      children: _items.map((item) => Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: context.cardBg.withOpacity(0.5), borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor.withOpacity(0.5))),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(item['item']?['name'] ?? 'Item', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  Text("${item['quantity']} x ₹${item['unit_price']}", style: TextStyle(fontSize: 12, color: context.textSecondary)),
-                ],
-              ),
+      children: _items.map((item) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Material(
+          color: context.cardBg,
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: context.borderColor.withOpacity(0.5)),
             ),
-            Text("₹${(item['quantity'] * item['unit_price']).toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-          ],
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item['item']?['name'] ?? 'Item', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      Text("${item['quantity']} x ₹${item['unit_price']}", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+                    ],
+                  ),
+                ),
+                Text("₹${(item['quantity'] * item['unit_price']).toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              ],
+            ),
+          ),
         ),
       )).toList(),
     );
@@ -199,9 +226,11 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
       children: [
         Row(
           children: [
-            Expanded(child: _buildActionButton(Icons.edit_outlined, "Edit", () {
-              Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (c) => SalesOrderFormScreen(order: _order)));
+            Expanded(child: _buildActionButton(Icons.edit_outlined, "Edit", () async {
+              final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => SalesOrderFormScreen(order: _order)));
+              if (result == true) {
+                _refreshData();
+              }
             })),
             const SizedBox(width: 12),
             Expanded(child: _buildActionButton(Icons.print_outlined, "Print", () {
@@ -242,8 +271,8 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
     );
   }
 
-  void _convertToInvoice() {
-    Navigator.push(context, MaterialPageRoute(builder: (c) => InvoiceFormScreen(
+  void _convertToInvoice() async {
+    final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => InvoiceFormScreen(
       invoice: {
         'customer_id': _order['customer_id'],
         'customer_name': _order['customer']?['name'],
@@ -260,10 +289,14 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
         'order_id': _order['id'],
       },
     )));
+    
+    if (result == true && mounted) {
+      Navigator.pop(context, true);
+    }
   }
 
-  void _convertToChallan() {
-    Navigator.push(context, MaterialPageRoute(builder: (c) => DeliveryChallanFormScreen(
+  void _convertToChallan() async {
+    final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => DeliveryChallanFormScreen(
       challan: {
         'customer_id': _order['customer_id'],
         'customer_name': _order['customer']?['name'],
@@ -279,6 +312,10 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
         'order_id': _order['id'],
       },
     )));
+    
+    if (result == true && mounted) {
+      Navigator.pop(context, true);
+    }
   }
 
   Widget _buildActionButton(IconData icon, String label, VoidCallback onTap, {bool filled = false}) {

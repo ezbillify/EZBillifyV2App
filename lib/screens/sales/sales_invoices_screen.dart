@@ -5,6 +5,7 @@ import 'package:animate_do/animate_do.dart';
 import '../../core/theme_service.dart';
 import 'invoice_form_screen.dart';
 import 'customers_screen.dart';
+import '../../services/sales_refresh_service.dart';
 import 'invoice_details_sheet.dart';
 
 class SalesInvoicesScreen extends StatefulWidget {
@@ -22,43 +23,105 @@ class _SalesInvoicesScreenState extends State<SalesInvoicesScreen> {
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  RealtimeChannel? _realtimeChannel;
+  String? _cachedCompanyId;
 
   @override
   void initState() {
     super.initState();
     _searchFocusNode.addListener(() { if (mounted) setState(() {}); });
-    _fetchInvoices();
+    // Aggressive Network Optimization:
+    // We fetch data in sequence to avoid parallel DNS bursts that cause "Failed Host Lookup"
+    _initInvoices();
+    SalesRefreshService.refreshNotifier.addListener(_fetchInvoices);
+  }
+
+  Future<void> _initInvoices() async {
+    // Slight stagger based on tab index (though we don't have it here, we'll just wait a bit)
+    // to prevent all 6 tabs from hitting DNS at the exact same microsecond.
+    await Future.delayed(const Duration(milliseconds: 100));
+    await _fetchInvoices();
+    if (mounted) _setupRealtime();
+  }
+
+  void _setupRealtime() async {
+    final companyId = _cachedCompanyId;
+    if (companyId == null) return;
+
+    _realtimeChannel = Supabase.instance.client
+        .channel('public:sales_invoices:company_id=eq.$companyId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'sales_invoices',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'company_id',
+            value: companyId,
+          ),
+          callback: (payload) {
+            _fetchInvoices();
+          },
+        )
+        .subscribe();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _searchFocusNode.dispose();
+    if (_realtimeChannel != null) {
+      Supabase.instance.client.removeChannel(_realtimeChannel!);
+    }
+    SalesRefreshService.refreshNotifier.removeListener(_fetchInvoices);
     super.dispose();
   }
 
   Future<void> _fetchInvoices() async {
+    if (_invoices.isEmpty && mounted) setState(() => _loading = true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return;
+      if (user == null) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
       
-      final profile = await Supabase.instance.client
-          .from('users')
-          .select('company_id')
-          .eq('auth_id', user.id)
-          .single();
+      final String companyId;
+      if (_cachedCompanyId != null) {
+        companyId = _cachedCompanyId!;
+      } else {
+        final profile = await Supabase.instance.client
+            .from('users')
+            .select('company_id')
+            .eq('auth_id', user.id)
+            .maybeSingle();
+
+        if (profile == null || profile['company_id'] == null) {
+          debugPrint("Sales Invoices: Profile or Company ID not found for user ${user.id}");
+          if (mounted) {
+            setState(() {
+              _invoices = [];
+              _loading = false;
+            });
+          }
+          return;
+        }
+        companyId = profile['company_id'];
+        _cachedCompanyId = companyId;
+      }
       
       var query = Supabase.instance.client
           .from('sales_invoices')
           .select('*, customer:customers(name)')
-          .eq('company_id', profile['company_id']);
+          .eq('company_id', companyId);
           
       if (_filterStatus != 'all') {
         query = query.eq('status', _filterStatus);
       }
 
       if (_searchQuery.isNotEmpty) {
-        query = query.or('invoice_number.ilike.%$_searchQuery%,customers.name.ilike.%$_searchQuery%');
+        // Nested condition ensures company_id filter is ALWAYS respected regardless of OR complexity
+        query = query.or('invoice_number.ilike.%$_searchQuery%,customer:customers.name.ilike.%$_searchQuery%');
       }
       
       final response = await query.order('created_at', ascending: false);
@@ -71,7 +134,12 @@ class _SalesInvoicesScreenState extends State<SalesInvoicesScreen> {
       }
     } catch (e) {
       debugPrint("Error fetching invoices: $e");
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _invoices = []; // Clear on error to prevent partial stale data
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -269,6 +337,9 @@ class _SalesInvoicesScreenState extends State<SalesInvoicesScreen> {
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
             useSafeArea: true,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+            ),
             builder: (context) => InvoiceDetailsSheet(
               invoice: inv,
               onRefresh: _fetchInvoices,

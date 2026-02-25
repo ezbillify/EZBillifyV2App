@@ -80,60 +80,53 @@ class _CustomersScreenState extends State<CustomersScreen> {
       backgroundColor: Colors.transparent,
       enableDrag: true,
       useSafeArea: true,
-      builder: (context) => BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: DraggableScrollableSheet(
-          initialChildSize: 0.85,
-          minChildSize: 0.5,
-          maxChildSize: 0.95,
-          expand: false,
-          builder: (context, scrollController) => Container(
-            decoration: BoxDecoration(
-              color: context.surfaceBg,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 20,
-                  offset: const Offset(0, -5),
+       shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.85,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => Material(
+          color: context.surfaceBg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+          elevation: 16,
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: context.borderColor,
+                  borderRadius: BorderRadius.circular(2),
                 ),
-              ],
-            ),
-            child: Column(
-              children: [
-                const SizedBox(height: 12),
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: context.textSecondary.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+              ),
+              Expanded(
+                child: ListView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+                  children: [
+                    _buildDetailHeader(customer),
+                    const SizedBox(height: 32),
+                    _buildQuickContactActions(customer),
+                    const SizedBox(height: 32),
+                    _buildStatsCards(customer),
+                    const SizedBox(height: 32),
+                    _buildRecentTransactionsSection(customer),
+                    const SizedBox(height: 32),
+                    _buildInfoSection(customer),
+                    const SizedBox(height: 32),
+                    _buildAddressSection(customer),
+                    const SizedBox(height: 40),
+                    _buildBottomActions(customer),
+                    const SizedBox(height: 40),
+                  ],
                 ),
-                Expanded(
-                  child: ListView(
-                    controller: scrollController,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-                    children: [
-                      _buildDetailHeader(customer),
-                      const SizedBox(height: 32),
-                      _buildQuickContactActions(customer),
-                      const SizedBox(height: 32),
-                      _buildStatsCards(customer),
-                      const SizedBox(height: 32),
-                      _buildRecentTransactionsSection(customer),
-                      const SizedBox(height: 32),
-                      _buildInfoSection(customer),
-                      const SizedBox(height: 32),
-                      _buildAddressSection(customer),
-                      const SizedBox(height: 40),
-                      _buildBottomActions(customer),
-                      const SizedBox(height: 40),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -631,95 +624,94 @@ class _CustomersScreenState extends State<CustomersScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: DraggableScrollableSheet(
-          initialChildSize: 0.9,
-          minChildSize: 0.5,
-          maxChildSize: 0.95,
-          expand: false,
-          builder: (context, scrollController) => Container(
-            decoration: BoxDecoration(
-              color: context.surfaceBg,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-            ),
-            child: Column(
-              children: [
-                const SizedBox(height: 12),
-                Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.analytics_rounded, color: AppColors.primaryBlue, size: 28),
-                      const SizedBox(width: 16),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text("Detailed Ledger", style: TextStyle(fontFamily: 'Outfit', fontSize: 22, fontWeight: FontWeight.bold, color: context.textPrimary)),
-                          Text(customer['name'] ?? '', style: TextStyle(fontFamily: 'Outfit', fontSize: 14, color: context.textSecondary)),
-                        ],
-                      ),
-                      const Spacer(),
-                      IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
-                    ],
-                  ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.9,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => Material(
+          color: context.surfaceBg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+          elevation: 8,
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Row(
+                  children: [
+                    const Icon(Icons.analytics_rounded, color: AppColors.primaryBlue, size: 28),
+                    const SizedBox(width: 16),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Detailed Ledger", style: TextStyle(fontFamily: 'Outfit', fontSize: 22, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                        Text(customer['name'] ?? '', style: TextStyle(fontFamily: 'Outfit', fontSize: 14, color: context.textSecondary)),
+                      ],
+                    ),
+                    const Spacer(),
+                    IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
+                  ],
                 ),
-                Expanded(
-                  child: ListView(
-                    controller: scrollController,
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    children: [
-                       Container(
-                         padding: const EdgeInsets.all(20),
-                         decoration: BoxDecoration(
-                           color: AppColors.primaryBlue.withOpacity(0.05),
-                           borderRadius: BorderRadius.circular(24),
-                         ),
-                         child: Row(
-                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                           children: [
-                             Column(
-                               crossAxisAlignment: CrossAxisAlignment.start,
-                               children: [
-                                 Text("Net Balance", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
-                                 const SizedBox(height: 4),
-                                 Text("₹${NumberFormat('#,##,###').format(customer['balance_amount'] ?? 0)}", style: const TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
-                               ],
-                             ),
-                             Container(
-                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                               decoration: BoxDecoration(
-                                 color: (customer['balance_amount'] ?? 0) > 0 ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1),
-                                 borderRadius: BorderRadius.circular(12),
-                               ),
-                               child: Text(
-                                 (customer['balance_amount'] ?? 0) > 0 ? "PAYABLE" : "SETTLED",
-                                 style: TextStyle(fontFamily: 'Outfit', fontSize: 10, fontWeight: FontWeight.bold, color: (customer['balance_amount'] ?? 0) > 0 ? Colors.red : Colors.green),
-                               ),
-                             ),
-                           ],
-                         ),
+              ),
+              Expanded(
+                child: ListView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  children: [
+                     Container(
+                       padding: const EdgeInsets.all(20),
+                       decoration: BoxDecoration(
+                         color: AppColors.primaryBlue.withOpacity(0.05),
+                         borderRadius: BorderRadius.circular(24),
                        ),
-                       const SizedBox(height: 24),
-                       _buildSectionHeader("Transaction History"),
-                       const SizedBox(height: 16),
-                       // Mocked or Real Ledger Items
-                       FutureBuilder<List<Map<String, dynamic>>>(
-                         future: _fetchCustomerTransactions(customer['id']),
-                         builder: (context, snapshot) {
-                           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                           return Column(
-                             children: snapshot.data!.map((tx) => _buildLedgerItem(tx)).toList(),
-                           );
-                         }
+                       child: Row(
+                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                         children: [
+                           Column(
+                             crossAxisAlignment: CrossAxisAlignment.start,
+                             children: [
+                               Text("Net Balance", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+                               const SizedBox(height: 4),
+                               Text("₹${NumberFormat('#,##,###').format(customer['balance_amount'] ?? 0)}", style: const TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                             ],
+                           ),
+                           Container(
+                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                             decoration: BoxDecoration(
+                               color: (customer['balance_amount'] ?? 0) > 0 ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1),
+                               borderRadius: BorderRadius.circular(12),
+                             ),
+                             child: Text(
+                               (customer['balance_amount'] ?? 0) > 0 ? "PAYABLE" : "SETTLED",
+                               style: TextStyle(fontFamily: 'Outfit', fontSize: 10, fontWeight: FontWeight.bold, color: (customer['balance_amount'] ?? 0) > 0 ? Colors.red : Colors.green),
+                             ),
+                           ),
+                         ],
                        ),
-                       const SizedBox(height: 100),
-                    ],
-                  ),
+                     ),
+                     const SizedBox(height: 24),
+                     _buildSectionHeader("Transaction History"),
+                     const SizedBox(height: 16),
+                     // Mocked or Real Ledger Items
+                     FutureBuilder<List<Map<String, dynamic>>>(
+                       future: _fetchCustomerTransactions(customer['id']),
+                       builder: (context, snapshot) {
+                         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                         return Column(
+                           children: snapshot.data!.map((tx) => _buildLedgerItem(tx)).toList(),
+                         );
+                       }
+                     ),
+                     const SizedBox(height: 100),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -904,35 +896,34 @@ class _CustomersScreenState extends State<CustomersScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Container(
-          decoration: BoxDecoration(
-            color: context.surfaceBg,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 12),
-              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
-              Padding(
-                padding: const EdgeInsets.all(24),
-                child: Row(
-                  children: [
-                    const Icon(Icons.sort_rounded, color: AppColors.primaryBlue),
-                    const SizedBox(width: 16),
-                    Text("Sort Customers", style: TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.bold, color: context.textPrimary)),
-                  ],
-                ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      ),
+      builder: (context) => Material(
+        color: context.surfaceBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        elevation: 8,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Row(
+                children: [
+                  const Icon(Icons.sort_rounded, color: AppColors.primaryBlue),
+                  const SizedBox(width: 16),
+                  Text("Sort Customers", style: TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                ],
               ),
-              _buildSortOption("Name (A-Z)", 'name', true),
-              _buildSortOption("Name (Z-A)", 'name', false),
-              _buildSortOption("Newest First", 'created_at', false),
-              _buildSortOption("Oldest First", 'created_at', true),
-              const SizedBox(height: 32),
-            ],
-          ),
+            ),
+            _buildSortOption("Name (A-Z)", 'name', true),
+            _buildSortOption("Name (Z-A)", 'name', false),
+            _buildSortOption("Newest First", 'created_at', false),
+            _buildSortOption("Oldest First", 'created_at', true),
+            const SizedBox(height: 32),
+          ],
         ),
       ),
     );
@@ -976,17 +967,17 @@ class _CustomersScreenState extends State<CustomersScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       useSafeArea: true,
-      builder: (context) => BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: DraggableScrollableSheet(
-          initialChildSize: 0.9,
-          minChildSize: 0.5,
-          maxChildSize: 0.95,
-          expand: false,
-          builder: (context, scrollController) => CustomerFormScreen(
-            customer: customer,
-            isSheet: true,
-          ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.9,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => CustomerFormScreen(
+          customer: customer,
+          isSheet: true,
         ),
       ),
     ).then((_) => _fetchCustomers());

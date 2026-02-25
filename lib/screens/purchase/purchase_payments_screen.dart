@@ -5,6 +5,7 @@ import 'package:animate_do/animate_do.dart';
 import '../../core/theme_service.dart';
 import 'purchase_payment_form_screen.dart';
 import 'purchase_payment_details_sheet.dart';
+import '../../services/purchase_refresh_service.dart';
 
 class PurchasePaymentsScreen extends StatefulWidget {
   final bool showAppBar;
@@ -23,36 +24,83 @@ class _PurchasePaymentsScreenState extends State<PurchasePaymentsScreen> {
   bool _sortAscending = false;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  String? _cachedCompanyId;
+  RealtimeChannel? _realtimeChannel;
 
   @override
   void initState() {
     super.initState();
     _searchFocusNode.addListener(() { if (mounted) setState(() {}); });
-    _fetchPayments();
+    _initPayments();
+    PurchaseRefreshService.refreshNotifier.addListener(_fetchPayments);
+  }
+
+  Future<void> _initPayments() async {
+    // 400ms stagger for purchase payment tab
+    await Future.delayed(const Duration(milliseconds: 400));
+    await _fetchPayments();
+    if (mounted) _setupRealtime();
+  }
+
+  void _setupRealtime() {
+    final companyId = _cachedCompanyId;
+    if (companyId == null) return;
+    
+    _realtimeChannel = Supabase.instance.client
+        .channel('public:purchase_payments:company_id=eq.$companyId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'purchase_payments',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'company_id',
+            value: companyId,
+          ),
+          callback: (payload) => _fetchPayments(),
+        )
+        .subscribe();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _searchFocusNode.dispose();
+    if (_realtimeChannel != null) {
+      Supabase.instance.client.removeChannel(_realtimeChannel!);
+    }
+    PurchaseRefreshService.refreshNotifier.removeListener(_fetchPayments);
     super.dispose();
   }
 
   Future<void> _fetchPayments() async {
+    if (_payments.isEmpty && mounted) setState(() => _loading = true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return;
       
-      final profile = await Supabase.instance.client
-          .from('users')
-          .select('company_id')
-          .eq('auth_id', user.id)
-          .single();
+      final String companyId;
+      if (_cachedCompanyId != null) {
+        companyId = _cachedCompanyId!;
+      } else {
+        final profile = await Supabase.instance.client
+            .from('users')
+            .select('company_id')
+            .eq('auth_id', user.id)
+            .maybeSingle();
+        
+        if (profile == null || profile['company_id'] == null) {
+          if (mounted) setState(() => _loading = false);
+          return;
+        }
+        companyId = profile['company_id'];
+        _cachedCompanyId = companyId;
+      }
       
       var query = Supabase.instance.client
           .from('purchase_payments')
           .select('*, vendor:vendors(name), bill:purchase_bills(bill_number)')
-          .eq('company_id', profile['company_id']);
+          .eq('company_id', companyId);
           
       if (_filterStatus != 'all') {
         query = query.eq('mode', _filterStatus);
@@ -97,6 +145,8 @@ class _PurchasePaymentsScreenState extends State<PurchasePaymentsScreen> {
             context: context,
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
+            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+            clipBehavior: Clip.antiAlias,
             useSafeArea: true,
             builder: (c) => const PurchasePaymentFormScreen()
           );
@@ -325,6 +375,8 @@ class _PurchasePaymentsScreenState extends State<PurchasePaymentsScreen> {
             context: context,
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
+            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+            clipBehavior: Clip.antiAlias,
             useSafeArea: true,
             builder: (context) => PurchasePaymentDetailsSheet(
               payment: payment,

@@ -4,8 +4,10 @@ import 'dart:io';
 
 class PermissionService {
   static Future<void> requestStartupPermissions() async {
+    // kIsWeb check MUST come first to avoid Platform.isAndroid access on Web
+    if (kIsWeb) return;
     if (!Platform.isAndroid) return;
-
+    
     try {
       // List of permissions required for external functionality
       final statuses = await [

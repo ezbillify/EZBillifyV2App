@@ -50,14 +50,16 @@ class _CreditNoteDetailsSheetState extends State<CreditNoteDetailsSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return BackdropFilter(
-      filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-      child: DraggableScrollableSheet(
-        initialChildSize: 0.85,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (context, scrollController) => Container(
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) => Material(
+        color: context.surfaceBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        elevation: 8,
+        child: Container(
           decoration: BoxDecoration(
             color: context.surfaceBg,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
@@ -160,7 +162,7 @@ class _CreditNoteDetailsSheetState extends State<CreditNoteDetailsSheet> {
       children: _items.map((item) => Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: context.cardBg.withOpacity(0.5), borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor.withOpacity(0.5))),
+        decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
         child: Row(
           children: [
             Expanded(
@@ -222,9 +224,11 @@ class _CreditNoteDetailsSheetState extends State<CreditNoteDetailsSheet> {
       children: [
         Row(
           children: [
-            Expanded(child: _buildActionButton(Icons.edit_outlined, "Edit", () {
-              Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (c) => CreditNoteFormScreen(creditNote: _creditNote)));
+            Expanded(child: _buildActionButton(Icons.edit_outlined, "Edit", () async {
+              final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => CreditNoteFormScreen(creditNote: _creditNote)));
+              if (result == true && mounted) {
+                Navigator.pop(context, true);
+              }
             })),
             const SizedBox(width: 12),
             Expanded(child: _buildActionButton(Icons.print_outlined, "Print", () {

@@ -25,18 +25,21 @@ class PurchasePaymentDetailsSheet extends StatelessWidget {
     final notes = payment['notes']?.toString() ?? '';
     final reference = payment['reference_id']?.toString() ?? '';
 
-    return BackdropFilter(
-      filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-      child: DraggableScrollableSheet(
-        initialChildSize: 0.65,
-        minChildSize: 0.4,
-        maxChildSize: 0.85,
-        expand: false,
-        builder: (context, scrollController) => Container(
+    return DraggableScrollableSheet(
+      initialChildSize: 0.65,
+      minChildSize: 0.4,
+      maxChildSize: 0.85,
+      expand: false,
+      builder: (context, scrollController) => Material(
+        color: context.surfaceBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        elevation: 8,
+        child: Container(
           decoration: BoxDecoration(
             color: context.surfaceBg,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
           ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
             children: [
               const SizedBox(height: 12),
@@ -55,7 +58,7 @@ class PurchasePaymentDetailsSheet extends StatelessWidget {
                     const SizedBox(height: 16),
                     Container(
                       padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(color: context.cardBg.withOpacity(0.5), borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor.withOpacity(0.5))),
+                      decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
                       child: Column(
                         children: [
                           _buildDetailRow(context, "Payment Mode", mode),

@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'dart:ui' as ui;
 import '../../core/theme_service.dart';
 import 'purchase_bill_form_screen.dart';
+import 'purchase_payment_form_screen.dart';
 import '../../services/print_service.dart';
 
 class PurchaseBillDetailsSheet extends StatefulWidget {
@@ -55,18 +56,21 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
     final date = DateTime.tryParse(widget.bill['date'] ?? '') ?? DateTime.now();
     final total = (widget.bill['total_amount'] ?? 0).toDouble();
 
-    return BackdropFilter(
-      filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-      child: DraggableScrollableSheet(
-        initialChildSize: 0.85,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (context, scrollController) => Container(
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) => Material(
+        color: context.surfaceBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        elevation: 8,
+        child: Container(
           decoration: BoxDecoration(
             color: context.surfaceBg,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
           ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
             children: [
               const SizedBox(height: 12),
@@ -92,23 +96,33 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
                           final price = (item['unit_price'] ?? 0).toDouble();
                           final lineTotal = qty * price;
                           final name = item['description'] ?? item['item']?['name'] ?? 'Item';
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(color: context.cardBg.withOpacity(0.5), borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor.withOpacity(0.5))),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                                      Text("$qty x ₹$price", style: TextStyle(fontSize: 12, color: context.textSecondary)),
-                                    ],
-                                  ),
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Material(
+                              color: context.cardBg,
+                              borderRadius: BorderRadius.circular(16),
+                              clipBehavior: Clip.antiAlias,
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: context.borderColor.withOpacity(0.5)),
                                 ),
-                                Text("₹${lineTotal.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                              ],
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                          Text("$qty x ₹$price", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+                                        ],
+                                      ),
+                                    ),
+                                    Text("₹${lineTotal.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                  ],
+                                ),
+                              ),
                             ),
                           );
                         }).toList(),
@@ -146,6 +160,28 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    if ((widget.bill['status'] ?? '').toString().toLowerCase() != 'paid')
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: _buildActionButton(
+                            Icons.add_card_rounded, 
+                            "Record Payment", 
+                            () async {
+                              Navigator.pop(context);
+                              final result = await showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                builder: (context) => PurchasePaymentFormScreen(prefilledBill: widget.bill),
+                              );
+                              if (result == true) widget.onRefresh();
+                            },
+                            color: AppColors.primaryBlue,
+                          ),
+                        ),
+                      ),
                     Row(
                       children: [
                         Expanded(
@@ -263,17 +299,17 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
       ],
     );
   }
-  Widget _buildActionButton(IconData icon, String label, VoidCallback? onTap) {
+  Widget _buildActionButton(IconData icon, String label, VoidCallback? onTap, {Color? color, Color? textColor}) {
     return ElevatedButton.icon(
       onPressed: onTap,
       icon: Icon(icon, size: 18),
       label: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
       style: ElevatedButton.styleFrom(
-        backgroundColor: context.cardBg,
-        foregroundColor: context.textPrimary,
+        backgroundColor: color ?? context.cardBg,
+        foregroundColor: textColor ?? (color != null ? Colors.white : context.textPrimary),
         elevation: 0,
         padding: const EdgeInsets.symmetric(vertical: 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: context.borderColor)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: color ?? context.borderColor)),
       ),
     );
   }

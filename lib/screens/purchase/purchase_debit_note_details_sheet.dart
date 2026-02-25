@@ -47,24 +47,27 @@ class _PurchaseDebitNoteDetailsSheetState extends State<PurchaseDebitNoteDetails
 
   @override
   Widget build(BuildContext context) {
-    final noteNumber = widget.debitNote['debit_note_number'] ?? '#---';
+    final noteNumber = widget.debitNote['dn_number'] ?? widget.debitNote['debit_note_number'] ?? '#---';
     final vendorName = widget.debitNote['vendor']?['name'] ?? 'Unknown Vendor';
     final date = DateTime.tryParse(widget.debitNote['date'] ?? '') ?? DateTime.now();
     final total = (widget.debitNote['total_amount'] ?? 0).toDouble();
     final reason = widget.debitNote['reason'] ?? 'Return';
 
-    return BackdropFilter(
-      filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-      child: DraggableScrollableSheet(
-        initialChildSize: 0.85,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (context, scrollController) => Container(
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) => Material(
+        color: context.surfaceBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        elevation: 8,
+        child: Container(
           decoration: BoxDecoration(
             color: context.surfaceBg,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
           ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
             children: [
               const SizedBox(height: 12),
@@ -93,7 +96,7 @@ class _PurchaseDebitNoteDetailsSheetState extends State<PurchaseDebitNoteDetails
                           return Container(
                             margin: const EdgeInsets.only(bottom: 12),
                             padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(color: context.cardBg.withOpacity(0.5), borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor.withOpacity(0.5))),
+                            decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
                             child: Row(
                               children: [
                                 Expanded(

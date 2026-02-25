@@ -37,7 +37,7 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> with SingleTicker
       backgroundColor: context.scaffoldBg,
       appBar: AppBar(
         title: Text("Purchase Module", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
-        backgroundColor: context.surfaceBg,
+        backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: false,
         actions: [

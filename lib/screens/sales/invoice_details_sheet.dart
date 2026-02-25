@@ -34,11 +34,22 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
   Future<void> _refreshData() async {
     setState(() => _loading = true);
     try {
-      // 1. Fetch Latest Invoice Status/Balance
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return;
+
+      final profile = await Supabase.instance.client
+          .from('users')
+          .select('company_id')
+          .eq('auth_id', user.id)
+          .single();
+      final companyId = profile['company_id'];
+
+      // 1. Fetch Latest Invoice Status/Balance - Include company_id check
       final latest = await Supabase.instance.client
           .from('sales_invoices')
           .select('*, customer:customers(name)')
           .eq('id', _invoice['id'])
+          .eq('company_id', companyId)
           .single();
       
       // 2. Fetch Items
@@ -64,22 +75,18 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return BackdropFilter(
-      filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-      child: DraggableScrollableSheet(
-        initialChildSize: 0.85,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (context, scrollController) => Material(
-          color: Colors.transparent,
-          child: Container(
-            decoration: BoxDecoration(
-              color: context.surfaceBg,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-            ),
-            child: Column(
-            children: [
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) => Material(
+        color: context.surfaceBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        elevation: 16,
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
               const SizedBox(height: 12),
               Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
               const SizedBox(height: 24),
@@ -105,8 +112,6 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
               ),
             ],
           ),
-          ),
-        ),
       ),
     );
   }
@@ -127,10 +132,18 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
             ],
           ),
         ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: statusColor.withOpacity(0.2))),
-          child: Text(status.toUpperCase(), style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 12, color: statusColor)),
+        Material(
+          color: statusColor.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          clipBehavior: Clip.antiAlias,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: statusColor.withOpacity(0.2)),
+            ),
+            child: Text(status.toUpperCase(), style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 12, color: statusColor)),
+          ),
         ),
       ],
     );
@@ -151,17 +164,25 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
 
   Widget _buildStatCard(String label, String value, IconData icon) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(20), border: Border.all(color: context.borderColor)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: AppColors.primaryBlue, size: 20),
-            const SizedBox(height: 12),
-            Text(value, style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary)),
-            Text(label, style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary)),
-          ],
+      child: Material(
+        color: context.cardBg,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: context.borderColor.withOpacity(0.5)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: AppColors.primaryBlue, size: 20),
+              const SizedBox(height: 12),
+              Text(value, style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary)),
+              Text(label, style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary)),
+            ],
+          ),
         ),
       ),
     );
@@ -170,40 +191,58 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
   Widget _buildItemsList() {
     if (_loading) return const Center(child: CircularProgressIndicator());
     return Column(
-      children: _items.map((item) => Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: context.cardBg.withOpacity(0.5), borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor.withOpacity(0.5))),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(item['item']?['name'] ?? 'Item', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  Text("${item['quantity']} x ₹${item['unit_price']}", style: TextStyle(fontSize: 12, color: context.textSecondary)),
-                ],
-              ),
+      children: _items.map((item) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Material(
+          color: context.cardBg,
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: context.borderColor.withOpacity(0.5)),
             ),
-            Text("₹${(item['quantity'] * item['unit_price']).toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-          ],
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item['item']?['name'] ?? 'Item', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      Text("${item['quantity']} x ₹${item['unit_price']}", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+                    ],
+                  ),
+                ),
+                Text("₹${(item['quantity'] * item['unit_price']).toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              ],
+            ),
+          ),
         ),
       )).toList(),
     );
   }
 
   Widget _buildSummaryCard() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.05), borderRadius: BorderRadius.circular(24), border: Border.all(color: AppColors.primaryBlue.withOpacity(0.1))),
-      child: Column(
-        children: [
-          _buildSummaryRow("Subtotal", "₹${(_invoice['sub_total'] ?? _invoice['subtotal'] ?? 0).toStringAsFixed(2)}"),
-          const SizedBox(height: 8),
-          _buildSummaryRow("Total Tax", "₹${(_invoice['tax_total'] ?? _invoice['total_tax'] ?? 0).toStringAsFixed(2)}"),
-          const Divider(height: 24),
-          _buildSummaryRow("Grand Total", "₹${(_invoice['total_amount'] ?? 0).toStringAsFixed(2)}", isTotal: true),
-        ],
+    return Material(
+      color: AppColors.primaryBlue.withOpacity(0.05),
+      borderRadius: BorderRadius.circular(24),
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: AppColors.primaryBlue.withOpacity(0.1)),
+        ),
+        child: Column(
+          children: [
+            _buildSummaryRow("Subtotal", "₹${(_invoice['sub_total'] ?? _invoice['subtotal'] ?? 0).toStringAsFixed(2)}"),
+            const SizedBox(height: 8),
+            _buildSummaryRow("Total Tax", "₹${(_invoice['tax_total'] ?? _invoice['total_tax'] ?? 0).toStringAsFixed(2)}"),
+            const Divider(height: 24),
+            _buildSummaryRow("Grand Total", "₹${(_invoice['total_amount'] ?? 0).toStringAsFixed(2)}", isTotal: true),
+          ],
+        ),
       ),
     );
   }
@@ -237,9 +276,11 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
         Row(
           children: [
             Expanded(
-              child: _buildActionButton(Icons.edit_outlined, "Edit", () {
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (c) => InvoiceFormScreen(invoice: _invoice)));
+              child: _buildActionButton(Icons.edit_outlined, "Edit", () async {
+                final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => InvoiceFormScreen(invoice: _invoice)));
+                if (result == true) {
+                  _refreshData();
+                }
               }),
             ),
             const SizedBox(width: 12),

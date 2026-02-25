@@ -7,6 +7,7 @@ import '../../services/numbering_service.dart';
 import '../../services/master_data_service.dart';
 import '../sales/scanner_modal_content.dart';
 import 'vendors_screen.dart';
+import '../../services/purchase_refresh_service.dart';
 
 class PurchaseBillFormScreen extends StatefulWidget {
   final Map<String, dynamic>? bill; // Null for new
@@ -40,6 +41,11 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
   double _totalTax = 0;
   double _totalAmount = 0;
 
+  // Debit Application
+  double _availableDebit = 0;
+  double _appliedDebit = 0;
+  bool _useDebit = false;
+
   // Record Payment State
   bool _recordPayment = false;
   double _paidAmount = 0;
@@ -71,6 +77,29 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
           _branchName = branches[0]['name'];
         }
         await _generateBillNumber();
+
+        // Handle pre-filled conversion data
+        if (widget.bill != null) {
+          _vendorId = widget.bill!['vendor_id']?.toString();
+          _vendorName = widget.bill!['vendor']?['name'] ?? widget.bill!['vendor_name'];
+          if (widget.bill!['branch_id'] != null) {
+            _branchId = widget.bill!['branch_id'].toString();
+          }
+          if (widget.bill!['items'] != null) {
+            final rawItems = List<dynamic>.from(widget.bill!['items']);
+            _items = List<Map<String, dynamic>>.from(rawItems.map((it) {
+              return <String, dynamic>{
+                'item_id': it['item_id'],
+                'name': it['name'] ?? it['item']?['name'] ?? it['description'] ?? 'Item',
+                'quantity': (it['quantity'] is num) ? it['quantity'].toDouble() : double.tryParse(it['quantity']?.toString() ?? '0') ?? 0.0,
+                'unit_price': (it['unit_price'] is num) ? it['unit_price'].toDouble() : double.tryParse(it['unit_price']?.toString() ?? '0') ?? 0.0,
+                'tax_rate': (it['tax_rate'] is num) ? it['tax_rate'].toDouble() : double.tryParse(it['tax_rate']?.toString() ?? '0') ?? 0.0,
+                'unit': it['unit'] ?? it['item']?['uom'],
+              };
+            }));
+          }
+          _calculateTotals();
+        }
       } else {
         // Load existing bill data for EDIT
         _billNumber = widget.bill!['bill_number'];
@@ -143,8 +172,14 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
       _totalTax = double.parse(totalTax.toStringAsFixed(2));
       _totalAmount = double.parse(grandTotal.toStringAsFixed(2));
       
+      if (_useDebit) {
+          _appliedDebit = (_availableDebit < _totalAmount) ? _availableDebit : _totalAmount;
+      } else {
+          _appliedDebit = 0;
+      }
+      
       if (_recordPayment) {
-        _paidAmount = _totalAmount;
+        _paidAmount = _totalAmount - _appliedDebit;
         _paidAmountController.text = _paidAmount.toStringAsFixed(2);
       }
     });
@@ -167,6 +202,54 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
     );
   }
 
+  Future<void> _fetchVendorDebit() async {
+    if (_vendorId == null) return;
+    try {
+      final response = await Supabase.instance.client
+          .from('purchase_debit_notes')
+          .select('total_amount, status')
+          .eq('vendor_id', _vendorId!)
+          .eq('status', 'open');
+      double totalDebit = 0;
+      for (var row in response) {
+         totalDebit += (row['total_amount'] ?? 0).toDouble();
+      }
+      setState(() {
+        _availableDebit = totalDebit;
+        _calculateTotals();
+      });
+    } catch (e) {
+      debugPrint("Error fetching debit balance: $e");
+    }
+  }
+
+  bool _checkingDuplicate = false;
+  String _duplicateWarning = "";
+
+  Future<void> _checkDuplicateReference(String ref) async {
+    if (ref.isEmpty || _vendorId == null) {
+      if (mounted) setState(() => _duplicateWarning = "");
+      return;
+    }
+    setState(() => _checkingDuplicate = true);
+    try {
+       // Only search other bills
+       var query = Supabase.instance.client.from('purchase_bills').select('id, bill_number').eq('vendor_id', _vendorId!).eq('reference_number', ref);
+       if (widget.bill != null) query = query.neq('id', widget.bill!['id']);
+       
+       final res = await query.maybeSingle();
+       if (res != null && mounted) {
+          setState(() => _duplicateWarning = "Warning: Reference number already used in Bill #${res['bill_number']}");
+       } else if (mounted) {
+          setState(() => _duplicateWarning = "");
+       }
+    } catch (e) {
+      // Ignore
+    } finally {
+      if (mounted) setState(() => _checkingDuplicate = false);
+    }
+  }
+
   Future<void> _selectVendor() async {
     final result = await Navigator.push(
       context, 
@@ -177,8 +260,10 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
       setState(() {
         _vendorId = result['id'];
         _vendorName = result['name'];
-        // TODO: Auto-fill terms or address
+        _useDebit = false;
+        _appliedDebit = 0;
       });
+      _fetchVendorDebit();
     }
   }
 
@@ -258,27 +343,28 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
         final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
         final unit = item['uom'] ?? 'unt';
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Material(
             color: count > 0 ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 2))]
-          ),
-          child: InkWell(
-            onTap: onAdd,
-            borderRadius: BorderRadius.circular(16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                   Container(
-                     width: 48,
-                     height: 48,
-                     decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                     child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue),
-                   ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onAdd,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5)),
+                ),
+                child: Row(
+                  children: [
+                     Container(
+                       width: 48,
+                       height: 48,
+                       decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                       child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue),
+                     ),
                    const SizedBox(width: 16),
                     Expanded(
                       child: Column(
@@ -323,8 +409,9 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
               ),
             ),
           ),
-        );
-      },
+        ),
+      );
+    },
     );
   }
   
@@ -336,9 +423,10 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       builder: (context) => Container(
         padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24, right: 24, top: 24),
-        decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -419,10 +507,11 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
       
       if (widget.bill == null) {
         final paid = _recordPayment ? _paidAmount : 0.0;
-        billData['paid_amount'] = double.parse(paid.toStringAsFixed(2));
-        billData['balance_due'] = double.parse((_totalAmount - paid).toStringAsFixed(2));
-        billData['status'] = _recordPayment && paid >= _totalAmount ? 'paid' : (_recordPayment && paid > 0 ? 'partial' : 'open');
-        billData['stock_updated'] = false; // TODO: Handle GRN logic later
+        final totalPaidOrApplied = paid + _appliedDebit;
+        billData['paid_amount'] = double.parse(totalPaidOrApplied.toStringAsFixed(2));
+        billData['balance_due'] = double.parse((_totalAmount - totalPaidOrApplied).toStringAsFixed(2));
+        billData['status'] = totalPaidOrApplied >= _totalAmount ? 'paid' : (totalPaidOrApplied > 0 ? 'partial' : 'open');
+        billData['stock_updated'] = false; // GRN logic
       } else {
         final existingPaid = (widget.bill!['paid_amount'] ?? 0).toDouble();
         final newBalance = _totalAmount - existingPaid;
@@ -489,7 +578,7 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
               'last_updated': DateTime.now().toIso8601String()
             }).eq('id', stockRes['id']);
           } else {
-            await Supabase.instance.client.from('inventory_stock').insert({
+            await Supabase.instance.client.from('inventory_stock').insert(<String, dynamic>{
               'company_id': _companyId, 
               'branch_id': _branchId, 
               'item_id': itemId, 
@@ -499,7 +588,7 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
             });
           }
 
-          await Supabase.instance.client.from('inventory_transactions').insert({
+          await Supabase.instance.client.from('inventory_transactions').insert(<String, dynamic>{
             'company_id': _companyId,
             'item_id': itemId,
             'branch_id': _branchId,
@@ -516,7 +605,6 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
         await Supabase.instance.client.from('purchase_bills').update({'stock_updated': true}).eq('id', billId);
       }
 
-      // 3. Record Payment if enabled
       if (_recordPayment && _paidAmount > 0 && _companyId != null && _branchId != null) {
         final paymentNumber = await NumberingService.getNextDocumentNumber(
           companyId: _companyId!,
@@ -525,7 +613,7 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
           previewOnly: false,
         );
 
-        await Supabase.instance.client.from('purchase_payments').insert({
+        await Supabase.instance.client.from('purchase_payments').insert(<String, dynamic>{
           'company_id': _companyId,
           'bill_id': billId,
           'payment_number': paymentNumber,
@@ -539,8 +627,37 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
         });
       }
 
+      // 4. Consume Debit Notes (if enabled and new bill)
+      if (widget.bill == null && _useDebit && _appliedDebit > 0) {
+        final openNotes = await Supabase.instance.client
+            .from('purchase_debit_notes')
+            .select('id, total_amount')
+            .eq('vendor_id', _vendorId!)
+            .eq('status', 'open')
+            .order('created_at', ascending: true);
+            
+        double remainingToConsume = _appliedDebit;
+        
+        for (var note in openNotes) {
+            if (remainingToConsume <= 0) break;
+            
+            final noteAmount = (note['total_amount'] ?? 0).toDouble();
+            final amtToTake = noteAmount < remainingToConsume ? noteAmount : remainingToConsume;
+            
+            final newAmount = noteAmount - amtToTake;
+            
+            await Supabase.instance.client.from('purchase_debit_notes').update({
+               'total_amount': newAmount,
+               'status': newAmount <= 0.01 ? 'closed' : 'open'
+            }).eq('id', note['id']);
+            
+            remainingToConsume -= amtToTake;
+        }
+      }
+
       if (mounted) {
         await MasterDataService().invalidateItems();
+        PurchaseRefreshService.triggerRefresh();
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Purchase Invoice Saved Successfully")));
       }
@@ -565,7 +682,7 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
             Text(_billNumber.isEmpty ? "Generating ID..." : _billNumber, style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
           ],
         ),
-        backgroundColor: context.surfaceBg,
+        backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: IconThemeData(color: context.textPrimary),
       ),
@@ -674,8 +791,24 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
             filled: true,
             fillColor: context.cardBg,
           ),
-          onChanged: (v) => _referenceNumber = v,
+          onChanged: (v) {
+             _referenceNumber = v;
+             _checkDuplicateReference(v);
+          },
         ),
+        if (_checkingDuplicate)
+          const Padding(
+            padding: EdgeInsets.only(top: 8.0, left: 16.0),
+            child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+          ),
+        if (_duplicateWarning.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0, left: 16.0),
+            child: Text(
+              _duplicateWarning,
+              style: const TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.bold),
+            ),
+          ),
       ],
     );
   }
@@ -808,6 +941,37 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
   Widget _buildSummarySection() {
     return Column(
       children: [
+        if (_availableDebit > 0 && widget.bill == null)
+          Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.amber.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.amber.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text("Available Debit Note Balance", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 13, color: Colors.amber)),
+                      Text("₹${_availableDebit.toStringAsFixed(2)} can be applied to this bill.", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary)),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: _useDebit,
+                  activeColor: Colors.amber,
+                  onChanged: (v) => setState(() {
+                    _useDebit = v;
+                    _calculateTotals();
+                  }),
+                )
+              ],
+            ),
+          ),
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.05), borderRadius: BorderRadius.circular(24), border: Border.all(color: AppColors.primaryBlue.withOpacity(0.1))),
@@ -816,13 +980,27 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
               _buildSummaryRow("Subtotal", "₹${_subtotal.toStringAsFixed(2)}"),
               const SizedBox(height: 8),
               _buildSummaryRow("Total Tax", "₹${_totalTax.toStringAsFixed(2)}"),
+              if (_useDebit && _appliedDebit > 0) ...[
+                 const SizedBox(height: 8),
+                 _buildSummaryRow("Applied Debit", "- ₹${_appliedDebit.toStringAsFixed(2)}", color: Colors.amber),
+              ],
               const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Divider()),
-              _buildSummaryRow("Grand Total", "₹${_totalAmount.toStringAsFixed(2)}", isTotal: true),
+              _buildSummaryRow("Grand Total", "₹${(_totalAmount - _appliedDebit).toStringAsFixed(2)}", isTotal: true),
             ],
           ),
         ),
         const SizedBox(height: 24),
         if (widget.bill == null) _buildPaymentToggleSection(),
+      ],
+    );
+  }
+
+  Widget _buildSummaryRow(String label, String value, {bool isTotal = false, Color? color}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: TextStyle(fontFamily: 'Outfit', fontSize: isTotal ? 16 : 14, fontWeight: isTotal ? FontWeight.bold : FontWeight.normal, color: color ?? context.textSecondary)),
+        Text(value, style: TextStyle(fontFamily: 'Outfit', fontSize: isTotal ? 20 : 14, fontWeight: isTotal ? FontWeight.bold : FontWeight.w600, color: color ?? context.textPrimary)),
       ],
     );
   }
@@ -907,16 +1085,6 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
     );
   }
 
-  Widget _buildSummaryRow(String label, String value, {bool isTotal = false}) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: TextStyle(fontFamily: 'Outfit', color: isTotal ? context.textPrimary : context.textSecondary, fontWeight: isTotal ? FontWeight.bold : FontWeight.normal, fontSize: isTotal ? 16 : 14)),
-        Text(value, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: isTotal ? AppColors.primaryBlue : context.textPrimary, fontSize: isTotal ? 20 : 14)),
-      ],
-    );
-  }
-
   Widget _buildBottomBar() {
     return Container(
       padding: EdgeInsets.fromLTRB(20, 16, 20, 16 + MediaQuery.of(context).padding.bottom),
@@ -990,6 +1158,8 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       useSafeArea: true,
       builder: (context) => ScannerModalContent<T>(
         allItems: allItems,
@@ -1032,6 +1202,8 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       useSafeArea: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
@@ -1060,7 +1232,7 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
             builder: (context, scrollController) => Stack(
               children: [
                 Container(
-                  decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
+                  decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))), clipBehavior: Clip.antiAlias,
                   child: Column(
                     children: [
                       const SizedBox(height: 12),
@@ -1102,7 +1274,7 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
                           height: 56,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: focusNode.hasFocus ? context.cardBg : context.cardBg.withOpacity(0.5),
+                            color: context.cardBg,
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                               color: focusNode.hasFocus ? AppColors.primaryBlue : context.borderColor,
@@ -1185,25 +1357,28 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
                             final isSelected = isMultiple ? count > 0 : label == currentValue;
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 12),
-                              child: InkWell(
-                                onTap: () {
-                                  if (isMultiple) onIncrement();
-                                  else { onSelect?.call(item); Navigator.pop(context); }
-                                },
+                              child: Material(
+                                color: isSelected ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
                                 borderRadius: BorderRadius.circular(16),
-                                child: Container(
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: isSelected ? AppColors.primaryBlue.withOpacity(0.05) : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(color: isSelected ? AppColors.primaryBlue : context.borderColor),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Expanded(child: Text(label, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.normal, color: context.textPrimary))),
-                                      if (count > 0) Text("x$count", style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
-                                      if (!isMultiple && isSelected) const Icon(Icons.check, color: AppColors.primaryBlue)
-                                    ],
+                                clipBehavior: Clip.antiAlias,
+                                child: InkWell(
+                                  onTap: () {
+                                    if (isMultiple) onIncrement();
+                                    else { onSelect?.call(item); Navigator.pop(context); }
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(color: isSelected ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5), width: 1),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(child: Text(label, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary))),
+                                        if (count > 0) Text("x$count", style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                                        if (!isMultiple && isSelected) const Icon(Icons.check_circle_rounded, color: AppColors.primaryBlue)
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),

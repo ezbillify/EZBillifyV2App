@@ -7,6 +7,7 @@ import 'package:animate_do/animate_do.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme_service.dart';
 import 'vendor_form_screen.dart';
+import 'vendor_ledger_screen.dart';
 
 class VendorsScreen extends StatefulWidget {
   final bool isSelecting; // If true, return selected vendor
@@ -89,18 +90,11 @@ class _VendorsScreenState extends State<VendorsScreen> {
           minChildSize: 0.5,
           maxChildSize: 0.95,
           expand: false,
-          builder: (context, scrollController) => Container(
-            decoration: BoxDecoration(
-              color: context.surfaceBg,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 20,
-                  offset: const Offset(0, -5),
-                ),
-              ],
-            ),
+          builder: (context, scrollController) => Material(
+            color: context.surfaceBg,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+            elevation: 16,
+            clipBehavior: Clip.antiAlias,
             child: Column(
               children: [
                 const SizedBox(height: 12),
@@ -455,6 +449,31 @@ class _VendorsScreenState extends State<VendorsScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
                   side: BorderSide(color: context.borderColor),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context); // Close detail sheet
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (c) => VendorLedgerScreen(
+                        vendorId: vendor['id'].toString(),
+                        vendorName: vendor['name'],
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.account_balance_wallet_rounded, size: 18, color: AppColors.primaryBlue),
+                label: const Text("View Ledger", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                  side: BorderSide(color: AppColors.primaryBlue.withOpacity(0.5)),
+                  backgroundColor: AppColors.primaryBlue.withOpacity(0.05)
                 ),
               ),
             ),

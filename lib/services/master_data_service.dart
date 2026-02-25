@@ -28,7 +28,7 @@ class MasterDataService {
     
     // 2. Try to load from local persistent cache if memory is empty
     if (_items.isEmpty) {
-      await _loadFromLocal('items');
+      await _loadFromLocal(companyId, 'items');
       if (_items.isNotEmpty && !forceRefresh) {
         // If we loaded from local, check if it's too old (e.g., > 2 hours)
         if (_lastItemsSync != null && DateTime.now().difference(_lastItemsSync!).inHours < 2) {
@@ -62,7 +62,7 @@ class MasterDataService {
       _lastItemsSync = DateTime.now();
       
       // Background save to local persistent storage
-      _saveToLocal('items', _items);
+      _saveToLocal(companyId, 'items', _items);
       
       return _items;
     } catch (e) {
@@ -78,7 +78,7 @@ class MasterDataService {
     }
 
     if (_customers.isEmpty) {
-      await _loadFromLocal('customers');
+      await _loadFromLocal(companyId, 'customers');
       if (_customers.isNotEmpty && !forceRefresh) {
         if (_lastCustomersSync != null && DateTime.now().difference(_lastCustomersSync!).inHours < 2) {
           return _customers;
@@ -99,7 +99,7 @@ class MasterDataService {
       _customers = List<Map<String, dynamic>>.from(results);
       _lastCustomersSync = DateTime.now();
       
-      _saveToLocal('customers', _customers);
+      _saveToLocal(companyId, 'customers', _customers);
       
       return _customers;
     } catch (e) {
@@ -108,29 +108,29 @@ class MasterDataService {
     }
   }
 
-  Future<void> _saveToLocal(String key, List<Map<String, dynamic>> data) async {
+  Future<void> _saveToLocal(String companyId, String key, List<Map<String, dynamic>> data) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('cache_$key', jsonEncode(data));
-      await prefs.setString('cache_${key}_time', DateTime.now().toIso8601String());
+      await prefs.setString('cache_${companyId}_$key', jsonEncode(data));
+      await prefs.setString('cache_${companyId}_${key}_time', DateTime.now().toIso8601String());
     } catch (e) {
       debugPrint("Cache save error: $e");
     }
   }
 
-  Future<void> _loadFromLocal(String key) async {
+  Future<void> _loadFromLocal(String companyId, String key) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonStr = prefs.getString('cache_$key');
+      final jsonStr = prefs.getString('cache_${companyId}_$key');
       if (jsonStr != null) {
         final List<dynamic> decoded = jsonDecode(jsonStr);
         if (key == 'items') {
           _items = List<Map<String, dynamic>>.from(decoded);
-          final time = prefs.getString('cache_items_time');
+          final time = prefs.getString('cache_${companyId}_items_time');
           if (time != null) _lastItemsSync = DateTime.tryParse(time);
         } else {
           _customers = List<Map<String, dynamic>>.from(decoded);
-          final time = prefs.getString('cache_customers_time');
+          final time = prefs.getString('cache_${companyId}_customers_time');
           if (time != null) _lastCustomersSync = DateTime.tryParse(time);
         }
       }
@@ -139,32 +139,34 @@ class MasterDataService {
     }
   }
 
-  Future<void> invalidateItems() async {
+  Future<void> invalidateCache() async {
     _items = [];
+    _customers = [];
     _lastItemsSync = null;
+    _lastCustomersSync = null;
+    
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('cache_items');
-      await prefs.remove('cache_items_time');
+      final keys = prefs.getKeys();
+      for (final key in keys) {
+        if (key.startsWith('cache_')) {
+          await prefs.remove(key);
+        }
+      }
     } catch (e) {
       debugPrint("Cache invalidate error: $e");
     }
+  }
+
+  Future<void> invalidateItems() async {
+    _items = [];
+    _lastItemsSync = null;
+    // Note: Global invalidation handled by invalidateCache
   }
 
   Future<void> invalidateCustomers() async {
     _customers = [];
     _lastCustomersSync = null;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('cache_customers');
-      await prefs.remove('cache_customers_time');
-    } catch (e) {
-      debugPrint("Cache invalidate error: $e");
-    }
-  }
-
-  void invalidateCache() {
-    invalidateItems();
-    invalidateCustomers();
+    // Note: Global invalidation handled by invalidateCache
   }
 }

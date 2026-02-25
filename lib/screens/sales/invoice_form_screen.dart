@@ -11,6 +11,8 @@ import '../inventory/item_form_sheet.dart';
 import 'scanner_modal_content.dart';
 import '../../services/numbering_service.dart';
 import '../../services/master_data_service.dart';
+import '../../services/print_service.dart';
+import '../../services/sales_refresh_service.dart';
 
 class InvoiceFormScreen extends StatefulWidget {
   final Map<String, dynamic>? invoice; // Null for new
@@ -34,6 +36,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
   DateTime _invoiceDate = DateTime.now();
   DateTime _dueDate = DateTime.now().add(const Duration(days: 7));
   String _invoiceNumber = "";
+  String? _quotationId;
   
   // Line Items
   List<Map<String, dynamic>> _items = [];
@@ -42,14 +45,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
   double _subtotal = 0;
   double _totalTax = 0;
   double _totalAmount = 0;
-
-  // Record Payment State
-  bool _recordPayment = false;
-  double _paidAmount = 0;
-  String _paymentMode = "Cash";
-  String _referenceNumber = "";
-  String _paymentNotes = "";
-  final _paidAmountController = TextEditingController();
+  double _existingPaid = 0.0;
 
   @override
   void initState() {
@@ -105,10 +101,18 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
             'tax_rate': (tr is num) ? tr.toDouble() : (double.tryParse(tr?.toString() ?? '0') ?? 0.0),
             'unit': i['item']?['uom'],
             'purchase_price': (pp is num) ? pp.toDouble() : (double.tryParse(pp?.toString() ?? '0') ?? 0.0),
+            'total_amount': (i['total_amount'] is num) ? i['total_amount'].toDouble() : (double.tryParse(i['total_amount']?.toString() ?? '0') ?? 0.0),
+            'tax_amount': (i['tax_amount'] is num) ? i['tax_amount'].toDouble() : (double.tryParse(i['tax_amount']?.toString() ?? '0') ?? 0.0),
           };
         }));
 
         debugPrint("Edit Invoice: mapped ${_items.length} items");
+        
+        final allocations = await Supabase.instance.client
+            .from('sales_payment_allocations')
+            .select('amount')
+            .eq('invoice_id', invId);
+        _existingPaid = (allocations as List).fold(0.0, (sum, a) => sum + (a['amount'] ?? 0));
         
         _calculateTotals();
       } else {
@@ -139,6 +143,8 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                   'tax_rate': (tr is num) ? tr.toDouble() : (double.tryParse(tr?.toString() ?? '0') ?? 0.0),
                   'unit': it['unit'] ?? it['item']?['uom'],
                   'purchase_price': (pp is num) ? pp.toDouble() : (double.tryParse(pp?.toString() ?? '0') ?? 0.0),
+                  'total_amount': (it['total_amount'] is num) ? it['total_amount'].toDouble() : (double.tryParse(it['total_amount']?.toString() ?? '0') ?? 0.0),
+                  'tax_amount': (it['tax_amount'] is num) ? it['tax_amount'].toDouble() : (double.tryParse(it['tax_amount']?.toString() ?? '0') ?? 0.0),
                 };
               }));
            }
@@ -150,6 +156,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
               final bMatch = branches.firstWhere((b) => b['id'].toString() == _branchId, orElse: () => {});
               if (bMatch.isNotEmpty) _branchName = bMatch['name'];
            }
+           _quotationId = widget.invoice!['quotation_id']?.toString();
            _calculateTotals();
         }
       }
@@ -192,6 +199,10 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       final lineSub = totalInclusive / (1 + (taxRate / 100));
       final lineTax = totalInclusive - lineSub;
       
+      // Essential for Printing - Populate per-item totals
+      item['total_amount'] = double.parse(totalInclusive.toStringAsFixed(2));
+      item['tax_amount'] = double.parse(lineTax.toStringAsFixed(2));
+
       sub += lineSub;
       tax += lineTax;
     }
@@ -199,12 +210,6 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       _subtotal = double.parse(sub.toStringAsFixed(2));
       _totalTax = double.parse(tax.toStringAsFixed(2));
       _totalAmount = double.parse((sub + tax).toStringAsFixed(2));
-      
-      // Keep paid amount in sync if record payment is toggled and it was previously matching total or just enabled
-      if (_recordPayment) {
-        _paidAmount = _totalAmount;
-        _paidAmountController.text = _paidAmount.toStringAsFixed(2);
-      }
     });
   }
 
@@ -365,7 +370,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
           ],
         ),
         const SizedBox(height: 16),
-        _buildTextField("Reference Number (Optional)", "", Icons.edit_note_rounded, (v) {}),
+        // Reference Number removed
       ],
     );
   }
@@ -494,106 +499,10 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
           ),
         ),
         const SizedBox(height: 24),
-        if (widget.invoice == null) _buildPaymentSection(),
       ],
     );
   }
 
-  Widget _buildPaymentSection() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: _recordPayment ? Colors.green.withOpacity(0.04) : context.cardBg,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: _recordPayment ? Colors.green.withOpacity(0.2) : context.borderColor),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: _recordPayment ? Colors.green.withOpacity(0.1) : context.textSecondary.withOpacity(0.05),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(_recordPayment ? Icons.check_circle_rounded : Icons.payments_outlined, 
-                  color: _recordPayment ? Colors.green : context.textSecondary, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("Record Payment", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
-                    Text("Add immediate payment info", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
-                  ],
-                ),
-              ),
-              Switch(
-                value: _recordPayment, 
-                onChanged: (v) {
-                  setState(() {
-                    _recordPayment = v;
-                    if (v) {
-                      _paidAmount = _totalAmount;
-                      _paidAmountController.text = _paidAmount.toStringAsFixed(2);
-                    }
-                  });
-                },
-                activeColor: Colors.green,
-                activeTrackColor: Colors.green.withOpacity(0.3),
-              ),
-            ],
-          ),
-          if (_recordPayment) ...[
-            const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider()),
-            TextFormField(
-              controller: _paidAmountController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18),
-              decoration: InputDecoration(
-                labelText: "Paid Amount",
-                prefixText: "₹ ",
-                labelStyle: const TextStyle(fontFamily: 'Outfit'),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                filled: true,
-                fillColor: context.scaffoldBg,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              ),
-              onChanged: (v) => _paidAmount = double.tryParse(v) ?? 0,
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: _paymentMode,
-              decoration: InputDecoration(
-                labelText: "Payment Mode",
-                labelStyle: const TextStyle(fontFamily: 'Outfit'),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                filled: true,
-                fillColor: context.scaffoldBg,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              ),
-              items: ["Cash", "Bank Transfer", "UPI", "Cheque", "Other"].map((m) => DropdownMenuItem(value: m, child: Text(m, style: const TextStyle(fontFamily: 'Outfit')))).toList(),
-              onChanged: (v) => setState(() => _paymentMode = v!),
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              decoration: InputDecoration(
-                labelText: "Reference # / Notes",
-                labelStyle: const TextStyle(fontFamily: 'Outfit'),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                filled: true,
-                fillColor: context.scaffoldBg,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              ),
-              onChanged: (v) => _referenceNumber = v,
-            ),
-          ]
-        ],
-      ),
-    );
-  }
 
   Widget _buildBottomBar() {
     return Container(
@@ -611,19 +520,315 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
               ],
             ),
           ),
-          const SizedBox(width: 16),
-          SizedBox(
-            height: 54,
-            width: 160,
-            child: ElevatedButton(
-              onPressed: _loading ? null : _saveInvoice,
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 0),
-              child: const Text("Save Invoice", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
+          const SizedBox(width: 12),
+          ElevatedButton(
+            onPressed: (_loading || _items.isEmpty) ? null : () => _showPaymentModal(shouldPrint: false),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: context.cardBg,
+              foregroundColor: context.textPrimary,
+              elevation: 0,
+              side: BorderSide(color: context.borderColor),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             ),
+            child: const Text("Save", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton(
+            onPressed: (_loading || _items.isEmpty) ? null : () => _showPaymentModal(shouldPrint: true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primaryBlue,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+            child: const Text("Save & Print", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
           ),
         ],
       ),
     );
+  }
+
+  void _showPaymentModal({required bool shouldPrint}) {
+    if (_customerId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a customer first")));
+      return;
+    }
+    
+    // Helper to format amount for display/input
+    String formatAmount(double val) {
+      if (val % 1 == 0) return val.toInt().toString();
+      return val.toStringAsFixed(2);
+    }
+
+    // For new invoices, existingPaid is 0. For edits, it's what we fetched in initState or re-fetch here for absolute safety
+    final balanceDueNow = _totalAmount - _existingPaid;
+    
+    List<Map<String, dynamic>> payments = [
+      {
+        'mode': 'Cash', 
+        'amount': balanceDueNow > 0 ? balanceDueNow : 0.0, 
+        'controller': TextEditingController(text: formatAmount(balanceDueNow > 0 ? balanceDueNow : 0.0))
+      }
+    ];
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          double currentNewPaid = payments.fold(0.0, (sum, p) => sum + (double.tryParse(p['controller'].text) ?? 0.0));
+          double remainingBalance = _totalAmount - _existingPaid - currentNewPaid;
+
+          return Container(
+            decoration: BoxDecoration(
+              color: context.surfaceBg,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+            ),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + MediaQuery.of(context).viewInsets.bottom),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2)))),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text("Payment Details", style: TextStyle(fontFamily: 'Outfit', fontSize: 22, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                      IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryBlue.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: AppColors.primaryBlue.withOpacity(0.1)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text("TOTAL INVOICE VALUE", style: TextStyle(fontFamily: 'Outfit', fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primaryBlue.withOpacity(0.5))),
+                            const SizedBox(height: 4),
+                            Text("₹${formatAmount(_totalAmount)}", style: const TextStyle(fontFamily: 'Outfit', fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                          ],
+                        ),
+                        if (remainingBalance != 0)
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(remainingBalance > 0 ? "BALANCE DUE" : "REMAINING", style: TextStyle(fontFamily: 'Outfit', fontSize: 10, fontWeight: FontWeight.bold, color: remainingBalance > 0 ? Colors.red.withOpacity(0.5) : Colors.green.withOpacity(0.5))),
+                              const SizedBox(height: 4),
+                              Text("₹${formatAmount(remainingBalance.abs())}", style: TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: remainingBalance > 0 ? Colors.red : Colors.green)),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Text("Payments", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textSecondary)),
+                  const SizedBox(height: 12),
+                  ...payments.asMap().entries.map((entry) {
+                    final idx = entry.key;
+                    final p = entry.value;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: InkWell(
+                              onTap: () => _showModeSelectionSheet(context, (mode) => setModalState(() => p['mode'] = mode)),
+                              borderRadius: BorderRadius.circular(16),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                decoration: BoxDecoration(
+                                  color: context.cardBg,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: context.borderColor),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(child: Text(p['mode'], style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 14))),
+                                    const Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: AppColors.primaryBlue),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 3,
+                            child: TextField(
+                              controller: p['controller'],
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              decoration: InputDecoration(
+                                prefixText: "₹ ",
+                                prefixStyle: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryBlue),
+                                filled: true,
+                                fillColor: context.cardBg,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: context.borderColor)),
+                                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.primaryBlue, width: 2)),
+                              ),
+                              style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+                              onChanged: (v) => setModalState(() {}),
+                            ),
+                          ),
+                          if (payments.length > 1)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: IconButton(
+                                onPressed: () => setModalState(() {
+                                  payments[idx]['controller'].dispose();
+                                  payments.removeAt(idx);
+                                }), 
+                                icon: const Icon(Icons.remove_circle_outline_rounded, color: Colors.red)
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                  const SizedBox(height: 8),
+                  InkWell(
+                    onTap: () {
+                      setModalState(() {
+                        double currentBalance = _totalAmount - _existingPaid - payments.fold(0.0, (sum, p) => sum + (double.tryParse(p['controller'].text) ?? 0.0));
+                        payments.add({
+                          'mode': 'UPI', 
+                          'amount': currentBalance > 0 ? currentBalance : 0.0,
+                          'controller': TextEditingController(text: formatAmount(currentBalance > 0 ? currentBalance : 0.0))
+                        });
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.add_circle_outline_rounded, size: 20, color: AppColors.primaryBlue),
+                          const SizedBox(width: 8),
+                          Text("Add Another Payment Mode", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        final finalPayments = payments.map((p) => {
+                          'mode': p['mode'],
+                          'amount': double.tryParse(p['controller'].text) ?? 0.0
+                        }).where((p) => (p['amount'] as double) > 0).toList();
+                        
+                        Navigator.pop(context);
+                        _saveInvoiceWithPayments(payments: finalPayments, shouldPrint: shouldPrint);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryBlue, 
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        elevation: 0,
+                      ),
+                      child: Text(
+                        shouldPrint ? "Confirm & Print" : "Confirm & Save",
+                        style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Center(
+                    child: TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _saveInvoiceWithPayments(payments: [], shouldPrint: shouldPrint);
+                      },
+                      child: Text("Save without Payment", style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary, fontWeight: FontWeight.w500)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    ).then((_) {
+      // Dispose controllers after modal is closed
+      for (var p in payments) {
+        p['controller'].dispose();
+      }
+    });
+  }
+
+  void _showModeSelectionSheet(BuildContext context, Function(String) onSelect) {
+    final modes = ["Cash", "UPI", "Card", "Bank Transfer", "Cheque", "Other"];
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: context.surfaceBg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
+              const SizedBox(height: 24),
+              Text("Select Payment Mode", style: TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.bold, color: context.textPrimary)),
+              const SizedBox(height: 16),
+              ...modes.map((mode) => ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                  child: Icon(_getPaymentIcon(mode), color: AppColors.primaryBlue, size: 20),
+                ),
+                title: Text(mode, style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+                onTap: () {
+                  onSelect(mode);
+                  Navigator.pop(context);
+                },
+              )),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  IconData _getPaymentIcon(String mode) {
+    switch (mode) {
+      case 'Cash': return Icons.payments_rounded;
+      case 'UPI': return Icons.qr_code_scanner_rounded;
+      case 'Card': return Icons.credit_card_rounded;
+      case 'Bank Transfer': return Icons.account_balance_rounded;
+      case 'Cheque': return Icons.history_edu_rounded;
+      default: return Icons.more_horiz_rounded;
+    }
+  }
+
+  Future<void> _saveInvoiceWithPayments({required List<Map<String, dynamic>> payments, required bool shouldPrint}) async {
+     // We need to pass these to _saveInvoice
+     await _saveInvoice(customPayments: payments, shouldPrint: shouldPrint);
   }
 
   Widget _buildSectionTitle(String title) {
@@ -765,52 +970,59 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       builder: (context) => Container(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24, right: 24, top: 24),
-        decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2)))),
-            const SizedBox(height: 24),
-            Text("Edit Unit Price", style: TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.bold, color: context.textPrimary)),
-            const SizedBox(height: 8),
-            Text(item['name'], style: TextStyle(fontFamily: 'Outfit', fontSize: 14, color: context.textSecondary)),
-            const SizedBox(height: 24),
-            TextField(
-              controller: controller,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              autofocus: true,
-              style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
-              decoration: InputDecoration(
-                prefixText: "₹ ",
-                prefixStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                labelText: "New Unit Price",
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                filled: true,
-                fillColor: context.cardBg,
+        decoration: BoxDecoration(
+          color: context.surfaceBg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom + 32, left: 24, right: 24, top: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2)))),
+              const SizedBox(height: 24),
+              Text("Edit Unit Price", style: TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.bold, color: context.textPrimary)),
+              const SizedBox(height: 8),
+              Text(item['name'], style: TextStyle(fontFamily: 'Outfit', fontSize: 14, color: context.textSecondary)),
+              const SizedBox(height: 24),
+              TextField(
+                controller: controller,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                autofocus: true,
+                style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
+                decoration: InputDecoration(
+                  prefixText: "₹ ",
+                  prefixStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  labelText: "New Unit Price",
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                  filled: true,
+                  fillColor: context.cardBg,
+                ),
               ),
-            ),
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              height: 54,
-              child: ElevatedButton(
-                onPressed: () {
-                  final newPrice = double.tryParse(controller.text) ?? item['unit_price'];
-                  setState(() {
-                    _items[index]['unit_price'] = newPrice;
-                    _calculateTotals();
-                  });
-                  Navigator.pop(context);
-                },
-                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 0),
-                child: const Text("Save Changes", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: ElevatedButton(
+                  onPressed: () {
+                    final newPrice = double.tryParse(controller.text) ?? item['unit_price'];
+                    setState(() {
+                      _items[index]['unit_price'] = newPrice;
+                      _calculateTotals();
+                    });
+                    Navigator.pop(context);
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 0),
+                  child: const Text("Save Changes", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
+                ),
               ),
-            ),
-            const SizedBox(height: 32),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -906,36 +1118,31 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
         final purchasePrice = (item['default_purchase_price'] ?? 0).toDouble();
         final unit = item['uom'] ?? 'unt';
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Material(
             color: count > 0 ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.02),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              )
-            ]
-          ),
-          child: InkWell(
-            onTap: onAdd,
-            borderRadius: BorderRadius.circular(16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                   Container(
-                     width: 48,
-                     height: 48,
-                     decoration: BoxDecoration(
-                       color: AppColors.primaryBlue.withOpacity(0.1),
-                       borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(20),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onAdd,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5), width: 1),
+                ),
+                child: Row(
+                  children: [
+                     Container(
+                       width: 48,
+                       height: 48,
+                       decoration: BoxDecoration(
+                         color: AppColors.primaryBlue.withOpacity(0.1),
+                         borderRadius: BorderRadius.circular(12),
+                       ),
+                       child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue),
                      ),
-                     child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue),
-                   ),
                    const SizedBox(width: 16),
                    Expanded(
                      child: Column(
@@ -1000,8 +1207,9 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
               ),
             ),
           ),
-        );
-      },
+        ),
+      );
+    },
     );
   }
 
@@ -1010,20 +1218,294 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
     _calculateTotals();
   }
 
+  void _showPrintingStatusModal() {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black.withOpacity(0.95),
+      transitionDuration: const Duration(milliseconds: 600),
+      pageBuilder: (context, anim1, anim2) => WillPopScope(
+        onWillPop: () async => false,
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: Stack(
+            children: [
+              // The "Feeding" Loop Animation
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 1.0, end: 0.0),
+                duration: const Duration(milliseconds: 3000),
+                builder: (context, value, child) {
+                  return Stack(
+                    children: [
+                      // The Receipt - Larger and more detailed, moving UP and OUT
+                      Positioned(
+                        top: (MediaQuery.of(context).size.height * value) - 200, // Move from height to -200
+                        left: (MediaQuery.of(context).size.width - 320) / 2,
+                        child: Opacity(
+                          opacity: value < 0.1 ? (value * 10) : 1.0, // Fade out as it leaves
+                          child: Container(
+                            width: 320,
+                            height: 600,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(4),
+                              boxShadow: [
+                                BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 40, offset: const Offset(0, 10))
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Receipt Header
+                                Container(
+                                  padding: const EdgeInsets.all(24),
+                                  width: double.infinity,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[50],
+                                    border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), shape: BoxShape.circle),
+                                        child: const Icon(Icons.receipt_long_rounded, color: AppColors.primaryBlue, size: 32)
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Text("TAX INVOICE", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 2, color: Colors.grey[800])),
+                                      const SizedBox(height: 8),
+                                      Text(_invoiceNumber, style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.primaryBlue)),
+                                    ],
+                                  ),
+                                ),
+                                
+                                // Customer Info
+                                Padding(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text("BILL TO", style: TextStyle(fontFamily: 'Outfit', fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[400], letterSpacing: 1)),
+                                      const SizedBox(height: 4),
+                                      Text(_customerName ?? 'Walking Customer', style: TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[900])),
+                                      const SizedBox(height: 4),
+                                      Text(DateTime.now().toString().substring(0, 16), style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: Colors.grey[500])),
+                                    ],
+                                  ),
+                                ),
+                                
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 24),
+                                  child: Divider(),
+                                ),
+                                
+                                // Items List
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                    child: Column(
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(flex: 3, child: Text("ITEM", style: TextStyle(fontFamily: 'Outfit', fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[400]))),
+                                            Expanded(child: Text("QTY", textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Outfit', fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[400]))),
+                                            Expanded(child: Text("TOTAL", textAlign: TextAlign.right, style: TextStyle(fontFamily: 'Outfit', fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[400]))),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 16),
+                                        ...(_items.take(4).map((item) => Padding(
+                                          padding: const EdgeInsets.only(bottom: 16),
+                                          child: Row(
+                                            children: [
+                                              Expanded(flex: 3, child: Text(item['name'] ?? 'Item', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: 'Outfit', fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[800]))),
+                                              Expanded(child: Text("${item['quantity']}", textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Outfit', fontSize: 14, color: Colors.grey[700]))),
+                                              Expanded(child: Text("₹${(item['total_amount'] ?? 0).toStringAsFixed(0)}", textAlign: TextAlign.right, style: TextStyle(fontFamily: 'Outfit', fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black))),
+                                            ],
+                                          ),
+                                        )).toList()),
+                                        if (_items.length > 4) 
+                                          Center(child: Text("+ ${_items.length - 4} more items", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey[400])))
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                
+                                // Total Footer
+                                Container(
+                                  padding: const EdgeInsets.all(24),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[900],
+                                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(4)),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text("GRAND TOTAL", style: TextStyle(fontFamily: 'Outfit', fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white54, letterSpacing: 1)),
+                                          Text("Payable Amount", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: Colors.white70)),
+                                        ],
+                                      ),
+                                      Text("₹${_totalAmount.toStringAsFixed(2)}", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w900, fontSize: 26, color: Colors.white)),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+                onEnd: () {
+                   // This creates a continuous loop
+                   // (In a real app we'd use an AnimationController, but this is a quick way to loop)
+                },
+              ),
+
+              // The "Printer Slot" at the VERY top edge - This is where the paper "leaves"
+              Align(
+                alignment: Alignment.topCenter,
+                child: Container(
+                  width: double.infinity,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.black, Colors.black.withOpacity(0)],
+                    ),
+                  ),
+                ),
+              ),
+              
+              Align(
+                alignment: Alignment.topCenter,
+                child: Container(
+                  width: 350,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF111111),
+                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
+                    boxShadow: [
+                      BoxShadow(color: AppColors.primaryBlue.withOpacity(0.5), blurRadius: 40, spreadRadius: 4)
+                    ]
+                  ),
+                  child: Center(
+                    child: Container(
+                      width: 320,
+                      height: 1,
+                      color: Colors.white10,
+                    ),
+                  ),
+                ),
+              ),
+
+              // Status indicator at bottom
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 100),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(40),
+                          border: Border.all(color: Colors.white.withOpacity(0.1))
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primaryBlue)),
+                            const SizedBox(width: 16),
+                            Text("COMMUNICATING WITH PRINTER...", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.5, color: Colors.white.withOpacity(0.9))),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
 
-  Future<void> _saveInvoice() async {
+  Future<void> _saveInvoice({List<Map<String, dynamic>>? customPayments, bool shouldPrint = false}) async {
     if (_customerId == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a customer"))); return; }
     if (_items.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Add at least one item"))); return; }
     
+    final companyId = _companyId;
+    final branchId = _branchId;
+    if (companyId == null) return;
+
     setState(() => _loading = true);
     try {
-      final balanceDue = _recordPayment ? (_totalAmount - _paidAmount) : _totalAmount;
-      final status = balanceDue <= 0.5 ? 'paid' : (_recordPayment && _paidAmount > 0 ? 'partial' : 'unpaid');
+      double existingPaid = 0.0;
+      final isEdit = widget.invoice != null && widget.invoice!['id'] != null;
+      String? savedInvoiceId = isEdit ? widget.invoice!['id'].toString() : null;
+      String? sourceQuotationId = _quotationId ?? widget.invoice?['quotation_id']?.toString();
+      String? sourceOrderId = widget.invoice?['order_id']?.toString();
+
+      if (isEdit) {
+        final invoiceId = savedInvoiceId!;
+        final allocations = await Supabase.instance.client
+            .from('sales_payment_allocations')
+            .select('amount')
+            .eq('invoice_id', invoiceId);
+        existingPaid = (allocations as List).fold(0.0, (sum, a) => sum + (a['amount'] ?? 0));
+
+        // Fetch previously issued automatic credits to avoid double-crediting
+        final credits = await Supabase.instance.client
+            .from('sales_credit_notes')
+            .select('total_amount')
+            .eq('invoice_id', invoiceId)
+            .eq('reason', 'Overpayment adjustment due to item reduction');
+        final totalCredited = (credits as List).fold(0.0, (sum, c) => sum + (c['total_amount'] ?? 0));
+        existingPaid -= totalCredited;
+      }
+
+      final double newPaid = customPayments?.fold(0.0, (sum, p) => sum! + (p['amount'] ?? 0)) ?? 0.0;
+      final totalPaid = existingPaid + newPaid;
+      var balanceDue = _totalAmount - totalPaid;
+
+      // Handle Overpayment by adjusting allocations instead of creating a double-deducting Credit Note
+      if (isEdit && balanceDue < -0.5) {
+        final invoiceId = savedInvoiceId!;
+        double excessToRemove = balanceDue.abs();
+        final allocs = await Supabase.instance.client
+            .from('sales_payment_allocations')
+            .select('id, amount')
+            .eq('invoice_id', invoiceId)
+            .order('amount', ascending: false);
+            
+        for (var a in (allocs as List)) {
+          if (excessToRemove <= 0) break;
+          double amt = (a['amount'] ?? 0).toDouble();
+          if (amt <= excessToRemove) {
+            await Supabase.instance.client.from('sales_payment_allocations').delete().eq('id', a['id']);
+            excessToRemove -= amt;
+          } else {
+            await Supabase.instance.client.from('sales_payment_allocations').update({'amount': amt - excessToRemove}).eq('id', a['id']);
+            excessToRemove = 0;
+          }
+        }
+        balanceDue = 0;
+      }
+
+      final status = balanceDue <= 0.5 ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid');
 
       final invoiceData = {
-        'company_id': _companyId,
-        'branch_id': _branchId,
+        'company_id': companyId,
+        'branch_id': branchId,
         'customer_id': _customerId,
         'invoice_number': _invoiceNumber,
         'date': _invoiceDate.toIso8601String(),
@@ -1036,19 +1518,27 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
         'created_by': _internalUserId,
       };
 
-      final isEdit = widget.invoice != null && widget.invoice!['id'] != null;
-
       if (!isEdit) {
         // Consume the actual number from sequence on save
         final actualNumber = await NumberingService.getNextDocumentNumber(
-          companyId: _companyId!,
+          companyId: companyId,
           documentType: 'SALES_INVOICE',
-          branchId: _branchId,
+          branchId: branchId,
           previewOnly: false,
         );
         invoiceData['invoice_number'] = actualNumber;
 
         final inserted = await Supabase.instance.client.from('sales_invoices').insert(invoiceData).select().single();
+        savedInvoiceId = inserted['id'].toString();
+        
+        // If conversion, update source status
+        if (sourceQuotationId != null) {
+          await Supabase.instance.client.from('sales_quotations').update({'status': 'converted'}).eq('id', sourceQuotationId);
+        }
+        if (sourceOrderId != null) {
+          await Supabase.instance.client.from('sales_orders').update({'status': 'completed'}).eq('id', sourceOrderId);
+        }
+
         for (var item in _items) {
           final qty = (item['quantity'] ?? 0).toDouble();
           final price = (item['unit_price'] ?? 0).toDouble();
@@ -1057,81 +1547,220 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
           final lineSub = totalInclusive / (1 + (taxRate / 100));
           final lineTax = totalInclusive - lineSub;
 
-            await Supabase.instance.client.from('sales_invoice_items').insert({
-              'invoice_id': inserted['id'],
-              'item_id': item['item_id'],
-              'description': item['name'],
-              'quantity': item['quantity'],
-              'unit_price': item['unit_price'],
-              'tax_rate': item['tax_rate'],
-              'tax_amount': double.parse(lineTax.toStringAsFixed(2)),
-              'total_amount': double.parse(totalInclusive.toStringAsFixed(2)),
-            });
-        }
-        
-        // If this was a conversion from a quotation, update the quotation status
-        if (widget.invoice != null && widget.invoice!['quotation_id'] != null) {
-          await Supabase.instance.client.from('sales_quotations')
-              .update({'status': 'converted'})
-              .eq('id', widget.invoice!['quotation_id']);
-        }
+          if (item['item_id'] == null) continue;
 
-        // 4. Record Payment if enabled
-        if (_recordPayment && _paidAmount > 0) {
-          final paymentNumber = await NumberingService.getNextDocumentNumber(
-            companyId: _companyId!,
-            documentType: 'SALES_PAYMENT',
-            branchId: _branchId,
-            previewOnly: false,
-          );
-
-          final payment = await Supabase.instance.client.from('sales_payments').insert({
-            'company_id': _companyId,
-            'branch_id': _branchId,
-            'customer_id': _customerId,
-            'payment_number': paymentNumber,
-            'date': DateTime.now().toIso8601String(),
-            'amount': _paidAmount,
-            'payment_mode': _paymentMode,
-            'reference_number': _referenceNumber,
-            'created_by': _internalUserId,
-            'is_active': true,
-          }).select().single();
-
-          await Supabase.instance.client.from('sales_payment_allocations').insert({
-            'payment_id': payment['id'],
-            'invoice_id': inserted['id'],
-            'amount': _paidAmount,
+          await Supabase.instance.client.from('sales_invoice_items').insert({
+            'invoice_id': savedInvoiceId,
+            'item_id': item['item_id'].toString(),
+            'description': (item['name'] ?? 'Item').toString(),
+            'quantity': item['quantity'],
+            'unit_price': item['unit_price'],
+            'tax_rate': item['tax_rate'],
+            'tax_amount': double.parse(lineTax.toStringAsFixed(2)),
+            'total_amount': double.parse(totalInclusive.toStringAsFixed(2)),
           });
+
+          // Update Stock for Products
+          try {
+            final itemSpec = await Supabase.instance.client.from('items').select('type').eq('id', item['item_id']).single();
+            if (itemSpec['type'] == 'product' && branchId != null) {
+              final stockData = await Supabase.instance.client.from('inventory_stock').select('quantity').eq('item_id', item['item_id']).eq('branch_id', branchId).maybeSingle();
+              final currentQty = (stockData?['quantity'] ?? 0).toDouble();
+              final newQty = currentQty - qty;
+
+              await Supabase.instance.client.from('inventory_stock').upsert({
+                'company_id': companyId,
+                'item_id': item['item_id'],
+                'branch_id': branchId,
+                'quantity': newQty,
+                'last_updated': DateTime.now().toIso8601String(),
+              }, onConflict: 'item_id, branch_id');
+
+              await Supabase.instance.client.from('inventory_transactions').insert({
+                'company_id': companyId,
+                'item_id': item['item_id'],
+                'branch_id': branchId,
+                'transaction_type': 'sales_out',
+                'quantity_change': -qty,
+                'new_balance': newQty,
+                'reference_id': inserted['id'],
+                'reference_type': 'INVOICE',
+                'notes': "Sales Invoice: ${inserted['invoice_number']}",
+                'created_by': _internalUserId,
+              });
+            }
+          } catch (e) {
+            debugPrint("Stock update error (POST): $e");
+          }
+        }
+        await Supabase.instance.client.from('sales_invoices').update({'stock_updated': true}).eq('id', savedInvoiceId!);
+        
+        // Record Multiple Payments
+        if (customPayments != null && customPayments.isNotEmpty) {
+          for (var p in customPayments) {
+            double amt = (p['amount'] ?? 0).toDouble();
+            if (amt <= 0) continue;
+
+            final pNum = await NumberingService.getNextDocumentNumber(
+              companyId: companyId,
+              documentType: 'SALES_PAYMENT',
+              branchId: branchId,
+              previewOnly: false,
+            );
+
+            final payment = await Supabase.instance.client.from('sales_payments').insert({
+              'company_id': companyId,
+              'branch_id': branchId,
+              'customer_id': _customerId,
+              'payment_number': pNum,
+              'date': DateTime.now().toIso8601String(),
+              'amount': amt,
+              'payment_mode': p['mode'],
+              'created_by': _internalUserId,
+              'is_active': true,
+            }).select().single();
+
+            await Supabase.instance.client.from('sales_payment_allocations').insert({
+              'payment_id': payment['id'],
+              'invoice_id': savedInvoiceId,
+              'amount': amt,
+            });
+          }
         }
       } else {
-        await Supabase.instance.client.from('sales_invoices').update(invoiceData).eq('id', widget.invoice!['id']);
-        // Delete and re-insert items
-        await Supabase.instance.client.from('sales_invoice_items').delete().eq('invoice_id', widget.invoice!['id']);
+        savedInvoiceId = widget.invoice!['id'].toString();
+        final invoiceId = savedInvoiceId;
+        
+        // 1. Fetch Old Items for Stock Reversal
+        final oldItems = await Supabase.instance.client.from('sales_invoice_items').select('item_id, quantity').eq('invoice_id', invoiceId);
+        final currentInvoice = await Supabase.instance.client.from('sales_invoices').select('branch_id, stock_updated, invoice_number').eq('id', invoiceId).single();
+        final branchIdToUse = branchId ?? currentInvoice['branch_id'];
+
+        await Supabase.instance.client.from('sales_invoices').update(invoiceData).eq('id', invoiceId);
+
+        // 2. Reverse Stock
+        if (currentInvoice['stock_updated'] == true && branchIdToUse != null) {
+          for (var oldItem in oldItems) {
+            final oldQty = (oldItem['quantity'] ?? 0).toDouble();
+            if (oldQty > 0) {
+              try {
+                final stockData = await Supabase.instance.client.from('inventory_stock').select('quantity').eq('item_id', oldItem['item_id']).eq('branch_id', branchIdToUse).maybeSingle();
+                final currentQty = (stockData?['quantity'] ?? 0).toDouble();
+                final newQty = currentQty + oldQty;
+
+                await Supabase.instance.client.from('inventory_stock').upsert({
+                  'company_id': companyId,
+                  'item_id': oldItem['item_id'],
+                  'branch_id': branchIdToUse,
+                  'quantity': newQty,
+                  'last_updated': DateTime.now().toIso8601String(),
+                }, onConflict: 'item_id, branch_id');
+
+                await Supabase.instance.client.from('inventory_transactions').insert({
+                  'company_id': companyId,
+                  'item_id': oldItem['item_id'],
+                  'branch_id': branchIdToUse,
+                  'transaction_type': 'edit_reversal',
+                  'quantity_change': oldQty,
+                  'new_balance': newQty,
+                  'reference_id': invoiceId,
+                  'reference_type': 'INVOICE',
+                  'notes': "Reversal for Invoice Edit: ${currentInvoice['invoice_number']}",
+                  'created_by': _internalUserId,
+                });
+              } catch (e) {
+                debugPrint("Stock reversal error: $e");
+              }
+            }
+          }
+        }
+
+        // 3. Replace Items and Apply New Stock
+        await Supabase.instance.client.from('sales_invoice_items').delete().eq('invoice_id', invoiceId);
         for (var item in _items) {
           final qty = (item['quantity'] ?? 0).toDouble();
           final price = (item['unit_price'] ?? 0).toDouble();
           final taxRate = (item['tax_rate'] ?? 0).toDouble();
           final totalInclusive = qty * price;
+
           final lineSub = totalInclusive / (1 + (taxRate / 100));
           final lineTax = totalInclusive - lineSub;
 
-            await Supabase.instance.client.from('sales_invoice_items').insert({
-              'invoice_id': widget.invoice!['id'],
-              'item_id': item['item_id'],
-              'description': item['name'],
-              'quantity': item['quantity'],
-              'unit_price': item['unit_price'],
-              'tax_rate': item['tax_rate'],
-              'tax_amount': double.parse(lineTax.toStringAsFixed(2)),
-              'total_amount': double.parse(totalInclusive.toStringAsFixed(2)),
-            });
+          await Supabase.instance.client.from('sales_invoice_items').insert({
+            'invoice_id': invoiceId,
+            'item_id': item['item_id'],
+            'description': item['name'],
+            'quantity': item['quantity'],
+            'unit_price': item['unit_price'],
+            'tax_rate': item['tax_rate'],
+            'tax_amount': double.parse(lineTax.toStringAsFixed(2)),
+            'total_amount': double.parse(totalInclusive.toStringAsFixed(2)),
+          });
+
+          // Apply New Stock
+          if (branchIdToUse != null) {
+            try {
+              final itemSpec = await Supabase.instance.client.from('items').select('type').eq('id', item['item_id']).single();
+              if (itemSpec['type'] == 'product' && qty > 0) {
+                final stockData = await Supabase.instance.client.from('inventory_stock').select('quantity').eq('item_id', item['item_id']).eq('branch_id', branchIdToUse).maybeSingle();
+                final currentQty = (stockData?['quantity'] ?? 0).toDouble();
+                final newQty = currentQty - qty;
+
+                await Supabase.instance.client.from('inventory_stock').upsert({
+                  'company_id': companyId,
+                  'item_id': item['item_id'],
+                  'branch_id': branchIdToUse,
+                  'quantity': newQty,
+                  'last_updated': DateTime.now().toIso8601String(),
+                }, onConflict: 'item_id, branch_id');
+
+                await Supabase.instance.client.from('inventory_transactions').insert({
+                  'company_id': companyId,
+                  'item_id': item['item_id'],
+                  'branch_id': branchIdToUse,
+                  'transaction_type': 'sales_out',
+                  'quantity_change': -qty,
+                  'new_balance': newQty,
+                  'reference_id': invoiceId,
+                  'reference_type': 'INVOICE',
+                  'notes': "Sales Invoice (Updated): ${currentInvoice['invoice_number']}",
+                  'created_by': _internalUserId,
+                });
+              }
+            } catch (e) {
+              debugPrint("Stock update error (PUT): $e");
+            }
+          }
         }
+        // Update balance and status based on the calculated values
+        await Supabase.instance.client.from('sales_invoices').update({
+          ...invoiceData,
+          'stock_updated': true,
+        }).eq('id', invoiceId);
       }
       
       if (mounted) {
         await MasterDataService().invalidateItems();
+        
+        if (shouldPrint && savedInvoiceId != null) {
+          // Show the wow animation
+          _showPrintingStatusModal();
+          
+          final fullInvoice = await Supabase.instance.client.from('sales_invoices').select('*, customer:customers(*)').eq('id', savedInvoiceId!).single();
+          if (mounted) {
+            await PrintService.printDocument({
+              ...fullInvoice,
+              'items': _items,
+            }, 'SALES_INVOICE', context);
+            
+            // Dismiss the animation modal
+            Navigator.pop(context);
+          }
+        }
+
+        SalesRefreshService.triggerRefresh();
         Navigator.pop(context, true);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Invoice ${isEdit ? 'Updated' : 'Created'} successfully")));
       }
     } catch (e) {
       debugPrint("Error saving invoice: $e");
@@ -1171,6 +1800,8 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       useSafeArea: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
@@ -1254,7 +1885,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                           height: 56,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: focusNode.hasFocus ? context.cardBg : context.cardBg.withOpacity(0.5),
+                            color: context.cardBg,
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                               color: focusNode.hasFocus ? AppColors.primaryBlue : context.borderColor,
@@ -1349,25 +1980,28 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                             final isSelected = isMultiple ? count > 0 : label == currentValue;
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 12),
-                              child: InkWell(
-                                onTap: () {
-                                  if (isMultiple) onIncrement();
-                                  else { onSelect?.call(item); Navigator.pop(context); }
-                                },
+                              child: Material(
+                                color: isSelected ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
                                 borderRadius: BorderRadius.circular(16),
-                                child: Container(
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: isSelected ? AppColors.primaryBlue.withOpacity(0.05) : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(color: isSelected ? AppColors.primaryBlue : context.borderColor),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Expanded(child: Text(label, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.normal, color: context.textPrimary))),
-                                      if (count > 0) Text("x$count", style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
-                                      if (!isMultiple && isSelected) const Icon(Icons.check, color: AppColors.primaryBlue)
-                                    ],
+                                clipBehavior: Clip.antiAlias,
+                                child: InkWell(
+                                  onTap: () {
+                                    if (isMultiple) onIncrement();
+                                    else { onSelect?.call(item); Navigator.pop(context); }
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(color: isSelected ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5), width: 1),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(child: Text(label, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.normal, color: context.textPrimary))),
+                                        if (count > 0) Text("x$count", style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                                        if (!isMultiple && isSelected) const Icon(Icons.check, color: AppColors.primaryBlue)
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
@@ -1429,6 +2063,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       useSafeArea: true,
       builder: (context) => ScannerModalContent<T>(
         allItems: allItems,

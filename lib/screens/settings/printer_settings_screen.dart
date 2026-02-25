@@ -25,6 +25,8 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
   
   bool _isLoading = true;
   bool _isScanning = false;
+  bool? _isOnline;
+  bool _isCheckingStatus = false;
   List<ScanResult> _scanResults = [];
   StreamSubscription? _scanSubscription;
 
@@ -49,6 +51,19 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
         _selectedPaperSize = config['paperSize'] ?? '80mm';
         _savedBtAddress = config['btAddress'];
         _isLoading = false;
+      });
+      _checkStatus();
+    }
+  }
+
+  Future<void> _checkStatus() async {
+    if (_isCheckingStatus) return;
+    setState(() => _isCheckingStatus = true);
+    final status = await PrintService.checkPrinterStatus();
+    if (mounted) {
+      setState(() {
+        _isOnline = status;
+        _isCheckingStatus = false;
       });
     }
   }
@@ -78,37 +93,64 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
 
       _stopScan();
 
-      // Check adapter state safely with warm-up for iOS
+      // Check adapter state
       BluetoothAdapterState adapterState = await FlutterBluePlus.adapterState.first;
-      if (adapterState == BluetoothAdapterState.unknown) {
-        adapterState = await FlutterBluePlus.adapterState
-            .where((s) => s != BluetoothAdapterState.unknown)
-            .first
-            .timeout(const Duration(seconds: 1), onTimeout: () => adapterState);
-      }
-      
       if (adapterState != BluetoothAdapterState.on) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please turn on Bluetooth')));
         setState(() => _isScanning = false);
         return;
       }
 
+      final systemDevices = await FlutterBluePlus.systemDevices([]);
+      
       _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
-        if (mounted) {
-          setState(() {
-            // Safe filtering
-            _scanResults = results.where((r) {
-              try {
-                return r.device.platformName.isNotEmpty;
-              } catch (_) {
-                return false;
-              }
-            }).toList();
+        if (!mounted) return;
+        
+        setState(() {
+          final Map<String, ScanResult> uniqueDevices = {};
+          
+          // 1. Add System Devices (dummy results for already paired devices)
+          for (var d in systemDevices) {
+            uniqueDevices[d.remoteId.str] = ScanResult(
+              device: d,
+              advertisementData: AdvertisementData(
+                advName: d.platformName,
+                txPowerLevel: null,
+                appearance: 0,
+                connectable: true,
+                manufacturerData: {},
+                serviceUuids: [],
+                serviceData: {},
+              ),
+              rssi: -50,
+              timeStamp: DateTime.now(),
+            );
+          }
+
+          // 2. Add/Overwrite with Active Scan Results (real-time advertising)
+          for (var r in results) {
+            uniqueDevices[r.device.remoteId.str] = r;
+          }
+
+          _scanResults = uniqueDevices.values.toList();
+
+          // 3. Intelligent Sorting: Named devices first, then by signal strength
+          _scanResults.sort((a, b) {
+            final aName = a.device.platformName.isNotEmpty ? a.device.platformName : a.advertisementData.advName;
+            final bName = b.device.platformName.isNotEmpty ? b.device.platformName : b.advertisementData.advName;
+            
+            if (aName.isNotEmpty && bName.isEmpty) return -1;
+            if (aName.isEmpty && bName.isNotEmpty) return 1;
+            return b.rssi.compareTo(a.rssi);
           });
-        }
+        });
       });
 
-      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
+      // Start scan with aggressive discovery for industrial printers
+      await FlutterBluePlus.startScan(
+        timeout: const Duration(seconds: 15),
+        androidUsesFineLocation: true,
+      );
       
     } catch (e) {
       debugPrint('Scan error: $e');
@@ -140,6 +182,7 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
           behavior: SnackBarBehavior.floating,
         ),
       );
+      _checkStatus();
     }
   }
 
@@ -204,9 +247,11 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
                       child: TextField(
                         controller: _ipController,
                         style: TextStyle(fontFamily: 'Outfit', color: textPrimary),
+                        onSubmitted: (_) => _checkStatus(),
                         decoration: InputDecoration(
                           hintText: "e.g. 192.168.1.100",
                           prefixIcon: Icon(Icons.settings_ethernet_rounded, color: textSecondary),
+                          suffixIcon: _buildStatusIndicator(),
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.all(16),
                         ),
@@ -277,14 +322,47 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.05), borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.primaryBlue.withOpacity(0.2))),
+      decoration: BoxDecoration(
+        color: (_isOnline == true ? AppColors.success : AppColors.primaryBlue).withOpacity(0.05), 
+        borderRadius: BorderRadius.circular(16), 
+        border: Border.all(color: (_isOnline == true ? AppColors.success : AppColors.primaryBlue).withOpacity(0.2))
+      ),
       child: Row(
         children: [
-          Icon(Icons.check_circle_rounded, color: AppColors.success, size: 24),
+          _buildStatusIndicator(large: true),
           const SizedBox(width: 12),
-          Expanded(child: Text("Linked: ${_savedBtName ?? _savedBtAddress}", style: const TextStyle(fontWeight: FontWeight.bold))),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("Linked Printer", style: TextStyle(fontSize: 11, color: context.textSecondary)),
+                Text(_savedBtName ?? _savedBtAddress!, style: const TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
           TextButton(onPressed: () => setState(() => _savedBtAddress = null), child: const Text("Unlink", style: TextStyle(color: Colors.red))),
         ],
+      ),
+    );
+  }
+
+  Widget _buildStatusIndicator({bool large = false}) {
+    if (_isCheckingStatus) {
+      return SizedBox(
+        width: large ? 20 : 16, 
+        height: large ? 20 : 16, 
+        child: const CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.blue))
+      );
+    }
+
+    if (_isOnline == null) return Icon(Icons.help_outline_rounded, size: large ? 24 : 18, color: context.textSecondary);
+
+    return InkWell(
+      onTap: _checkStatus,
+      child: Icon(
+        _isOnline! ? Icons.check_circle_rounded : Icons.error_rounded,
+        color: _isOnline! ? AppColors.success : Colors.red,
+        size: large ? 24 : 18,
       ),
     );
   }
@@ -311,10 +389,16 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
         separatorBuilder: (ctx, i) => Divider(height: 1, color: border),
         itemBuilder: (ctx, i) {
           final result = _scanResults[i];
-          String name = 'Unknown Device';
+          String name = '';
           try {
-            name = result.device.platformName.isEmpty ? 'Unknown' : result.device.platformName;
-          } catch (_) {}
+            name = result.device.platformName.isNotEmpty 
+              ? result.device.platformName 
+              : result.advertisementData.advName.isNotEmpty 
+                ? result.advertisementData.advName 
+                : 'Thermal Printer';
+          } catch (_) {
+            name = 'Unknown Device';
+          }
           
           return ListTile(
             leading: const Icon(Icons.print_rounded),

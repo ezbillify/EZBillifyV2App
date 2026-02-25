@@ -176,27 +176,28 @@ class _PurchaseRfqFormScreenState extends State<PurchaseRfqFormScreen> {
       itemContentBuilder: (context, item, count, onAdd, onRemove) {
         final unit = item['uom'] ?? 'Unit';
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Material(
             color: count > 0 ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 2))]
-          ),
-          child: InkWell(
-            onTap: onAdd,
-            borderRadius: BorderRadius.circular(16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                   Container(
-                     width: 48,
-                     height: 48,
-                     decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                     child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue),
-                   ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onAdd,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5)),
+                ),
+                child: Row(
+                  children: [
+                     Container(
+                       width: 48,
+                       height: 48,
+                       decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                       child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue),
+                     ),
                    const SizedBox(width: 16),
                    Expanded(
                      child: Column(
@@ -238,8 +239,9 @@ class _PurchaseRfqFormScreenState extends State<PurchaseRfqFormScreen> {
               ),
             ),
           ),
-        );
-      },
+        ),
+      );
+    },
     );
   }
 
@@ -266,6 +268,8 @@ class _PurchaseRfqFormScreenState extends State<PurchaseRfqFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       useSafeArea: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
@@ -322,25 +326,52 @@ class _PurchaseRfqFormScreenState extends State<PurchaseRfqFormScreen> {
                           () => setModalState(() => selectedItems.remove(item))
                         );
                       }
-                      return ListTile(
-                        title: Text(labelMapper(item)),
-                        onTap: () {
-                          if (isMultiple) {
-                            setModalState(() {
-                              if (selectedItems.contains(item)) selectedItems.remove(item);
-                              else selectedItems.add(item);
-                            });
-                          } else {
-                            onSelect?.call(item);
-                            Navigator.pop(context);
-                          }
-                        },
-                        trailing: isMultiple ? Checkbox(value: selectedItems.contains(item), onChanged: (v) {
-                          setModalState(() {
-                             if (v == true) selectedItems.add(item);
-                             else selectedItems.remove(item);
-                          });
-                        }) : null,
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Material(
+                          color: count > 0 ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
+                          borderRadius: BorderRadius.circular(16),
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: () {
+                              if (isMultiple) {
+                                setModalState(() {
+                                  if (selectedItems.contains(item)) selectedItems.remove(item);
+                                  else selectedItems.add(item);
+                                });
+                              } else {
+                                onSelect?.call(item);
+                                Navigator.pop(context);
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5), width: 1),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(child: Text(labelMapper(item), style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary))),
+                                  if (isMultiple)
+                                    Checkbox(
+                                      value: selectedItems.contains(item),
+                                      onChanged: (v) {
+                                        setModalState(() {
+                                          if (v == true) selectedItems.add(item);
+                                          else selectedItems.remove(item);
+                                        });
+                                      },
+                                      activeColor: AppColors.primaryBlue,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                    )
+                                  else if (count > 0)
+                                    const Icon(Icons.check_circle_rounded, color: AppColors.primaryBlue)
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
                       );
                     },
                   ),
@@ -417,7 +448,7 @@ class _PurchaseRfqFormScreenState extends State<PurchaseRfqFormScreen> {
 
     setState(() => _loading = true);
     try {
-      final rfqData = {
+      final rfqData = <String, dynamic>{
         'company_id': _companyId,
         'branch_id': _branchId,
         'vendor_id': _vendorId, // Can be null
@@ -439,7 +470,7 @@ class _PurchaseRfqFormScreenState extends State<PurchaseRfqFormScreen> {
       }
       
       final rfqId = upsertedRfq['id'];
-      final itemsToInsert = _items.map((item) => {
+      final itemsToInsert = _items.map((item) => <String, dynamic>{
         'rfq_id': rfqId,
         'item_id': item['item_id'],
         'description': item['description'] ?? item['name'],
@@ -474,7 +505,7 @@ class _PurchaseRfqFormScreenState extends State<PurchaseRfqFormScreen> {
             Text(_rfqNumber.isEmpty ? "Generating ID..." : _rfqNumber, style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
           ],
         ),
-        backgroundColor: context.surfaceBg,
+        backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: IconThemeData(color: context.textPrimary),
       ),

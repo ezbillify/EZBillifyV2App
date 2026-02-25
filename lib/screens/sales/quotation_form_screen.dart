@@ -13,6 +13,7 @@ import 'sales_order_form_screen.dart';
 import '../../services/numbering_service.dart';
 import '../../services/master_data_service.dart';
 import '../../widgets/calendar_sheet.dart';
+import '../../services/sales_refresh_service.dart';
 
 class QuotationFormScreen extends StatefulWidget {
   final Map<String, dynamic>? quotation; // Null for new
@@ -176,6 +177,10 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
       final lineSub = totalInclusive / (1 + (taxRate / 100));
       final lineTax = totalInclusive - lineSub;
       
+      // Essential for Printing - Populate per-item totals
+      item['total_amount'] = double.parse(totalInclusive.toStringAsFixed(2));
+      item['tax_amount'] = double.parse(lineTax.toStringAsFixed(2));
+
       sub += lineSub;
       tax += lineTax;
     }
@@ -698,26 +703,28 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
 
         final isSelected = count > 0;
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Material(
             color: isSelected ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: isSelected ? AppColors.primaryBlue : context.borderColor),
-          ),
-          child: InkWell(
-            onTap: onAdd,
-            borderRadius: BorderRadius.circular(16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                   Container(width: 44, height: 44, decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue, size: 20)),
-                   const SizedBox(width: 16),
-                   Expanded(
-                     child: Column(
-                       crossAxisAlignment: CrossAxisAlignment.start,
-                       children: [
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onAdd,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: isSelected ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5)),
+                ),
+                child: Row(
+                  children: [
+                     Container(width: 44, height: 44, decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue, size: 20)),
+                     const SizedBox(width: 16),
+                     Expanded(
+                       child: Column(
+                         crossAxisAlignment: CrossAxisAlignment.start,
+                         children: [
                          Text(item['name'], style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary)),
                          const SizedBox(height: 2),
                          Text("Rate: ₹${salesPriceInclTax.toStringAsFixed(2)} • $unit • ${rate.toStringAsFixed(0)}% Tax", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary)),
@@ -736,8 +743,9 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
               ),
             ),
           ),
-        );
-      },
+        ),
+      );
+    },
     );
   }
 
@@ -840,6 +848,7 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
         }
       }
       
+      SalesRefreshService.triggerRefresh();
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       debugPrint("Error saving quotation: $e");
@@ -857,9 +866,10 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       builder: (context) => Container(
         padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24, right: 24, top: 24),
-        decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -938,6 +948,8 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       useSafeArea: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
@@ -972,7 +984,6 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
                 Container(
                   decoration: BoxDecoration(
                     color: context.surfaceBg,
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
                   ),
                   child: Column(
                     children: [
@@ -1017,7 +1028,7 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
                           height: 56,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: focusNode.hasFocus ? context.cardBg : context.cardBg.withOpacity(0.5),
+                            color: context.cardBg,
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                               color: focusNode.hasFocus ? AppColors.primaryBlue : context.borderColor,
@@ -1127,19 +1138,48 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
                                });
                             }
 
-                            return ListTile(
-                              title: Text(labelMapper(item)),
-                              onTap: () {
-                                if (isMultiple) {
-                                  setModalState(() {
-                                    if (isSelected) selectedItems.remove(item); else selectedItems.add(item);
-                                  });
-                                } else {
-                                  onSelect?.call(item);
-                                  Navigator.pop(context);
-                                }
-                              },
-                              trailing: isSelected ? const Icon(Icons.check, color: AppColors.primaryBlue) : null,
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Material(
+                                color: isSelected ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
+                                borderRadius: BorderRadius.circular(16),
+                                clipBehavior: Clip.antiAlias,
+                                child: InkWell(
+                                  onTap: () {
+                                    if (isMultiple) {
+                                      setModalState(() {
+                                        if (isSelected) selectedItems.remove(item); else selectedItems.add(item);
+                                      });
+                                    } else {
+                                      onSelect?.call(item);
+                                      Navigator.pop(context);
+                                    }
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(color: isSelected ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5), width: 1),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        if (badgeMapper != null && badgeMapper(item) != null) ...[
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(color: (badgeColorMapper?.call(item) ?? Colors.blue).withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                                            child: Text(badgeMapper(item)!, style: TextStyle(color: badgeColorMapper?.call(item) ?? Colors.blue, fontSize: 10, fontWeight: FontWeight.bold)),
+                                          ),
+                                          const SizedBox(width: 12),
+                                        ],
+                                        Expanded(
+                                          child: Text(labelMapper(item), style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
+                                        ),
+                                        if (isSelected) const Icon(Icons.check_circle_rounded, color: AppColors.primaryBlue),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
                             );
                           },
                         ),
@@ -1198,6 +1238,7 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       useSafeArea: true,
       builder: (context) => ScannerModalContent<T>(
         allItems: allItems,

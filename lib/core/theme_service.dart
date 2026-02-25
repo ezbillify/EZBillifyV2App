@@ -133,6 +133,7 @@ class AppTheme {
       ),
       cardTheme: CardThemeData(
         color: AppColors.lightCard,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
@@ -188,12 +189,17 @@ class AppTheme {
       ),
       bottomSheetTheme: const BottomSheetThemeData(
         backgroundColor: AppColors.lightSurface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 8,
+        modalElevation: 8,
+        modalBarrierColor: Colors.black54,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
         ),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: AppColors.lightSurface,
+        surfaceTintColor: Colors.transparent,
         titleTextStyle: const TextStyle(fontFamily: 'Outfit', color: AppColors.lightTextPrimary, fontSize: 20, fontWeight: FontWeight.bold),
         contentTextStyle: const TextStyle(fontFamily: 'Outfit', color: AppColors.lightTextSecondary, fontSize: 16),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
@@ -250,6 +256,7 @@ class AppTheme {
       ),
       cardTheme: CardThemeData(
         color: AppColors.darkCard,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
@@ -305,12 +312,17 @@ class AppTheme {
       ),
       bottomSheetTheme: const BottomSheetThemeData(
         backgroundColor: AppColors.darkSurface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 8,
+        modalElevation: 8,
+        modalBarrierColor: Colors.black87,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
         ),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: AppColors.darkSurface,
+        surfaceTintColor: Colors.transparent,
         titleTextStyle: const TextStyle(fontFamily: 'Outfit', color: AppColors.darkTextPrimary, fontSize: 20, fontWeight: FontWeight.bold),
         contentTextStyle: const TextStyle(fontFamily: 'Outfit', color: AppColors.darkTextSecondary, fontSize: 16),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),

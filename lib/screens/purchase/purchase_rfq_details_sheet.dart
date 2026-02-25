@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'dart:ui' as ui;
 import '../../core/theme_service.dart';
 import 'purchase_rfq_form_screen.dart';
+import 'purchase_order_form_screen.dart';
 import '../../services/print_service.dart';
 
 class PurchaseRfqDetailsSheet extends StatefulWidget {
@@ -30,7 +31,7 @@ class _PurchaseRfqDetailsSheetState extends State<PurchaseRfqDetailsSheet> {
     try {
       final res = await Supabase.instance.client
           .from('purchase_rfq_items')
-          .select('*, item:items(name)')
+          .select('*, item:items(name, default_purchase_price, tax_rates(rate))')
           .eq('rfq_id', widget.rfq['id']);
       
       if (mounted) {
@@ -63,6 +64,7 @@ class _PurchaseRfqDetailsSheetState extends State<PurchaseRfqDetailsSheet> {
             color: context.surfaceBg,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
           ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
             children: [
               const SizedBox(height: 12),
@@ -108,7 +110,9 @@ class _PurchaseRfqDetailsSheetState extends State<PurchaseRfqDetailsSheet> {
                           );
                         }).toList(),
                       ),
-                    const SizedBox(height: 40),
+                    const SizedBox(height: 32),
+                    _buildConversions(),
+                    const SizedBox(height: 32),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
@@ -251,5 +255,100 @@ class _PurchaseRfqDetailsSheetState extends State<PurchaseRfqDetailsSheet> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: context.borderColor)),
       ),
     );
+  }
+
+  Widget _buildConversions() {
+    final status = widget.rfq['status']?.toString().toLowerCase() ?? 'open';
+    if (status == 'converted' || status == 'ordered') return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text("Next Steps", style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary)),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: context.primary.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: context.primary.withOpacity(0.1)),
+          ),
+          child: Column(
+            children: [
+              _buildConversionRow(
+                Icons.shopping_bag_outlined,
+                "Convert to Purchase Order",
+                "Create a formal order for these items",
+                () {
+                  Navigator.pop(context);
+                  _convertToPO();
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildConversionRow(IconData icon, String title, String subtitle, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: context.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: context.primary, size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary)),
+                Text(subtitle, style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right_rounded, color: context.textSecondary.withOpacity(0.5)),
+        ],
+      ),
+    );
+  }
+
+  void _convertToPO() async {
+    final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => PurchaseOrderFormScreen(
+      order: {
+        'vendor_id': widget.rfq['vendor_id'],
+        'vendor_name': widget.rfq['vendor']?['name'] ?? widget.rfq['vendor_name'],
+        'branch_id': widget.rfq['branch_id'],
+        'items': _items.map((i) {
+          final dbPrice = (i['unit_price'] ?? 0).toDouble();
+          final dpPrice = (i['item']?['default_purchase_price'] ?? 0).toDouble();
+          final finalPrice = dbPrice > 0 ? dbPrice : dpPrice;
+          
+          final dbTax = (i['tax_rate'] ?? 0).toDouble();
+          final dpTax = (i['item']?['tax_rates']?['rate'] ?? 0).toDouble();
+          final finalTax = dbTax > 0 ? dbTax : dpTax;
+
+          return <String, dynamic>{
+            'item_id': i['item_id'],
+            'name': i['item']?['name'] ?? i['description'] ?? 'Item',
+            'quantity': i['quantity'],
+            'unit_price': finalPrice,
+            'tax_rate': finalTax,
+            'unit': i['item']?['uom'] ?? i['unit'],
+          };
+        }).toList(),
+      },
+    )));
+    
+    if (result == true && mounted) {
+      widget.onRefresh();
+    }
   }
 }

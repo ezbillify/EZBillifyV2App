@@ -13,6 +13,7 @@ import 'delivery_challan_form_screen.dart';
 import '../../services/numbering_service.dart';
 import '../../services/master_data_service.dart';
 import '../../widgets/calendar_sheet.dart';
+import '../../services/sales_refresh_service.dart';
 
 class SalesOrderFormScreen extends StatefulWidget {
   final Map<String, dynamic>? order; // Null for new
@@ -37,7 +38,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
   DateTime _expectedDelivery = DateTime.now().add(const Duration(days: 7));
   String _orderNumber = "";
   String _status = "pending";
-  String _referenceNumber = "";
+  String? _quotationId;
   
   // Line Items
   List<Map<String, dynamic>> _items = [];
@@ -80,7 +81,6 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
         _orderDate = DateTime.tryParse(order['date'] ?? order['order_date'] ?? '') ?? DateTime.now();
         _expectedDelivery = DateTime.tryParse(order['delivery_date'] ?? order['expected_delivery'] ?? '') ?? DateTime.now().add(const Duration(days: 7));
         _status = order['status'] ?? 'pending';
-        _referenceNumber = order['reference_number'] ?? "";
         
         // Fetch items
         final itemsRes = await Supabase.instance.client.from('sales_order_items')
@@ -144,6 +144,8 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
               final bMatch = branches.firstWhere((b) => b['id'].toString() == _branchId, orElse: () => {});
               if (bMatch.isNotEmpty) _branchName = bMatch['name'];
            }
+           _quotationId = widget.order!['quotation_id']?.toString();
+           _quotationId = widget.order!['quotation_id']?.toString();
            _calculateTotals();
         }
       }
@@ -179,6 +181,10 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
       final lineSub = totalInclusive / (1 + (taxRate / 100));
       final lineTax = totalInclusive - lineSub;
       
+      // Essential for Printing - Populate per-item totals
+      item['total_amount'] = double.parse(totalInclusive.toStringAsFixed(2));
+      item['tax_amount'] = double.parse(lineTax.toStringAsFixed(2));
+
       sub += lineSub;
       tax += lineTax;
     }
@@ -326,12 +332,6 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
             Expanded(child: _buildInfoCard("Delivery Date", DateFormat('dd MMM, yyyy').format(_expectedDelivery), Icons.local_shipping_rounded, () => _selectDate(false))),
           ],
         ),
-        const SizedBox(height: 16),
-        TextFormField(
-          initialValue: _referenceNumber,
-          decoration: InputDecoration(labelText: "Reference # / PO #", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), filled: true, fillColor: context.cardBg),
-          onChanged: (v) => _referenceNumber = v,
-        ),
       ],
     );
   }
@@ -447,6 +447,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       builder: (context) => Container(
         padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24, right: 24, top: 24),
         decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
@@ -641,6 +642,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       useSafeArea: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
@@ -669,7 +671,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
             builder: (context, scrollController) => Stack(
               children: [
                 Container(
-                  decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
+                  decoration: BoxDecoration(color: context.surfaceBg),
                   child: Column(
                     children: [
                       const SizedBox(height: 12),
@@ -714,7 +716,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
                           height: 56,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: focusNode.hasFocus ? context.cardBg : context.cardBg.withOpacity(0.5),
+                            color: context.cardBg,
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                               color: focusNode.hasFocus ? AppColors.primaryBlue : context.borderColor,
@@ -895,8 +897,19 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
   }
 
   Future<void> _saveOrder() async {
-    if (_customerId == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Select customer"))); return; }
-    if (_items.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Add items"))); return; }
+    if (_customerId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a customer")));
+      return;
+    }
+    if (_items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please add at least one item")));
+      return;
+    }
+    
+    if (_companyId == null) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error: Company profile not loaded. Please try again.")));
+       return;
+    }
     
     setState(() => _loading = true);
     try {
@@ -907,7 +920,6 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
         'so_number': _orderNumber,
         'date': _orderDate.toIso8601String(),
         'delivery_date': _expectedDelivery.toIso8601String(),
-        'reference_number': _referenceNumber,
         'sub_total': _subtotal,
         'tax_total': _totalTax,
         'total_amount': _totalAmount,
@@ -915,8 +927,11 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
         'created_by': _internalUserId,
       };
 
-      if (widget.order == null) {
-        // Consume actual number on save
+      String orderId;
+      final bool isNewOrder = widget.order == null || widget.order!['id'] == null;
+
+      if (isNewOrder) {
+        // NEW ORDER (Blank or Conversion)
         final actualNumber = await NumberingService.getNextDocumentNumber(
           companyId: _companyId!,
           documentType: 'SALES_ORDER',
@@ -926,51 +941,58 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
         orderData['so_number'] = actualNumber;
 
         final inserted = await Supabase.instance.client.from('sales_orders').insert(orderData).select().single();
-        for (var item in _items) {
-          final qty = (item['quantity'] ?? 0).toDouble();
-          final price = (item['unit_price'] ?? 0).toDouble();
-          final taxRate = (item['tax_rate'] ?? 0).toDouble();
-          final totalInclusive = qty * price;
-          final lineSub = totalInclusive / (1 + (taxRate / 100));
-          final lineTax = totalInclusive - lineSub;
+        orderId = inserted['id'].toString();
 
-            await Supabase.instance.client.from('sales_order_items').insert({
-              'so_id': inserted['id'],
-              'item_id': item['item_id'],
-              'description': item['name'],
-              'quantity': item['quantity'],
-              'unit_price': item['unit_price'],
-              'tax_rate': item['tax_rate'],
-              'tax_amount': double.parse(lineTax.toStringAsFixed(2)),
-              'total_amount': double.parse(totalInclusive.toStringAsFixed(2)),
-            });
+        // If converted from quotation, update status
+        if (_quotationId != null) {
+          await Supabase.instance.client.from('sales_quotations').update({'status': 'converted'}).eq('id', _quotationId!);
         }
       } else {
-        await Supabase.instance.client.from('sales_orders').update(orderData).eq('id', widget.order!['id']);
-        await Supabase.instance.client.from('sales_order_items').delete().eq('so_id', widget.order!['id']);
-        for (var item in _items) {
-          final qty = (item['quantity'] ?? 0).toDouble();
-          final price = (item['unit_price'] ?? 0).toDouble();
-          final taxRate = (item['tax_rate'] ?? 0).toDouble();
-          final totalInclusive = qty * price;
-          final lineSub = totalInclusive / (1 + (taxRate / 100));
-          final lineTax = totalInclusive - lineSub;
-
-            await Supabase.instance.client.from('sales_order_items').insert({
-              'so_id': widget.order!['id'],
-              'item_id': item['item_id'],
-              'description': item['name'],
-              'quantity': item['quantity'],
-              'unit_price': item['unit_price'],
-              'tax_rate': item['tax_rate'],
-              'tax_amount': double.parse(lineTax.toStringAsFixed(2)),
-              'total_amount': double.parse(totalInclusive.toStringAsFixed(2)),
-            });
-        }
+        // UPDATE EXISTING
+        orderId = widget.order!['id'].toString();
+        await Supabase.instance.client.from('sales_orders').update(orderData).eq('id', orderId);
+        // Clear old items
+        await Supabase.instance.client.from('sales_order_items').delete().eq('so_id', orderId);
       }
-      if (mounted) Navigator.pop(context, true);
+
+      // Preparation for bulk items insert
+      final List<Map<String, dynamic>> itemsToInsert = [];
+      for (var item in _items) {
+        if (item['item_id'] == null) continue; // Skip invalid items
+        
+        final qty = (item['quantity'] ?? 0).toDouble();
+        final price = (item['unit_price'] ?? 0).toDouble();
+        final taxRate = (item['tax_rate'] ?? 0).toDouble();
+        
+        final totalInclusive = qty * price;
+        final lineSub = totalInclusive / (1 + (taxRate / 100));
+        final lineTax = totalInclusive - lineSub;
+
+        itemsToInsert.add({
+          'so_id': orderId,
+          'item_id': item['item_id'].toString(),
+          'description': (item['name'] ?? 'Item').toString(),
+          'quantity': qty,
+          'unit_price': price,
+          'tax_rate': taxRate,
+          'tax_amount': double.parse(lineTax.toStringAsFixed(2)),
+          'total_amount': double.parse(totalInclusive.toStringAsFixed(2)),
+        });
+      }
+
+      if (itemsToInsert.isNotEmpty) {
+        await Supabase.instance.client.from('sales_order_items').insert(itemsToInsert);
+      }
+
+      if (mounted) {
+        SalesRefreshService.triggerRefresh();
+        Navigator.pop(context, true);
+      }
     } catch (e) {
       debugPrint("Error saving order: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error saving order: ${e.toString()}"), backgroundColor: Colors.red));
+      }
     } finally {
        if (mounted) setState(() => _loading = false);
     }
@@ -989,6 +1011,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       useSafeArea: true,
       builder: (context) => ScannerModalContent<T>(
         allItems: allItems,

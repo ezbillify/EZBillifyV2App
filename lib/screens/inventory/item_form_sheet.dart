@@ -371,6 +371,7 @@ class _ItemFormSheetState extends State<ItemFormSheet> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       useSafeArea: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
@@ -390,7 +391,7 @@ class _ItemFormSheetState extends State<ItemFormSheet> {
             maxChildSize: 0.95,
             builder: (context, scrollController) => Container(
               padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-              decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
+              decoration: BoxDecoration(color: context.surfaceBg),
               child: Column(
                 children: [
                   Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
@@ -409,16 +410,13 @@ class _ItemFormSheetState extends State<ItemFormSheet> {
                     height: 54,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: focusNode.hasFocus 
-                        ? AppColors.primaryBlue.withOpacity(0.04) 
-                        : context.cardBg,
+                      color: context.cardBg,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                         color: focusNode.hasFocus 
                           ? AppColors.primaryBlue 
-                          : context.textSecondary.withOpacity(0.2),
+                          : context.borderColor,
                         width: 1.5,
-                        strokeAlign: BorderSide.strokeAlignInside,
                       ),
                     ),
                     child: ClipRRect(

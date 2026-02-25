@@ -6,6 +6,7 @@ import '../../core/theme_service.dart';
 import 'vendors_screen.dart';
 import 'purchase_bill_form_screen.dart';
 import 'purchase_bill_details_sheet.dart';
+import '../../services/purchase_refresh_service.dart';
 
 class PurchaseBillsScreen extends StatefulWidget {
   final bool showAppBar;
@@ -24,36 +25,83 @@ class _PurchaseBillsScreenState extends State<PurchaseBillsScreen> {
   bool _sortAscending = false;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  String? _cachedCompanyId;
+  RealtimeChannel? _realtimeChannel;
 
   @override
   void initState() {
     super.initState();
     _searchFocusNode.addListener(() { if (mounted) setState(() {}); });
-    _fetchBills();
+    _initBills();
+    PurchaseRefreshService.refreshNotifier.addListener(_fetchBills);
+  }
+
+  Future<void> _initBills() async {
+    // 100ms stagger for purchase bill tab
+    await Future.delayed(const Duration(milliseconds: 100));
+    await _fetchBills();
+    if (mounted) _setupRealtime();
+  }
+
+  void _setupRealtime() {
+    final companyId = _cachedCompanyId;
+    if (companyId == null) return;
+    
+    _realtimeChannel = Supabase.instance.client
+        .channel('public:purchase_bills:company_id=eq.$companyId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'purchase_bills',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'company_id',
+            value: companyId,
+          ),
+          callback: (payload) => _fetchBills(),
+        )
+        .subscribe();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _searchFocusNode.dispose();
+    if (_realtimeChannel != null) {
+      Supabase.instance.client.removeChannel(_realtimeChannel!);
+    }
+    PurchaseRefreshService.refreshNotifier.removeListener(_fetchBills);
     super.dispose();
   }
-
+  
   Future<void> _fetchBills() async {
+    if (_bills.isEmpty && mounted) setState(() => _loading = true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return;
       
-      final profile = await Supabase.instance.client
-          .from('users')
-          .select('company_id')
-          .eq('auth_id', user.id)
-          .single();
+      final String companyId;
+      if (_cachedCompanyId != null) {
+        companyId = _cachedCompanyId!;
+      } else {
+        final profile = await Supabase.instance.client
+            .from('users')
+            .select('company_id')
+            .eq('auth_id', user.id)
+            .maybeSingle();
+        
+        if (profile == null || profile['company_id'] == null) {
+          if (mounted) setState(() => _loading = false);
+          return;
+        }
+        companyId = profile['company_id'];
+        _cachedCompanyId = companyId;
+      }
       
       var query = Supabase.instance.client
           .from('purchase_bills')
           .select('*, vendor:vendors(name)')
-          .eq('company_id', profile['company_id']);
+          .eq('company_id', companyId);
           
       if (_filterStatus != 'all') {
         query = query.eq('status', _filterStatus);
@@ -300,6 +348,9 @@ class _PurchaseBillsScreenState extends State<PurchaseBillsScreen> {
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
             useSafeArea: true,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+            ),
             builder: (context) => PurchaseBillDetailsSheet(
               bill: bill,
               onRefresh: _fetchBills,

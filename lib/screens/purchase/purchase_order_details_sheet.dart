@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'dart:ui' as ui;
 import '../../core/theme_service.dart';
 import 'purchase_order_form_screen.dart';
+import 'purchase_bill_form_screen.dart';
 import '../../services/print_service.dart';
 
 class PurchaseOrderDetailsSheet extends StatefulWidget {
@@ -53,18 +54,21 @@ class _PurchaseOrderDetailsSheetState extends State<PurchaseOrderDetailsSheet> {
     final date = DateTime.tryParse(widget.order['date'] ?? '') ?? DateTime.now();
     final total = (widget.order['total_amount'] ?? 0).toDouble();
 
-    return BackdropFilter(
-      filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-      child: DraggableScrollableSheet(
-        initialChildSize: 0.85,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (context, scrollController) => Container(
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) => Material(
+        color: context.surfaceBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        elevation: 8,
+        child: Container(
           decoration: BoxDecoration(
             color: context.surfaceBg,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
           ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
             children: [
               const SizedBox(height: 12),
@@ -93,7 +97,7 @@ class _PurchaseOrderDetailsSheetState extends State<PurchaseOrderDetailsSheet> {
                           return Container(
                             margin: const EdgeInsets.only(bottom: 12),
                             padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(color: context.cardBg.withOpacity(0.5), borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor.withOpacity(0.5))),
+                            decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
                             child: Row(
                               children: [
                                 Expanded(
@@ -123,7 +127,9 @@ class _PurchaseOrderDetailsSheetState extends State<PurchaseOrderDetailsSheet> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 40),
+                    const SizedBox(height: 32),
+                    _buildConversions(),
+                    const SizedBox(height: 32),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
@@ -264,5 +270,92 @@ class _PurchaseOrderDetailsSheetState extends State<PurchaseOrderDetailsSheet> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: context.borderColor)),
       ),
     );
+  }
+
+  Widget _buildConversions() {
+    final status = widget.order['status']?.toString().toLowerCase() ?? 'draft';
+    if (status == 'converted') return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text("Next Steps", style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary)),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: context.primary.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: context.primary.withOpacity(0.1)),
+          ),
+          child: Column(
+            children: [
+              _buildConversionRow(
+                Icons.receipt_long_outlined,
+                "Convert to Bill",
+                "Generate final purchase bill",
+                () {
+                  Navigator.pop(context);
+                  _convertToBill();
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildConversionRow(IconData icon, String title, String subtitle, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: context.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: context.primary, size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary)),
+                Text(subtitle, style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right_rounded, color: context.textSecondary.withOpacity(0.5)),
+        ],
+      ),
+    );
+  }
+
+  void _convertToBill() async {
+    final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => PurchaseBillFormScreen(
+      bill: {
+        'vendor_id': widget.order['vendor_id'],
+        'vendor_name': widget.order['vendor']?['name'] ?? widget.order['vendor_name'],
+        'branch_id': widget.order['branch_id'],
+        'items': _items.map((i) {
+          return <String, dynamic>{
+            'item_id': i['item_id'],
+            'name': i['item']?['name'] ?? i['description'] ?? 'Item',
+            'quantity': i['quantity'],
+            'unit_price': (i['unit_price'] ?? 0).toDouble(),
+            'tax_rate': (i['tax_rate'] ?? 0).toDouble(),
+            'unit': i['item']?['uom'] ?? i['unit'],
+          };
+        }).toList(),
+      },
+    )));
+    
+    if (result == true && mounted) {
+      widget.onRefresh();
+    }
   }
 }

@@ -6,6 +6,7 @@ import '../../core/theme_service.dart';
 import 'quotation_form_screen.dart'; // To be created
 import 'customers_screen.dart';
 import 'quotation_details_sheet.dart';
+import '../../services/sales_refresh_service.dart';
 
 class QuotationsScreen extends StatefulWidget {
   final bool showAppBar;
@@ -23,42 +24,102 @@ class _QuotationsScreenState extends State<QuotationsScreen> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
+  RealtimeChannel? _realtimeChannel;
+  String? _cachedCompanyId;
+
   @override
   void initState() {
     super.initState();
     _searchFocusNode.addListener(() { if (mounted) setState(() {}); });
-    _fetchQuotations();
+    _initQuotations();
+    SalesRefreshService.refreshNotifier.addListener(_fetchQuotations);
+  }
+
+  Future<void> _initQuotations() async {
+    // Staggered delay to prevent DNS query burst across multiple tabs
+    await Future.delayed(const Duration(milliseconds: 200));
+    await _fetchQuotations();
+    if (mounted) _setupRealtime();
+  }
+
+  void _setupRealtime() async {
+    final companyId = _cachedCompanyId;
+    if (companyId == null) return;
+
+    _realtimeChannel = Supabase.instance.client
+        .channel('public:sales_quotations:company_id=eq.$companyId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'sales_quotations',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'company_id',
+            value: companyId,
+          ),
+          callback: (payload) {
+            debugPrint("Realtime event received: ${payload.eventType}");
+            _fetchQuotations();
+          },
+        )
+        .subscribe();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _searchFocusNode.dispose();
+    if (_realtimeChannel != null) {
+      Supabase.instance.client.removeChannel(_realtimeChannel!);
+    }
+    SalesRefreshService.refreshNotifier.removeListener(_fetchQuotations);
     super.dispose();
   }
 
   Future<void> _fetchQuotations() async {
+    if (_quotations.isEmpty && mounted) setState(() => _loading = true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return;
+      if (user == null) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
       
-      final profile = await Supabase.instance.client
-          .from('users')
-          .select('company_id')
-          .eq('auth_id', user.id)
-          .single();
+      final String companyId;
+      if (_cachedCompanyId != null) {
+        companyId = _cachedCompanyId!;
+      } else {
+        final profile = await Supabase.instance.client
+            .from('users')
+            .select('company_id')
+            .eq('auth_id', user.id)
+            .maybeSingle();
+
+        if (profile == null || profile['company_id'] == null) {
+          debugPrint("Sales Quotations: Profile or Company ID not found for user ${user.id}");
+          if (mounted) {
+            setState(() {
+              _quotations = [];
+              _loading = false;
+            });
+          }
+          return;
+        }
+        companyId = profile['company_id'];
+        _cachedCompanyId = companyId;
+      }
       
       var query = Supabase.instance.client
           .from('sales_quotations')
           .select('*, customer:customers(name)')
-          .eq('company_id', profile['company_id']);
+          .eq('company_id', companyId);
           
       if (_filterStatus != 'all') {
         query = query.eq('status', _filterStatus);
       }
 
       if (_searchQuery.isNotEmpty) {
-        query = query.or('quote_number.ilike.%$_searchQuery%,customers.name.ilike.%$_searchQuery%');
+        query = query.or('quote_number.ilike.%$_searchQuery%,customer:customers.name.ilike.%$_searchQuery%');
       }
       
       final response = await query.order('created_at', ascending: false);
@@ -71,19 +132,24 @@ class _QuotationsScreenState extends State<QuotationsScreen> {
       }
     } catch (e) {
       debugPrint("Error fetching quotations: $e");
-      // Fallback for demo if table doesn't exist yet
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _quotations = [];
+          _loading = false;
+        });
+      }
     }
   }
 
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
-      case 'accepted': return Colors.green;
+      case 'accepted': 
+      case 'converted': return Colors.green;
       case 'sent': return Colors.blue;
       case 'rejected': return Colors.red;
       case 'draft': return Colors.grey;
       case 'expired': return Colors.orange;
-      default: return Colors.grey;
+      default: return Colors.blueGrey;
     }
   }
 
@@ -267,6 +333,9 @@ class _QuotationsScreenState extends State<QuotationsScreen> {
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
             useSafeArea: true,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+            ),
             builder: (context) => QuotationDetailsSheet(
               quotation: quote,
               onRefresh: _fetchQuotations,

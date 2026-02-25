@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:animate_do/animate_do.dart';
 import '../../core/theme_service.dart';
+import '../../services/sales_refresh_service.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import '../inventory/item_form_sheet.dart';
@@ -460,31 +461,33 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
         final purchasePrice = (item['default_purchase_price'] ?? 0).toDouble();
         final unit = item['uom'] ?? 'unt';
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Material(
             color: count > 0 ? Colors.red.withOpacity(0.05) : context.cardBg,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: count > 0 ? Colors.red : context.borderColor),
-          ),
-          child: InkWell(
-            onTap: onAdd,
-            borderRadius: BorderRadius.circular(16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                   Container(
-                     width: 48,
-                     height: 48,
-                     decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                     child: const Icon(Icons.assignment_return_outlined, color: Colors.red),
-                   ),
-                   const SizedBox(width: 16),
-                   Expanded(
-                     child: Column(
-                       crossAxisAlignment: CrossAxisAlignment.start,
-                       children: [
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onAdd,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: count > 0 ? Colors.red : context.borderColor.withOpacity(0.5)),
+                ),
+                child: Row(
+                  children: [
+                     Container(
+                       width: 48,
+                       height: 48,
+                       decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                       child: const Icon(Icons.inventory_2_outlined, color: Colors.red, size: 24),
+                     ),
+                     const SizedBox(width: 16),
+                     Expanded(
+                       child: Column(
+                         crossAxisAlignment: CrossAxisAlignment.start,
+                         children: [
                          Text(item['name'], style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
                          Wrap(
                            spacing: 8,
@@ -514,8 +517,9 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
               ),
             ),
           ),
-        );
-      },
+        ),
+      );
+    },
      );
   }
   
@@ -548,6 +552,8 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       useSafeArea: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
@@ -575,7 +581,7 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
             minChildSize: 0.5,
             maxChildSize: 1.0,
             builder: (context, scrollController) => Container(
-              decoration: BoxDecoration(color: context.scaffoldBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
+              decoration: BoxDecoration(color: context.surfaceBg),
               child: Column(
                 children: [
                    // Header with Search
@@ -592,7 +598,7 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
                                  duration: const Duration(milliseconds: 200),
                                  height: 50,
                                  decoration: BoxDecoration(
-                                   color: focusNode.hasFocus ? Colors.red.withOpacity(0.05) : context.cardBg,
+                                   color: context.cardBg,
                                    borderRadius: BorderRadius.circular(16),
                                    border: Border.all(color: focusNode.hasFocus ? Colors.red : context.borderColor),
                                  ),
@@ -667,18 +673,39 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
                          }
 
                          final isSelected = isMultiple ? selectedItems.contains(item) : currentValue == label;
-                         return ListTile(
-                           title: Text(label, style: TextStyle(fontFamily: 'Outfit', fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-                           trailing: isSelected ? const Icon(Icons.check_circle, color: Colors.red) : null,
-                           onTap: () {
-                             if (isMultiple) {
-                               setModalState(() => selectedItems.contains(item) ? selectedItems.remove(item) : selectedItems.add(item));
-                             } else {
-                               onSelect?.call(item);
-                               Navigator.pop(context);
-                             }
-                           },
-                         );
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Material(
+                              color: isSelected ? Colors.red.withOpacity(0.05) : context.cardBg,
+                              borderRadius: BorderRadius.circular(16),
+                              clipBehavior: Clip.antiAlias,
+                              child: InkWell(
+                                onTap: () {
+                                  if (isMultiple) {
+                                    setModalState(() => selectedItems.contains(item) ? selectedItems.remove(item) : selectedItems.add(item));
+                                  } else {
+                                    onSelect?.call(item);
+                                    Navigator.pop(context);
+                                  }
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: isSelected ? Colors.red : context.borderColor.withOpacity(0.5), width: 1),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(label, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
+                                      ),
+                                      if (isSelected) const Icon(Icons.check_circle_rounded, color: Colors.red),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
                        },
                      ),
                    ),
@@ -721,6 +748,7 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       useSafeArea: true,
       builder: (context) => ScannerModalContent<T>(
         allItems: allItems,
@@ -809,6 +837,7 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
         }
       }
       
+      SalesRefreshService.triggerRefresh();
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       debugPrint("Error saving CN: $e");

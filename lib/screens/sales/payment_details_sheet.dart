@@ -49,45 +49,42 @@ class _PaymentDetailsSheetState extends State<PaymentDetailsSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return BackdropFilter(
-      filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-      child: DraggableScrollableSheet(
-        initialChildSize: 0.85,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (context, scrollController) => Container(
-          decoration: BoxDecoration(
-            color: context.surfaceBg,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-          ),
-          child: Column(
-            children: [
-              const SizedBox(height: 12),
-              Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
-              const SizedBox(height: 24),
-              Expanded(
-                child: ListView(
-                  controller: scrollController,
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  children: [
-                    _buildHeader(),
-                    const SizedBox(height: 32),
-                    _buildQuickStats(),
-                    const SizedBox(height: 32),
-                    _buildSectionHeader("Allocated To Invoices"),
-                    const SizedBox(height: 16),
-                    _buildAllocationsList(),
-                    const SizedBox(height: 32),
-                    _buildNotes(),
-                    const SizedBox(height: 32),
-                    _buildActions(),
-                    const SizedBox(height: 50),
-                  ],
-                ),
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) => Material(
+        color: context.surfaceBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        elevation: 16,
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            const SizedBox(height: 12),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 24),
+            Expanded(
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                children: [
+                  _buildHeader(),
+                  const SizedBox(height: 32),
+                  _buildQuickStats(),
+                  const SizedBox(height: 32),
+                  _buildSectionHeader("Allocated To Invoices"),
+                  const SizedBox(height: 16),
+                  _buildAllocationsList(),
+                  const SizedBox(height: 32),
+                  _buildNotes(),
+                  const SizedBox(height: 32),
+                  _buildActions(),
+                  const SizedBox(height: 50),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -142,17 +139,25 @@ class _PaymentDetailsSheetState extends State<PaymentDetailsSheet> {
 
   Widget _buildStatCard(String label, String value, IconData icon) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(20), border: Border.all(color: context.borderColor)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: AppColors.primaryBlue, size: 20),
-            const SizedBox(height: 12),
-            Text(value, style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary), maxLines: 1, overflow: TextOverflow.ellipsis),
-            Text(label, style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary)),
-          ],
+      child: Material(
+        color: context.cardBg,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: context.borderColor.withOpacity(0.5)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: AppColors.primaryBlue, size: 20),
+              const SizedBox(height: 12),
+              Text(value, style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary), maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text(label, style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary)),
+            ],
+          ),
         ),
       ),
     );
@@ -163,29 +168,39 @@ class _PaymentDetailsSheetState extends State<PaymentDetailsSheet> {
     if (_allocations.isEmpty) return Center(child: Text("No allocations found", style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary)));
     
     return Column(
-      children: _allocations.map((a) => Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: context.cardBg.withOpacity(0.5), borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor.withOpacity(0.5))),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(a['invoice']?['invoice_number'] ?? 'Invoice', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  Text("Total: ₹${a['invoice']?['total_amount'] ?? 0}", style: TextStyle(fontSize: 12, color: context.textSecondary)),
-                ],
-              ),
+      children: _allocations.map((a) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Material(
+          color: context.cardBg,
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: context.borderColor.withOpacity(0.5)),
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            child: Row(
               children: [
-                Text("₹${(a['amount'] ?? 0).toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.green)),
-                Text("Allocated", style: TextStyle(fontSize: 10, color: context.textSecondary)),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(a['invoice']?['invoice_number'] ?? 'Invoice', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      Text("Total: ₹${a['invoice']?['total_amount'] ?? 0}", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text("₹${(a['amount'] ?? 0).toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.green)),
+                    Text("Allocated", style: TextStyle(fontSize: 10, color: context.textSecondary)),
+                  ],
+                ),
               ],
             ),
-          ],
+          ),
         ),
       )).toList(),
     );

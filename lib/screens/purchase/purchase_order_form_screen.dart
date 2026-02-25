@@ -7,6 +7,7 @@ import '../../services/master_data_service.dart';
 import '../sales/scanner_modal_content.dart';
 import 'vendors_screen.dart';
 import '../../widgets/calendar_sheet.dart';
+import '../../services/purchase_refresh_service.dart';
 
 class PurchaseOrderFormScreen extends StatefulWidget {
   final Map<String, dynamic>? order; // Null for new
@@ -62,6 +63,28 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
           _branchName = branches[0]['name'];
         }
         await _generatePoNumber();
+
+        if (widget.order != null) {
+          _vendorId = widget.order!['vendor_id']?.toString();
+          _vendorName = widget.order!['vendor']?['name'] ?? widget.order!['vendor_name'];
+          if (widget.order!['branch_id'] != null) {
+            _branchId = widget.order!['branch_id'].toString();
+          }
+          if (widget.order!['items'] != null) {
+            final rawItems = List<dynamic>.from(widget.order!['items']);
+            _items = List<Map<String, dynamic>>.from(rawItems.map((it) {
+              return <String, dynamic>{
+                'item_id': it['item_id'],
+                'name': it['name'] ?? it['item']?['name'] ?? it['description'] ?? 'Item',
+                'quantity': (it['quantity'] is num) ? it['quantity'].toDouble() : double.tryParse(it['quantity']?.toString() ?? '0') ?? 0.0,
+                'unit_price': (it['unit_price'] is num) ? it['unit_price'].toDouble() : double.tryParse(it['unit_price']?.toString() ?? '0') ?? 0.0,
+                'tax_rate': (it['tax_rate'] is num) ? it['tax_rate'].toDouble() : double.tryParse(it['tax_rate']?.toString() ?? '0') ?? 0.0,
+                'unit': it['unit'] ?? it['item']?['uom'],
+              };
+            }));
+          }
+          _calculateTotals();
+        }
       } else {
         _poNumber = widget.order!['po_number'];
         _vendorId = widget.order!['vendor_id']?.toString();
@@ -242,27 +265,28 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
         final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
         final unit = item['uom'] ?? 'unt';
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Material(
             color: count > 0 ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 2))]
-          ),
-          child: InkWell(
-            onTap: onAdd,
-            borderRadius: BorderRadius.circular(16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                   Container(
-                     width: 48,
-                     height: 48,
-                     decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                     child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue),
-                   ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onAdd,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5)),
+                ),
+                child: Row(
+                  children: [
+                     Container(
+                       width: 48,
+                       height: 48,
+                       decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                       child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue),
+                     ),
                    const SizedBox(width: 16),
                     Expanded(
                       child: Column(
@@ -307,8 +331,9 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
               ),
             ),
           ),
-        );
-      },
+        ),
+      );
+    },
     );
   }
   
@@ -320,9 +345,10 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       builder: (context) => Container(
         padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24, right: 24, top: 24),
-        decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -390,7 +416,7 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
 
     setState(() => _loading = true);
     try {
-      final poData = {
+      final poData = <String, dynamic>{
         'company_id': _companyId,
         'branch_id': _branchId,
         'vendor_id': _vendorId,
@@ -405,7 +431,7 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
       
       Map<String, dynamic> upsertedPo;
       
-      if (widget.order != null) {
+      if (widget.order != null && widget.order!['id'] != null) {
         upsertedPo = await Supabase.instance.client.from('purchase_orders').update(poData).eq('id', widget.order!['id']).select().single();
         await Supabase.instance.client.from('purchase_order_items').delete().eq('po_id', widget.order!['id']);
       } else {
@@ -416,36 +442,43 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
       
       final poId = upsertedPo['id'];
       final itemsToInsert = _items.map((item) {
-        final qty = (item['quantity'] ?? 0).toDouble();
-        final priceInclusive = (item['unit_price'] ?? 0).toDouble();
-        final taxRate = (item['tax_rate'] ?? 0).toDouble();
+        final rawQty = item['quantity'] ?? 0;
+        final rawPrice = item['unit_price'] ?? 0;
+        final rawTax = item['tax_rate'] ?? 0;
+        
+        final qty = (rawQty is num) ? rawQty.toDouble() : double.tryParse(rawQty.toString()) ?? 0.0;
+        final priceInclusive = (rawPrice is num) ? rawPrice.toDouble() : double.tryParse(rawPrice.toString()) ?? 0.0;
+        final taxRate = (rawTax is num) ? rawTax.toDouble() : double.tryParse(rawTax.toString()) ?? 0.0;
         
         final totalInclusive = qty * priceInclusive;
         final lineSub = totalInclusive / (1 + (taxRate / 100));
         final lineTax = totalInclusive - lineSub;
-        final unitPriceExcl = lineSub / qty;
+        final unitPriceExcl = qty > 0 ? (lineSub / qty) : priceInclusive;
 
-        return {
+        return <String, dynamic>{
           'po_id': poId,
           'item_id': item['item_id'],
           'description': item['name'],
-          'quantity': qty,
-          'unit_price': double.parse(unitPriceExcl.toStringAsFixed(4)),
+          'quantity': qty > 0 ? qty : 1, // Fallback safety
+          'unit_price': double.tryParse(unitPriceExcl.toStringAsFixed(4)) ?? 0.0,
           'tax_rate': taxRate,
-          'tax_amount': double.parse(lineTax.toStringAsFixed(2)),
-          'total_amount': double.parse(totalInclusive.toStringAsFixed(2)),
+          'tax_amount': double.tryParse(lineTax.toStringAsFixed(2)) ?? 0.0,
+          'total_amount': double.tryParse(totalInclusive.toStringAsFixed(2)) ?? 0.0,
         };
       }).toList();
       
       await Supabase.instance.client.from('purchase_order_items').insert(itemsToInsert);
 
       if (mounted) {
+        PurchaseRefreshService.triggerRefresh();
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Purchase Order Saved Successfully")));
       }
-    } catch (e) {
+    } catch (e, stacktrace) {
+      debugPrint("Detailed PO Save Error: $e");
+      debugPrint("Stacktrace: $stacktrace");
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error saving PO: $e"), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error saving PO: $e\nCheck console for details."), backgroundColor: Colors.red));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -464,7 +497,7 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
             Text(_poNumber.isEmpty ? "Generating ID..." : _poNumber, style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
           ],
         ),
-        backgroundColor: context.surfaceBg,
+        backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: IconThemeData(color: context.textPrimary),
       ),
@@ -1026,25 +1059,28 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
                             final isSelected = isMultiple ? count > 0 : label == currentValue;
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 12),
-                              child: InkWell(
-                                onTap: () {
-                                  if (isMultiple) onIncrement();
-                                  else { onSelect?.call(item); Navigator.pop(context); }
-                                },
+                              child: Material(
+                                color: isSelected ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
                                 borderRadius: BorderRadius.circular(16),
-                                child: Container(
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: isSelected ? AppColors.primaryBlue.withOpacity(0.05) : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(color: isSelected ? AppColors.primaryBlue : context.borderColor),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Expanded(child: Text(label, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.normal, color: context.textPrimary))),
-                                      if (count > 0) Text("x$count", style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
-                                      if (!isMultiple && isSelected) const Icon(Icons.check, color: AppColors.primaryBlue)
-                                    ],
+                                clipBehavior: Clip.antiAlias,
+                                child: InkWell(
+                                  onTap: () {
+                                    if (isMultiple) onIncrement();
+                                    else { onSelect?.call(item); Navigator.pop(context); }
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(color: isSelected ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5), width: 1),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(child: Text(label, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary))),
+                                        if (count > 0) Text("x$count", style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                                        if (!isMultiple && isSelected) const Icon(Icons.check_circle_rounded, color: AppColors.primaryBlue)
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),

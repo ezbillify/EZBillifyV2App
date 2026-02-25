@@ -4,10 +4,12 @@ import 'package:intl/intl.dart';
 import '../../core/theme_service.dart';
 import '../../services/numbering_service.dart';
 import '../../widgets/calendar_sheet.dart';
+import '../../services/purchase_refresh_service.dart';
 
 class PurchasePaymentFormScreen extends StatefulWidget {
   final Map<String, dynamic>? payment; // Null for new
-  const PurchasePaymentFormScreen({super.key, this.payment});
+  final Map<String, dynamic>? prefilledBill; // To open from invoice details
+  const PurchasePaymentFormScreen({super.key, this.payment, this.prefilledBill});
 
   @override
   State<PurchasePaymentFormScreen> createState() => _PurchasePaymentFormScreenState();
@@ -101,13 +103,32 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
           if (branch != null) _branchName = branch['name'];
         }
       } else {
-        // Fetch default branch
-        final branches = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
-        if (branches.isNotEmpty) {
-          _branchId = branches[0]['id'].toString();
-          _branchName = branches[0]['name'];
-        }
         // New Mode
+        if (widget.prefilledBill != null) {
+          final bill = widget.prefilledBill!;
+          _vendorId = bill['vendor_id']?.toString();
+          _vendorName = bill['vendor']?['name'];
+          _billId = bill['id']?.toString();
+          _billNumber = bill['bill_number'];
+          final total = (bill['total_amount'] ?? 0).toDouble();
+          final paid = (bill['paid_amount'] ?? 0).toDouble();
+          _billBalance = total - paid;
+          _amount = _billBalance;
+          _amountController.text = _amount.toStringAsFixed(2);
+          _branchId = bill['branch_id']?.toString();
+          if (_branchId != null) {
+            // Find branch name
+            final branches = await Supabase.instance.client.from('branches').select('name').eq('id', _branchId!).maybeSingle();
+            if (branches != null) _branchName = branches['name'];
+          }
+        } else {
+          // Fetch default branch
+          final branches = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
+          if (branches.isNotEmpty) {
+            _branchId = branches[0]['id'].toString();
+            _branchName = branches[0]['name'];
+          }
+        }
         await _generatePaymentNumber();
       }
     } catch (e) {
@@ -131,6 +152,8 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
           final filtered = results.where((v) => 
@@ -141,7 +164,6 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
           return Container(
             height: MediaQuery.of(context).size.height * 0.8,
             padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-            decoration: BoxDecoration(color: context.scaffoldBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
             child: Column(children: [
               const SizedBox(height: 12),
               Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
@@ -204,13 +226,14 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
             return Container(
               height: MediaQuery.of(context).size.height * 0.8,
               padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-              decoration: BoxDecoration(color: context.scaffoldBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
               child: Column(
                 children: [
                   const SizedBox(height: 12),
@@ -311,6 +334,10 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter a valid amount")));
       return;
     }
+    if (_amount > _billBalance && widget.payment == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Amount exceeds balance due (₹${_billBalance.toStringAsFixed(2)})")));
+      return;
+    }
 
     setState(() => _loading = true);
     try {
@@ -340,6 +367,7 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
          final currentPaid = (bill['paid_amount'] ?? 0).toDouble();
          final total = (bill['total_amount'] ?? 0).toDouble();
          final newPaid = currentPaid + _amount;
+         final newBalance = total - newPaid;
          
          String newStatus = 'partial';
          if (newPaid >= total) newStatus = 'paid';
@@ -347,11 +375,13 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
          
          await Supabase.instance.client.from('purchase_bills').update({
            'paid_amount': newPaid,
+           'balance_due': double.parse(newBalance.toStringAsFixed(2)),
            'status': newStatus
          }).eq('id', _billId!);
       }
 
       if (mounted) {
+        PurchaseRefreshService.triggerRefresh();
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Payment Recorded Successfully")));
       }
@@ -492,9 +522,10 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       builder: (context) => Container(
         height: MediaQuery.of(context).size.height * 0.5,
-        decoration: BoxDecoration(color: context.scaffoldBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
         child: Column(children: [
           Padding(padding: const EdgeInsets.all(16), child: Text("Select Branch", style: TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: context.textPrimary))),
           const SizedBox(height: 8),
@@ -666,6 +697,7 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
       final currentPaid = (bill['paid_amount'] ?? 0).toDouble();
       final total = (bill['total_amount'] ?? 0).toDouble();
       final newPaid = (currentPaid - _amount).clamp(0.0, total);
+      final newBalance = total - newPaid;
       
       String newStatus = 'partial';
       if (newPaid >= total) newStatus = 'paid';
@@ -673,12 +705,14 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
 
       await Supabase.instance.client.from('purchase_bills').update({
         'paid_amount': newPaid,
+        'balance_due': double.parse(newBalance.toStringAsFixed(2)),
         'status': newStatus
       }).eq('id', _billId!);
 
       await Supabase.instance.client.from('purchase_payments').delete().eq('id', widget.payment!['id']);
 
       if (mounted) {
+        PurchaseRefreshService.triggerRefresh();
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Payment Deleted")));
       }

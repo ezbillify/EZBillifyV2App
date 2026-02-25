@@ -157,7 +157,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           _selectedDateRange,
         ).catchError((e) {
           debugPrint("DASHBOARD: Chart Data Error: $e");
-          return <FlSpot>[];
+          return {'sales': [], 'purchase': [], 'profit': [], 'labels': []};
         }),
       ]);
 

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:animate_do/animate_do.dart';
 import '../../core/theme_service.dart';
 import 'credit_note_form_screen.dart';
+import '../../services/sales_refresh_service.dart';
 import 'credit_note_details_sheet.dart'; // To be created
 import 'customers_screen.dart';
 
@@ -20,16 +21,24 @@ class _CreditNotesScreenState extends State<CreditNotesScreen> {
   List<Map<String, dynamic>> _creditNotes = [];
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+  String? _cachedCompanyId;
 
   @override
   void initState() {
     super.initState();
-    _fetchCreditNotes();
+    _initCreditNotes();
+    SalesRefreshService.refreshNotifier.addListener(_fetchCreditNotes);
+  }
+
+  Future<void> _initCreditNotes() async {
+    await Future.delayed(const Duration(milliseconds: 600));
+    await _fetchCreditNotes();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    SalesRefreshService.refreshNotifier.removeListener(_fetchCreditNotes);
     super.dispose();
   }
 
@@ -38,16 +47,28 @@ class _CreditNotesScreenState extends State<CreditNotesScreen> {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return;
       
-      final profile = await Supabase.instance.client
-          .from('users')
-          .select('company_id')
-          .eq('auth_id', user.id)
-          .single();
+      final String companyId;
+      if (_cachedCompanyId != null) {
+        companyId = _cachedCompanyId!;
+      } else {
+        final profile = await Supabase.instance.client
+            .from('users')
+            .select('company_id')
+            .eq('auth_id', user.id)
+            .maybeSingle();
+
+        if (profile == null || profile['company_id'] == null) {
+          if (mounted) setState(() => _loading = false);
+          return;
+        }
+        companyId = profile['company_id'];
+        _cachedCompanyId = companyId;
+      }
       
       var query = Supabase.instance.client
           .from('sales_credit_notes')
           .select('*, customer:customers(name), invoice:sales_invoices(invoice_number)')
-          .eq('company_id', profile['company_id']);
+          .eq('company_id', companyId);
           
       if (_searchQuery.isNotEmpty) {
         query = query.or('cn_number.ilike.%$_searchQuery%');
@@ -148,6 +169,8 @@ class _CreditNotesScreenState extends State<CreditNotesScreen> {
                               context: context,
                               isScrollControlled: true,
                               backgroundColor: Colors.transparent,
+                              shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+                              clipBehavior: Clip.antiAlias,
                               useSafeArea: true,
                               builder: (context) => CreditNoteDetailsSheet(
                                 creditNote: cn,

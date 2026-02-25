@@ -128,6 +128,7 @@ class _ScannerModalContentState<T> extends State<ScannerModalContent<T>> {
           color: context.surfaceBg,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
         ),
+        clipBehavior: Clip.antiAlias,
         child: Column(
           children: [
             const SizedBox(height: 12),

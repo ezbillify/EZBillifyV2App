@@ -6,6 +6,7 @@ import '../../core/theme_service.dart';
 import 'delivery_challan_form_screen.dart';
 import 'customers_screen.dart';
 import 'challan_details_sheet.dart';
+import '../../services/sales_refresh_service.dart';
 
 class DeliveryChallansScreen extends StatefulWidget {
   final bool showAppBar;
@@ -22,18 +23,26 @@ class _DeliveryChallansScreenState extends State<DeliveryChallansScreen> {
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  String? _cachedCompanyId;
 
   @override
   void initState() {
     super.initState();
     _searchFocusNode.addListener(() { if (mounted) setState(() {}); });
-    _fetchChallans();
+    _initChallans();
+    SalesRefreshService.refreshNotifier.addListener(_fetchChallans);
+  }
+
+  Future<void> _initChallans() async {
+    await Future.delayed(const Duration(milliseconds: 400));
+    await _fetchChallans();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _searchFocusNode.dispose();
+    SalesRefreshService.refreshNotifier.removeListener(_fetchChallans);
     super.dispose();
   }
 
@@ -42,16 +51,28 @@ class _DeliveryChallansScreenState extends State<DeliveryChallansScreen> {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return;
       
-      final profile = await Supabase.instance.client
-          .from('users')
-          .select('company_id')
-          .eq('auth_id', user.id)
-          .single();
+      final String companyId;
+      if (_cachedCompanyId != null) {
+        companyId = _cachedCompanyId!;
+      } else {
+        final profile = await Supabase.instance.client
+            .from('users')
+            .select('company_id')
+            .eq('auth_id', user.id)
+            .maybeSingle();
+
+        if (profile == null || profile['company_id'] == null) {
+          if (mounted) setState(() => _loading = false);
+          return;
+        }
+        companyId = profile['company_id'];
+        _cachedCompanyId = companyId;
+      }
       
       var query = Supabase.instance.client
           .from('sales_delivery_challans')
           .select('*, customer:customers(name)')
-          .eq('company_id', profile['company_id']);
+          .eq('company_id', companyId);
           
       if (_filterStatus != 'all') {
         query = query.eq('status', _filterStatus);
@@ -264,7 +285,11 @@ class _DeliveryChallansScreenState extends State<DeliveryChallansScreen> {
             context: context,
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
+            clipBehavior: Clip.antiAlias,
             useSafeArea: true,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+            ),
             builder: (context) => ChallanDetailsSheet(
               challan: challan,
               onRefresh: _fetchChallans,

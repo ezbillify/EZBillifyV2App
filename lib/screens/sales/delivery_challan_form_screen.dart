@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme_service.dart';
+import '../../services/sales_refresh_service.dart';
 import 'package:animate_do/animate_do.dart';
 import '../inventory/item_form_sheet.dart';
 import 'scanner_modal_content.dart';
@@ -413,6 +414,7 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       useSafeArea: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
@@ -426,7 +428,7 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
             minChildSize: 0.5,
             maxChildSize: 0.95,
             builder: (context, scrollController) => Container(
-              decoration: BoxDecoration(color: context.surfaceBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
+              decoration: BoxDecoration(color: context.surfaceBg),
               child: Column(
                 children: [
                   const SizedBox(height: 12),
@@ -584,6 +586,7 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
             });
         }
       }
+      SalesRefreshService.triggerRefresh();
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       debugPrint("Error saving challan: $e");

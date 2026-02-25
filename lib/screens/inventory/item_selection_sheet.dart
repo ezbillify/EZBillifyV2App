@@ -57,6 +57,7 @@ class _ItemSelectionSheetState extends State<ItemSelectionSheet> {
   Widget build(BuildContext context) {
     return Container(
       height: MediaQuery.of(context).size.height * 0.85,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: context.surfaceBg,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),

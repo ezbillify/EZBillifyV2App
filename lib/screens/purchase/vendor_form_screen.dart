@@ -354,12 +354,10 @@ class _VendorFormScreenState extends State<VendorFormScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
       isScrollControlled: true,
       builder: (context) => Container(
-        decoration: BoxDecoration(
-          color: context.scaffoldBg,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
         padding: const EdgeInsets.all(24),
         child: SafeArea(
           child: Column(

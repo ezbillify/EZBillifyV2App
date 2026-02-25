@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:animate_do/animate_do.dart';
 import '../../core/theme_service.dart';
 import 'payment_form_screen.dart';
+import '../../services/sales_refresh_service.dart';
 import 'payment_details_sheet.dart'; // To be created
 import 'customers_screen.dart';
 
@@ -20,38 +21,65 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   List<Map<String, dynamic>> _payments = [];
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+  String? _cachedCompanyId;
 
   @override
   void initState() {
     super.initState();
-    _fetchPayments();
+    _initPayments();
+    SalesRefreshService.refreshNotifier.addListener(_fetchPayments);
+  }
+
+  Future<void> _initPayments() async {
+    await Future.delayed(const Duration(milliseconds: 500));
+    await _fetchPayments();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    SalesRefreshService.refreshNotifier.removeListener(_fetchPayments);
     super.dispose();
   }
 
   Future<void> _fetchPayments() async {
     try {
       final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return;
+      if (user == null) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
       
-      final profile = await Supabase.instance.client
-          .from('users')
-          .select('company_id')
-          .eq('auth_id', user.id)
-          .single();
+      final String companyId;
+      if (_cachedCompanyId != null) {
+        companyId = _cachedCompanyId!;
+      } else {
+        final profile = await Supabase.instance.client
+            .from('users')
+            .select('company_id')
+            .eq('auth_id', user.id)
+            .maybeSingle();
+
+        if (profile == null || profile['company_id'] == null) {
+          debugPrint("Sales Payments: Profile or Company ID not found for user ${user.id}");
+          if (mounted) {
+            setState(() {
+              _payments = [];
+              _loading = false;
+            });
+          }
+          return;
+        }
+        companyId = profile['company_id'];
+        _cachedCompanyId = companyId;
+      }
       
       var query = Supabase.instance.client
           .from('sales_payments')
           .select('*, customer:customers(name), allocations:sales_payment_allocations(amount, invoice:sales_invoices(invoice_number))')
-          .eq('company_id', profile['company_id']);
+          .eq('company_id', companyId);
           
       if (_searchQuery.isNotEmpty) {
-        // Search by payment number, customer, or invoice number
-        // Note: searching deep relations might be tricky in simple text search, assume generic filter or just payment number
         query = query.or('payment_number.ilike.%$_searchQuery%');
       }
       
@@ -65,7 +93,12 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       }
     } catch (e) {
       debugPrint("Error fetching payments: $e");
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _payments = [];
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -79,6 +112,8 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             context: context,
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
+            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+            clipBehavior: Clip.antiAlias,
             useSafeArea: true,
             builder: (c) => const PaymentFormScreen()
           );
@@ -201,6 +236,8 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             context: context,
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
+            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+            clipBehavior: Clip.antiAlias,
             useSafeArea: true,
             builder: (context) => PaymentDetailsSheet(
               payment: payment,

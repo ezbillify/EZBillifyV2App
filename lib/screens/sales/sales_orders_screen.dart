@@ -6,6 +6,7 @@ import '../../core/theme_service.dart';
 import 'sales_order_form_screen.dart';
 import 'customers_screen.dart';
 import 'order_details_sheet.dart';
+import '../../services/sales_refresh_service.dart';
 
 class SalesOrdersScreen extends StatefulWidget {
   final bool showAppBar;
@@ -23,42 +24,101 @@ class _SalesOrdersScreenState extends State<SalesOrdersScreen> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
+  RealtimeChannel? _realtimeChannel;
+  String? _cachedCompanyId;
+
   @override
   void initState() {
     super.initState();
     _searchFocusNode.addListener(() { if (mounted) setState(() {}); });
-    _fetchOrders();
+    _initOrders();
+    SalesRefreshService.refreshNotifier.addListener(_fetchOrders);
+  }
+
+  Future<void> _initOrders() async {
+    // Staggered delay to prevent DNS query burst across multiple tabs
+    await Future.delayed(const Duration(milliseconds: 300));
+    await _fetchOrders();
+    if (mounted) _setupRealtime();
+  }
+
+  void _setupRealtime() async {
+    final companyId = _cachedCompanyId;
+    if (companyId == null) return;
+
+    _realtimeChannel = Supabase.instance.client
+        .channel('public:sales_orders:company_id=eq.$companyId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'sales_orders',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'company_id',
+            value: companyId,
+          ),
+          callback: (payload) {
+            _fetchOrders();
+          },
+        )
+        .subscribe();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _searchFocusNode.dispose();
+    if (_realtimeChannel != null) {
+      Supabase.instance.client.removeChannel(_realtimeChannel!);
+    }
+    SalesRefreshService.refreshNotifier.removeListener(_fetchOrders);
     super.dispose();
   }
 
   Future<void> _fetchOrders() async {
+    if (_orders.isEmpty && mounted) setState(() => _loading = true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return;
+      if (user == null) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
       
-      final profile = await Supabase.instance.client
-          .from('users')
-          .select('company_id')
-          .eq('auth_id', user.id)
-          .single();
+      final String companyId;
+      if (_cachedCompanyId != null) {
+        companyId = _cachedCompanyId!;
+      } else {
+        final profile = await Supabase.instance.client
+            .from('users')
+            .select('company_id')
+            .eq('auth_id', user.id)
+            .maybeSingle();
+
+        if (profile == null || profile['company_id'] == null) {
+          debugPrint("Sales Orders: Profile or Company ID not found for user ${user.id}");
+          if (mounted) {
+            setState(() {
+              _orders = [];
+              _loading = false;
+            });
+          }
+          return;
+        }
+        companyId = profile['company_id'];
+        _cachedCompanyId = companyId;
+      }
       
       var query = Supabase.instance.client
           .from('sales_orders')
           .select('*, customer:customers(name)')
-          .eq('company_id', profile['company_id']);
+          .eq('company_id', companyId);
           
       if (_filterStatus != 'all') {
         query = query.eq('status', _filterStatus);
       }
 
       if (_searchQuery.isNotEmpty) {
-        query = query.or('so_number.ilike.%$_searchQuery%,customers.name.ilike.%$_searchQuery%');
+        query = query.or('so_number.ilike.%$_searchQuery%,customer:customers.name.ilike.%$_searchQuery%');
       }
       
       final response = await query.order('created_at', ascending: false);
@@ -71,19 +131,27 @@ class _SalesOrdersScreenState extends State<SalesOrdersScreen> {
       }
     } catch (e) {
       debugPrint("Error fetching orders: $e");
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _orders = [];
+          _loading = false;
+        });
+      }
     }
   }
 
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
-      case 'confirmed': return Colors.green;
-      case 'pending': return Colors.orange;
-      case 'cancelled': return Colors.red;
+      case 'confirmed': 
+      case 'completed': return Colors.green;
+      case 'pending': 
+      case 'draft': return Colors.orange;
+      case 'cancelled': 
+      case 'rejected': return Colors.red;
       case 'shipped': return Colors.blue;
       case 'delivered': return Colors.teal;
-      case 'draft': return Colors.grey;
-      default: return Colors.grey;
+      case 'partially_delivered': return Colors.indigo;
+      default: return Colors.blueGrey;
     }
   }
 
@@ -247,10 +315,11 @@ class _SalesOrdersScreenState extends State<SalesOrdersScreen> {
   Widget _buildOrderCard(Map<String, dynamic> order) {
     final status = order['status'] ?? 'Draft';
     final statusColor = _getStatusColor(status);
-    final date = DateTime.tryParse(order['order_date']?.toString() ?? '') ?? DateTime.now();
+    final dateStr = order['date']?.toString() ?? order['order_date']?.toString() ?? order['created_at']?.toString() ?? '';
+    final date = DateTime.tryParse(dateStr) ?? DateTime.now();
     final customerName = (order['customer'] != null && order['customer']['name'] != null) 
         ? order['customer']['name'].toString() 
-        : 'Unknown Customer';
+        : (order['customer_name'] ?? 'Unknown Customer').toString();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -265,6 +334,8 @@ class _SalesOrdersScreenState extends State<SalesOrdersScreen> {
             context: context,
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
+            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+            clipBehavior: Clip.antiAlias,
             useSafeArea: true,
             builder: (context) => OrderDetailsSheet(
               order: order,

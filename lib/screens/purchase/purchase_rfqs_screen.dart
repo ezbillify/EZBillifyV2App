@@ -288,6 +288,8 @@ class _PurchaseRfqsScreenState extends State<PurchaseRfqsScreen> {
             context: context,
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
+            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+            clipBehavior: Clip.antiAlias,
             useSafeArea: true,
             builder: (context) => PurchaseRfqDetailsSheet(
               rfq: rfq,
