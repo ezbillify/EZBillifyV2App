@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io' show Platform;
 import '../../services/settings_service.dart';
 import '../../core/theme_service.dart';
 import 'package:intl/intl.dart';
@@ -102,7 +104,7 @@ class _PlansBillingScreenState extends ConsumerState<PlansBillingScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text("Plans & Billing", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: textPrimary, fontSize: 20)),
-            Text("Manage your subscription via EZConnect", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: textSecondary)),
+            Text(!kIsWeb && Platform.isIOS ? "View your subscription details" : "Manage your subscription via EZConnect", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: textSecondary)),
           ],
         ),
         leading: IconButton(
@@ -184,8 +186,11 @@ class _PlansBillingScreenState extends ConsumerState<PlansBillingScreen> {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(price, style: const TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
-                    Text(" / ${plan['interval'] ?? 'month'}", style: TextStyle(fontFamily: 'Outfit', fontSize: 14, color: Colors.white.withOpacity(0.7))),
+                    if (!(!kIsWeb && Platform.isIOS)) ...[
+                      Text(price, style: const TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
+                      Text(" / ${plan['interval'] ?? 'month'}", style: TextStyle(fontFamily: 'Outfit', fontSize: 14, color: Colors.white.withOpacity(0.7))),
+                    ] else
+                      Text("Active Subscription", style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white.withOpacity(0.9))),
                     const Spacer(),
                     if (nextBilling != null)
                       Column(
@@ -226,36 +231,58 @@ class _PlansBillingScreenState extends ConsumerState<PlansBillingScreen> {
                 const SizedBox(height: 16),
                 _buildUsageBar("API Requests", usage['apiCalls']?['current'] ?? 0, usage['apiCalls']?['limit'] ?? 1000, AppColors.warning, textPrimary, textSecondary, isDark),
                 const SizedBox(height: 32),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => _launchEZConnect('/ezbillify'),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 18),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          side: BorderSide(color: borderColor),
+                if (!(!kIsWeb && Platform.isIOS)) 
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _launchEZConnect('/ezbillify'),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 18),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            side: BorderSide(color: borderColor),
+                          ),
+                          child: Text("Portal", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: textSecondary)),
                         ),
-                        child: Text("Portal", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: textSecondary)),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 2,
-                      child: ElevatedButton(
-                        onPressed: () => _launchEZConnect('/pricing'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: isDark ? AppColors.primaryBlue : AppColors.lightTextPrimary,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          padding: const EdgeInsets.symmetric(vertical: 18),
-                          elevation: 0,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton(
+                          onPressed: () => _launchEZConnect('/pricing'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isDark ? AppColors.primaryBlue : AppColors.lightTextPrimary,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            padding: const EdgeInsets.symmetric(vertical: 18),
+                            elevation: 0,
+                          ),
+                          child: Text(status == 'trial' ? "Activate Plan" : "Upgrade Plan", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
                         ),
-                        child: Text(status == 'trial' ? "Activate Plan" : "Upgrade Plan", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
                       ),
+                    ],
+                  )
+                else
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white.withOpacity(0.05) : const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: borderColor),
                     ),
-                  ],
-                ),
+                    child: Column(
+                      children: [
+                        _buildInfoRow("Account Type", plan['name'] ?? "Standard", textPrimary, textSecondary),
+                        if (nextBilling != null) ...[
+                          Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Divider(height: 1, color: borderColor)),
+                          _buildInfoRow("Valid Until", nextBilling, textPrimary, textSecondary),
+                        ],
+                        Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Divider(height: 1, color: borderColor)),
+                        _buildInfoRow("Current Status", (company['status'] ?? 'Active').toString().toUpperCase(), textPrimary, textSecondary),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),
@@ -287,24 +314,25 @@ class _PlansBillingScreenState extends ConsumerState<PlansBillingScreen> {
           Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Divider(height: 1, color: borderColor)),
           _buildInfoRow("Account Since", company['created_at'] != null ? DateFormat('MMM dd, yyyy').format(DateTime.parse(company['created_at'])) : 'N/A', textPrimary, textSecondary),
           const SizedBox(height: 24),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF052E16) : const Color(0xFFF0FDF4),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: isDark ? const Color(0xFF166534) : const Color(0xFFDCFCE7)),
+          if (!(!kIsWeb && Platform.isIOS)) 
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF052E16) : const Color(0xFFF0FDF4),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: isDark ? const Color(0xFF166534) : const Color(0xFFDCFCE7)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.verified_user_rounded, color: AppColors.success, size: 18),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text(
+                    "All payments are processed securely via SSL encrypted bridge.",
+                    style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: isDark ? const Color(0xFF86EFAC) : const Color(0xFF166534), fontWeight: FontWeight.w500),
+                  )),
+                ],
+              ),
             ),
-            child: Row(
-              children: [
-                const Icon(Icons.verified_user_rounded, color: AppColors.success, size: 18),
-                const SizedBox(width: 12),
-                Expanded(child: Text(
-                  "All payments are processed securely via SSL encrypted bridge.",
-                  style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: isDark ? const Color(0xFF86EFAC) : const Color(0xFF166534), fontWeight: FontWeight.w500),
-                )),
-              ],
-            ),
-          ),
         ],
       ),
     );

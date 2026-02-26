@@ -3,6 +3,7 @@ import '../../services/settings_service.dart';
 import '../../models/auth_models.dart';
 import '../../core/theme_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class MyProfileScreen extends StatefulWidget {
   final AppUser user;
@@ -110,6 +111,65 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  Future<void> _requestAccountDeletion() async {
+    final Uri emailLaunchUri = Uri(
+      scheme: 'mailto',
+      path: 'support@ezbillify.com',
+      query: encodeQueryParameters({
+        'subject': 'Request for Account Deletion: ${widget.user.email}',
+        'body': 'Hi Support,\n\nI would like to request the deletion of my EZBillify account and associated data.\n\nAccount Details:\n- Name: ${widget.user.name}\n- Email: ${widget.user.email}\n- User ID: ${widget.user.id}\n\nPlease confirm once the process is complete.\n\nThank you.'
+      }),
+    );
+
+    if (await canLaunchUrl(emailLaunchUri)) {
+      await launchUrl(emailLaunchUri);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open email app. Please email support@ezbillify.com directly.'))
+        );
+      }
+    }
+  }
+
+  String? encodeQueryParameters(Map<String, String> params) {
+    return params.entries.map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}').join('&');
+  }
+
+  void _showDeleteConfirmation() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: context.surfaceBg,
+        title: Text("Delete Account?", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+        content: Text(
+          "This will initiate a request to permanently delete your account and all associated business data. This action cannot be undone.",
+          style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text("Cancel", style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary, fontWeight: FontWeight.bold)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _requestAccountDeletion();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
+            ),
+            child: const Text("Request Deletion", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -325,6 +385,27 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                             ),
                           ),
                         ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 32),
+                    
+                    // Danger Zone / Account Deletion
+                    Center(
+                      child: TextButton.icon(
+                        onPressed: _showDeleteConfirmation,
+                        icon: const Icon(Icons.delete_forever_rounded, color: AppColors.error, size: 20),
+                        label: const Text(
+                          "Delete Account Permanently",
+                          style: TextStyle(fontFamily: 'Outfit', color: AppColors.error, fontWeight: FontWeight.bold),
+                        ),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(color: AppColors.error.withOpacity(0.2)),
+                          ),
+                        ),
                       ),
                     ),
                     

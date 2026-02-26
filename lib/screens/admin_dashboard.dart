@@ -7,6 +7,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/auth_service.dart';
 import '../models/auth_models.dart';
 import '../core/theme_service.dart';
@@ -957,9 +958,35 @@ class _AdminDashboardState extends State<AdminDashboard> {
                           },
                         ),
                         _buildSheetItem(
+                          Icons.policy_rounded,
+                          "Privacy Policy",
+                          "Data and privacy terms",
+                          onTap: () async {
+                            Navigator.pop(context);
+                            final Uri url = Uri.parse('https://www.ezbillify.com/privacy');
+                            if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text("Could not open privacy policy."))
+                                );
+                              }
+                            }
+                          },
+                        ),
+                        _buildSheetItem(
                           Icons.notifications_none_rounded,
                           "Notifications",
                           "Preference management",
+                          onTap: () {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Text("Notifications implementation coming soon!", style: TextStyle(fontFamily: 'Outfit')),
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                            );
+                          },
                         ),
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -969,6 +996,21 @@ class _AdminDashboardState extends State<AdminDashboard> {
                           Icons.help_outline_rounded,
                           "Help & Support",
                           "Get assistance from our team",
+                          onTap: () async {
+                            Navigator.pop(context);
+                            final Uri emailUri = Uri(
+                              scheme: 'mailto',
+                              path: 'support@ezbillify.com',
+                              query: 'subject=EZBillify Support Request&body=Hi Support team,',
+                            );
+                            if (!await launchUrl(emailUri)) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text("Could not open email app."))
+                                );
+                              }
+                            }
+                          },
                         ),
                         _buildSheetItem(
                           Icons.logout_rounded,
