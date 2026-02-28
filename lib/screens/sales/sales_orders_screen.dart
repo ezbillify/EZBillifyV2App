@@ -20,6 +20,7 @@ class _SalesOrdersScreenState extends State<SalesOrdersScreen> {
   bool _loading = true;
   List<Map<String, dynamic>> _orders = [];
   String _filterStatus = 'all';
+  bool _showArchived = false;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
@@ -113,6 +114,12 @@ class _SalesOrdersScreenState extends State<SalesOrdersScreen> {
           .select('*, customer:customers(name)')
           .eq('company_id', companyId);
           
+      if (_showArchived) {
+        query = query.eq('is_active', false);
+      } else {
+        query = query.or('is_active.is.null,is_active.eq.true');
+      }
+
       if (_filterStatus != 'all') {
         query = query.eq('status', _filterStatus);
       }
@@ -269,6 +276,10 @@ class _SalesOrdersScreenState extends State<SalesOrdersScreen> {
                 _buildFilterChip('Shipped', 'shipped'),
                 _buildFilterChip('Delivered', 'delivered'),
                 _buildFilterChip('Cancelled', 'cancelled'),
+                const SizedBox(width: 12),
+                Container(width: 1, height: 24, color: context.borderColor),
+                const SizedBox(width: 12),
+                _buildArchivedToggle(),
               ],
             ),
           ),
@@ -432,6 +443,31 @@ class _SalesOrdersScreenState extends State<SalesOrdersScreen> {
            borderRadius: BorderRadius.circular(12),
            side: BorderSide(color: isSelected ? AppColors.primaryBlue : context.borderColor),
         ),
+      ),
+    );
+  }
+
+  Widget _buildArchivedToggle() {
+    return FilterChip(
+      label: const Text("Show Archived"),
+      selected: _showArchived,
+      onSelected: (v) {
+        setState(() => _showArchived = v);
+        _fetchOrders();
+      },
+      backgroundColor: context.cardBg,
+      selectedColor: Colors.red.withOpacity(0.1),
+      labelStyle: TextStyle(
+        color: _showArchived ? Colors.red : context.textSecondary,
+        fontWeight: _showArchived ? FontWeight.bold : FontWeight.normal,
+        fontFamily: 'Outfit',
+        fontSize: 13,
+      ),
+      showCheckmark: false,
+      avatar: Icon(Icons.archive_outlined, size: 16, color: _showArchived ? Colors.red : context.textSecondary),
+      shape: RoundedRectangleBorder(
+         borderRadius: BorderRadius.circular(12),
+         side: BorderSide(color: _showArchived ? Colors.red : context.borderColor),
       ),
     );
   }

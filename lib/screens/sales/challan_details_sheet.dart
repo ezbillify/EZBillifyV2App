@@ -48,6 +48,204 @@ class _ChallanDetailsSheetState extends State<ChallanDetailsSheet> {
     }
   }
 
+  Future<void> _refreshData() async {
+    try {
+      final updatedCH = await Supabase.instance.client
+          .from('sales_delivery_challans')
+          .select('*, customer:customers(name)')
+          .eq('id', _challan['id'])
+          .single();
+      
+      if (mounted) {
+        setState(() {
+          _challan = updatedCH;
+        });
+        await _fetchItems();
+        widget.onRefresh();
+      }
+    } catch (e) {
+      debugPrint("Error refreshing challan: $e");
+    }
+  }
+
+  Future<void> _archiveChallan() async {
+    final confirm = await _showConfirmDialog(
+      title: "Archive Challan",
+      message: "Are you sure you want to archive this delivery challan? It will be moved to the archive section.",
+      confirmLabel: "Archive",
+      isDestructive: true,
+    );
+    if (confirm != true) return;
+
+    try {
+      await Supabase.instance.client
+          .from('sales_delivery_challans')
+          .update({'is_active': false, 'deleted_at': DateTime.now().toIso8601String()})
+          .eq('id', _challan['id']);
+      
+      if (mounted) {
+        _refreshData();
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Challan archived successfully")));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error archiving challan: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<void> _restoreChallan() async {
+    try {
+      await Supabase.instance.client
+          .from('sales_delivery_challans')
+          .update({'is_active': true, 'deleted_at': null})
+          .eq('id', _challan['id']);
+      
+      if (mounted) {
+        _refreshData();
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Challan restored successfully"), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error restoring challan: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<void> _deleteChallan() async {
+    final confirm = await _showConfirmDialog(
+      title: "Delete Permanently",
+      message: "WARNING: This action cannot be undone. Are you sure you want to delete this delivery challan forever?",
+      confirmLabel: "Delete Forever",
+      isDestructive: true,
+    );
+    if (confirm != true) return;
+
+    try {
+      await Supabase.instance.client
+          .from('sales_delivery_challans')
+          .delete()
+          .eq('id', _challan['id']);
+      
+      if (mounted) {
+        widget.onRefresh();
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Challan deleted permanently"), backgroundColor: Colors.black));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error deleting challan: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<bool?> _showConfirmDialog({required String title, required String message, required String confirmLabel, bool isDestructive = false}) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: context.surfaceBg,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: context.borderColor),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: (isDestructive ? Colors.red : AppColors.primaryBlue).withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isDestructive ? Icons.warning_amber_rounded : Icons.info_outline_rounded,
+                  color: isDestructive ? Colors.red : AppColors.primaryBlue,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Outfit',
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: context.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Outfit',
+                  fontSize: 14,
+                  color: context.textSecondary,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 32),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(color: context.borderColor),
+                        ),
+                      ),
+                      child: Text(
+                        "Cancel",
+                        style: TextStyle(
+                          fontFamily: 'Outfit',
+                          color: context.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isDestructive ? Colors.red : AppColors.primaryBlue,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        confirmLabel,
+                        style: const TextStyle(
+                          fontFamily: 'Outfit',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
@@ -200,7 +398,6 @@ class _ChallanDetailsSheetState extends State<ChallanDetailsSheet> {
     );
   }
 
-
   Widget _buildActions() {
     return Column(
       children: [
@@ -209,7 +406,7 @@ class _ChallanDetailsSheetState extends State<ChallanDetailsSheet> {
             Expanded(child: _buildActionButton(Icons.edit_outlined, "Edit", () async {
               final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => DeliveryChallanFormScreen(challan: _challan)));
               if (result == true && mounted) {
-                 Navigator.pop(context, true);
+                 _refreshData();
               }
             })),
             const SizedBox(width: 12),
@@ -247,21 +444,61 @@ class _ChallanDetailsSheetState extends State<ChallanDetailsSheet> {
             })),
           ],
         ),
+        const SizedBox(height: 24),
+        const Divider(),
+        const SizedBox(height: 24),
+        if (_challan['is_active'] != false)
+          SizedBox(
+            width: double.infinity,
+            child: _buildActionButton(
+              Icons.archive_outlined, 
+              "Archive Challan", 
+              _archiveChallan,
+              isDestructive: true,
+            ),
+          )
+        else
+          Row(
+            children: [
+              Expanded(
+                child: _buildActionButton(
+                  Icons.unarchive_outlined, 
+                  "Restore", 
+                  _restoreChallan,
+                  color: Colors.green.withOpacity(0.1),
+                  textColor: Colors.green,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildActionButton(
+                  Icons.delete_forever_outlined, 
+                  "Delete Forever", 
+                  _deleteChallan,
+                  color: Colors.red.withOpacity(0.1),
+                  textColor: Colors.red,
+                ),
+              ),
+            ],
+          ),
       ],
     );
   }
 
-  Widget _buildActionButton(IconData icon, String label, VoidCallback onTap, {bool filled = false}) {
+  Widget _buildActionButton(IconData icon, String label, VoidCallback? onTap, {bool filled = false, bool isDestructive = false, Color? color, Color? textColor}) {
+    final bgColor = color ?? (filled ? AppColors.primaryBlue : (isDestructive ? Colors.orange.withOpacity(0.1) : context.cardBg));
+    final fgColor = textColor ?? (filled ? Colors.white : (isDestructive ? Colors.orange : context.textPrimary));
+
     return ElevatedButton.icon(
       onPressed: onTap,
       icon: Icon(icon, size: 18),
       label: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
       style: ElevatedButton.styleFrom(
-        backgroundColor: filled ? AppColors.primaryBlue : context.cardBg,
-        foregroundColor: filled ? Colors.white : context.textPrimary,
+        backgroundColor: bgColor,
+        foregroundColor: fgColor,
         elevation: 0,
         padding: const EdgeInsets.symmetric(vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: filled ? AppColors.primaryBlue : context.borderColor)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: (filled || isDestructive || color != null) ? Colors.transparent : context.borderColor)),
       ),
     );
   }

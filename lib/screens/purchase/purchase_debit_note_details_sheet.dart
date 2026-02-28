@@ -18,11 +18,13 @@ class PurchaseDebitNoteDetailsSheet extends StatefulWidget {
 
 class _PurchaseDebitNoteDetailsSheetState extends State<PurchaseDebitNoteDetailsSheet> {
   List<Map<String, dynamic>> _items = [];
+  late Map<String, dynamic> _debitNote;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
+    _debitNote = widget.debitNote;
     _fetchItems();
   }
 
@@ -31,7 +33,7 @@ class _PurchaseDebitNoteDetailsSheetState extends State<PurchaseDebitNoteDetails
       final res = await Supabase.instance.client
           .from('purchase_debit_note_items')
           .select('*, item:items(name)')
-          .eq('debit_note_id', widget.debitNote['id']);
+          .eq('debit_note_id', _debitNote['id']);
       
       if (mounted) {
         setState(() {
@@ -45,13 +47,211 @@ class _PurchaseDebitNoteDetailsSheetState extends State<PurchaseDebitNoteDetails
     }
   }
 
+  Future<void> _refreshData() async {
+    try {
+      final updatedDN = await Supabase.instance.client
+          .from('purchase_debit_notes')
+          .select('*, vendor:vendors(name)')
+          .eq('id', _debitNote['id'])
+          .single();
+      
+      if (mounted) {
+        setState(() {
+          _debitNote = updatedDN;
+        });
+        await _fetchItems();
+        widget.onRefresh();
+      }
+    } catch (e) {
+      debugPrint("Error refreshing debit note: $e");
+    }
+  }
+
+  Future<void> _archiveDN() async {
+    final confirm = await _showConfirmDialog(
+      title: "Archive Debit Note",
+      message: "Are you sure you want to archive this debit note? It will be moved to the archive section.",
+      confirmLabel: "Archive",
+      isDestructive: true,
+    );
+    if (confirm != true) return;
+
+    try {
+      await Supabase.instance.client
+          .from('purchase_debit_notes')
+          .update({'is_active': false, 'deleted_at': DateTime.now().toIso8601String()})
+          .eq('id', _debitNote['id']);
+      
+      if (mounted) {
+        _refreshData();
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Debit Note archived successfully")));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error archiving debit note: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<void> _restoreDN() async {
+    try {
+      await Supabase.instance.client
+          .from('purchase_debit_notes')
+          .update({'is_active': true, 'deleted_at': null})
+          .eq('id', _debitNote['id']);
+      
+      if (mounted) {
+        _refreshData();
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Debit Note restored successfully"), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error restoring debit note: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<void> _deleteDN() async {
+    final confirm = await _showConfirmDialog(
+      title: "Delete Permanently",
+      message: "WARNING: This action cannot be undone. Are you sure you want to delete this debit note forever?",
+      confirmLabel: "Delete Forever",
+      isDestructive: true,
+    );
+    if (confirm != true) return;
+
+    try {
+      await Supabase.instance.client
+          .from('purchase_debit_notes')
+          .delete()
+          .eq('id', _debitNote['id']);
+      
+      if (mounted) {
+        widget.onRefresh();
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Debit Note deleted permanently"), backgroundColor: Colors.black));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error deleting debit note: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<bool?> _showConfirmDialog({required String title, required String message, required String confirmLabel, bool isDestructive = false}) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: context.surfaceBg,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: context.borderColor),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: (isDestructive ? Colors.red : AppColors.primaryBlue).withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isDestructive ? Icons.warning_amber_rounded : Icons.info_outline_rounded,
+                  color: isDestructive ? Colors.red : AppColors.primaryBlue,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Outfit',
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: context.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Outfit',
+                  fontSize: 14,
+                  color: context.textSecondary,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 32),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(color: context.borderColor),
+                        ),
+                      ),
+                      child: Text(
+                        "Cancel",
+                        style: TextStyle(
+                          fontFamily: 'Outfit',
+                          color: context.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isDestructive ? Colors.red : AppColors.primaryBlue,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        confirmLabel,
+                        style: const TextStyle(
+                          fontFamily: 'Outfit',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final noteNumber = widget.debitNote['dn_number'] ?? widget.debitNote['debit_note_number'] ?? '#---';
-    final vendorName = widget.debitNote['vendor']?['name'] ?? 'Unknown Vendor';
-    final date = DateTime.tryParse(widget.debitNote['date'] ?? '') ?? DateTime.now();
-    final total = (widget.debitNote['total_amount'] ?? 0).toDouble();
-    final reason = widget.debitNote['reason'] ?? 'Return';
+    final noteNumber = _debitNote['dn_number'] ?? _debitNote['debit_note_number'] ?? '#---';
+    final vendorName = _debitNote['vendor']?['name'] ?? 'Unknown Vendor';
+    final date = DateTime.tryParse(_debitNote['date'] ?? '') ?? DateTime.now();
+    final total = (_debitNote['total_amount'] ?? 0).toDouble();
+    final reason = _debitNote['reason'] ?? 'Return';
 
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
@@ -129,36 +329,27 @@ class _PurchaseDebitNoteDetailsSheetState extends State<PurchaseDebitNoteDetails
                     const SizedBox(height: 40),
                     SizedBox(
                       width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () async {
-                           Navigator.pop(context);
-                           final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => PurchaseDebitNoteFormScreen(debitNote: widget.debitNote)));
-                           if (result == true) widget.onRefresh();
-                        },
-                        icon: const Icon(Icons.edit_outlined, size: 18),
-                        label: const Text("Edit Debit Note", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: context.cardBg,
-                          foregroundColor: context.textPrimary,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: context.borderColor)),
-                        ),
-                      ),
+                      child: _buildActionButton(Icons.edit_outlined, "Edit Debit Note", () async {
+                           final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => PurchaseDebitNoteFormScreen(debitNote: _debitNote)));
+                           if (result == true) {
+                             Navigator.pop(context);
+                             widget.onRefresh();
+                           }
+                      }),
                     ),
                     const SizedBox(height: 12),
                     Row(
                       children: [
                         Expanded(
                           child: _buildActionButton(Icons.print_outlined, "Print", () {
-                            PrintService.printDocument(Map<String, dynamic>.from(widget.debitNote), 'purchase_debit_note');
+                            PrintService.printDocument(Map<String, dynamic>.from(_debitNote), 'purchase_debit_note');
                           }),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
-                            final path = await PrintService.downloadDocument(Map<String, dynamic>.from(widget.debitNote), 'purchase_debit_note');
+                            final path = await PrintService.downloadDocument(Map<String, dynamic>.from(_debitNote), 'purchase_debit_note');
                             if (path != null && mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
                             }
@@ -172,7 +363,7 @@ class _PurchaseDebitNoteDetailsSheetState extends State<PurchaseDebitNoteDetails
                       child: _buildActionButton(Icons.share_outlined, "Share Note", () async {
                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparing share...'), duration: Duration(seconds: 1)));
                         try {
-                          await PrintService.shareDocument(context, Map<String, dynamic>.from(widget.debitNote), 'purchase_debit_note');
+                          await PrintService.shareDocument(context, Map<String, dynamic>.from(_debitNote), 'purchase_debit_note');
                         } catch (e) {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));
@@ -180,6 +371,43 @@ class _PurchaseDebitNoteDetailsSheetState extends State<PurchaseDebitNoteDetails
                         }
                       }),
                     ),
+                    const SizedBox(height: 24),
+                    const Divider(),
+                    const SizedBox(height: 24),
+                    if (_debitNote['is_active'] != false)
+                      SizedBox(
+                        width: double.infinity,
+                        child: _buildActionButton(
+                          Icons.archive_outlined, 
+                          "Archive Debit Note", 
+                          _archiveDN,
+                          isDestructive: true,
+                        ),
+                      )
+                    else
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildActionButton(
+                              Icons.unarchive_outlined, 
+                              "Restore", 
+                              _restoreDN,
+                              color: Colors.green.withOpacity(0.1),
+                              textColor: Colors.green,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildActionButton(
+                              Icons.delete_forever_outlined, 
+                              "Delete Forever", 
+                              _deleteDN,
+                              color: Colors.red.withOpacity(0.1),
+                              textColor: Colors.red,
+                            ),
+                          ),
+                        ],
+                      ),
                     const SizedBox(height: 50),
                   ],
                 ),
@@ -250,17 +478,20 @@ class _PurchaseDebitNoteDetailsSheetState extends State<PurchaseDebitNoteDetails
       ],
     );
   }
-  Widget _buildActionButton(IconData icon, String label, VoidCallback onTap) {
+  Widget _buildActionButton(IconData icon, String label, VoidCallback? onTap, {bool filled = false, bool isDestructive = false, Color? color, Color? textColor}) {
+    final bgColor = color ?? (filled ? AppColors.primaryBlue : (isDestructive ? Colors.orange.withOpacity(0.1) : context.cardBg));
+    final fgColor = textColor ?? (filled ? Colors.white : (isDestructive ? Colors.orange : context.textPrimary));
+
     return ElevatedButton.icon(
       onPressed: onTap,
       icon: Icon(icon, size: 18),
       label: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
       style: ElevatedButton.styleFrom(
-        backgroundColor: context.cardBg,
-        foregroundColor: context.textPrimary,
+        backgroundColor: bgColor,
+        foregroundColor: fgColor,
         elevation: 0,
         padding: const EdgeInsets.symmetric(vertical: 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: context.borderColor)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: (filled || isDestructive || color != null) ? Colors.transparent : context.borderColor)),
       ),
     );
   }

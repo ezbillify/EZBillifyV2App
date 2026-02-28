@@ -19,6 +19,7 @@ class CreditNotesScreen extends StatefulWidget {
 class _CreditNotesScreenState extends State<CreditNotesScreen> {
   bool _loading = true;
   List<Map<String, dynamic>> _creditNotes = [];
+  bool _showArchived = false;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   String? _cachedCompanyId;
@@ -69,7 +70,13 @@ class _CreditNotesScreenState extends State<CreditNotesScreen> {
           .from('sales_credit_notes')
           .select('*, customer:customers(name), invoice:sales_invoices(invoice_number)')
           .eq('company_id', companyId);
-          
+
+      if (_showArchived) {
+        query = query.eq('is_active', false);
+      } else {
+        query = query.or('is_active.is.null,is_active.eq.true');
+      }
+
       if (_searchQuery.isNotEmpty) {
         query = query.or('cn_number.ilike.%$_searchQuery%');
       }
@@ -131,6 +138,18 @@ class _CreditNotesScreenState extends State<CreditNotesScreen> {
                 ),
               ),
             ),
+            SliverToBoxAdapter(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    _buildArchivedToggle(),
+                  ],
+                ),
+              ),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 12)),
             if (_loading) const SliverFillRemaining(child: Center(child: CircularProgressIndicator()))
             else if (_creditNotes.isEmpty)
                SliverFillRemaining(
@@ -218,6 +237,31 @@ class _CreditNotesScreenState extends State<CreditNotesScreen> {
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildArchivedToggle() {
+    return FilterChip(
+      label: const Text("Show Archived"),
+      selected: _showArchived,
+      onSelected: (v) {
+        setState(() => _showArchived = v);
+        _fetchCreditNotes();
+      },
+      backgroundColor: context.cardBg,
+      selectedColor: Colors.red.withOpacity(0.1),
+      labelStyle: TextStyle(
+        color: _showArchived ? Colors.red : context.textSecondary,
+        fontWeight: _showArchived ? FontWeight.bold : FontWeight.normal,
+        fontFamily: 'Outfit',
+        fontSize: 13,
+      ),
+      showCheckmark: false,
+      avatar: Icon(Icons.archive_outlined, size: 16, color: _showArchived ? Colors.red : context.textSecondary),
+      shape: RoundedRectangleBorder(
+         borderRadius: BorderRadius.circular(12),
+         side: BorderSide(color: _showArchived ? Colors.red : context.borderColor),
       ),
     );
   }

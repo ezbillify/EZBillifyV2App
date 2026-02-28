@@ -25,6 +25,7 @@ class _PurchaseBillsScreenState extends State<PurchaseBillsScreen> {
   bool _sortAscending = false;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  bool _showArchived = false;
   String? _cachedCompanyId;
   RealtimeChannel? _realtimeChannel;
 
@@ -105,6 +106,12 @@ class _PurchaseBillsScreenState extends State<PurchaseBillsScreen> {
           
       if (_filterStatus != 'all') {
         query = query.eq('status', _filterStatus);
+      }
+
+      if (_showArchived) {
+        query = query.eq('is_active', false);
+      } else {
+        query = query.or('is_active.is.null,is_active.eq.true');
       }
 
       if (_searchQuery.isNotEmpty) {
@@ -281,6 +288,10 @@ class _PurchaseBillsScreenState extends State<PurchaseBillsScreen> {
                 _buildFilterChip('Paid', 'paid'),
                 _buildFilterChip('Overdue', 'overdue'),
                 _buildFilterChip('Draft', 'draft'),
+                const SizedBox(width: 12),
+                Container(width: 1, height: 24, color: context.borderColor),
+                const SizedBox(width: 12),
+                _buildArchivedToggle(),
               ],
             ),
           ),
@@ -449,6 +460,31 @@ class _PurchaseBillsScreenState extends State<PurchaseBillsScreen> {
            borderRadius: BorderRadius.circular(12),
            side: BorderSide(color: isSelected ? AppColors.primaryBlue : context.borderColor),
         ),
+      ),
+    );
+  }
+
+  Widget _buildArchivedToggle() {
+    return FilterChip(
+      label: const Text("Show Archived"),
+      selected: _showArchived,
+      onSelected: (v) {
+        setState(() => _showArchived = v);
+        _fetchBills();
+      },
+      backgroundColor: context.cardBg,
+      selectedColor: Colors.red.withOpacity(0.1),
+      labelStyle: TextStyle(
+        color: _showArchived ? Colors.red : context.textSecondary,
+        fontWeight: _showArchived ? FontWeight.bold : FontWeight.normal,
+        fontFamily: 'Outfit',
+        fontSize: 13,
+      ),
+      showCheckmark: false,
+      avatar: Icon(Icons.archive_outlined, size: 16, color: _showArchived ? Colors.red : context.textSecondary),
+      shape: RoundedRectangleBorder(
+         borderRadius: BorderRadius.circular(12),
+         side: BorderSide(color: _showArchived ? Colors.red : context.borderColor),
       ),
     );
   }

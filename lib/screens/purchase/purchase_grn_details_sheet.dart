@@ -19,11 +19,13 @@ class PurchaseGrnDetailsSheet extends StatefulWidget {
 
 class _PurchaseGrnDetailsSheetState extends State<PurchaseGrnDetailsSheet> {
   List<Map<String, dynamic>> _items = [];
+  late Map<String, dynamic> _grn;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
+    _grn = widget.grn;
     _fetchItems();
   }
 
@@ -32,7 +34,7 @@ class _PurchaseGrnDetailsSheetState extends State<PurchaseGrnDetailsSheet> {
       final res = await Supabase.instance.client
           .from('purchase_grn_items')
           .select('*, item:items(name)')
-          .eq('grn_id', widget.grn['id']);
+          .eq('grn_id', _grn['id']);
       
       if (mounted) {
         setState(() {
@@ -46,11 +48,209 @@ class _PurchaseGrnDetailsSheetState extends State<PurchaseGrnDetailsSheet> {
     }
   }
 
+  Future<void> _refreshData() async {
+    try {
+      final updatedGRN = await Supabase.instance.client
+          .from('purchase_grns')
+          .select('*, vendor:vendors(name)')
+          .eq('id', _grn['id'])
+          .single();
+      
+      if (mounted) {
+        setState(() {
+          _grn = updatedGRN;
+        });
+        await _fetchItems();
+        widget.onRefresh();
+      }
+    } catch (e) {
+      debugPrint("Error refreshing GRN: $e");
+    }
+  }
+
+  Future<void> _archiveGRN() async {
+    final confirm = await _showConfirmDialog(
+      title: "Archive GRN",
+      message: "Are you sure you want to archive this goods received note? It will be moved to the archive section.",
+      confirmLabel: "Archive",
+      isDestructive: true,
+    );
+    if (confirm != true) return;
+
+    try {
+      await Supabase.instance.client
+          .from('purchase_grns')
+          .update({'is_active': false, 'deleted_at': DateTime.now().toIso8601String()})
+          .eq('id', _grn['id']);
+      
+      if (mounted) {
+        _refreshData();
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("GRN archived successfully")));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error archiving GRN: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<void> _restoreGRN() async {
+    try {
+      await Supabase.instance.client
+          .from('purchase_grns')
+          .update({'is_active': true, 'deleted_at': null})
+          .eq('id', _grn['id']);
+      
+      if (mounted) {
+        _refreshData();
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("GRN restored successfully"), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error restoring GRN: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<void> _deleteGRN() async {
+    final confirm = await _showConfirmDialog(
+      title: "Delete Permanently",
+      message: "WARNING: This action cannot be undone. Are you sure you want to delete this GRN forever?",
+      confirmLabel: "Delete Forever",
+      isDestructive: true,
+    );
+    if (confirm != true) return;
+
+    try {
+      await Supabase.instance.client
+          .from('purchase_grns')
+          .delete()
+          .eq('id', _grn['id']);
+      
+      if (mounted) {
+        widget.onRefresh();
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("GRN deleted permanently"), backgroundColor: Colors.black));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error deleting GRN: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<bool?> _showConfirmDialog({required String title, required String message, required String confirmLabel, bool isDestructive = false}) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: context.surfaceBg,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: context.borderColor),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: (isDestructive ? Colors.red : AppColors.primaryBlue).withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isDestructive ? Icons.warning_amber_rounded : Icons.info_outline_rounded,
+                  color: isDestructive ? Colors.red : AppColors.primaryBlue,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Outfit',
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: context.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Outfit',
+                  fontSize: 14,
+                  color: context.textSecondary,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 32),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(color: context.borderColor),
+                        ),
+                      ),
+                      child: Text(
+                        "Cancel",
+                        style: TextStyle(
+                          fontFamily: 'Outfit',
+                          color: context.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isDestructive ? Colors.red : AppColors.primaryBlue,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        confirmLabel,
+                        style: const TextStyle(
+                          fontFamily: 'Outfit',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final grnNumber = widget.grn['grn_number'] ?? '#---';
-    final vendorName = widget.grn['vendor']?['name'] ?? 'Unknown Vendor';
-    final date = DateTime.tryParse(widget.grn['date'] ?? '') ?? DateTime.now();
+    final grnNumber = _grn['grn_number'] ?? '#---';
+    final vendorName = _grn['vendor']?['name'] ?? 'Unknown Vendor';
+    final date = DateTime.tryParse(_grn['date'] ?? '') ?? DateTime.now();
 
     return BackdropFilter(
       filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
@@ -75,7 +275,7 @@ class _PurchaseGrnDetailsSheetState extends State<PurchaseGrnDetailsSheet> {
                   controller: scrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   children: [
-                    _buildHeader(context, grnNumber, vendorName, widget.grn['reference_number']),
+                    _buildHeader(context, grnNumber, vendorName, _grn['reference_number']),
                     const SizedBox(height: 32),
                     _buildQuickStats(context, date, _items.length),
                     const SizedBox(height: 32),
@@ -110,40 +310,30 @@ class _PurchaseGrnDetailsSheetState extends State<PurchaseGrnDetailsSheet> {
                           );
                         }).toList(),
                       ),
-                     if (widget.grn['notes'] != null && widget.grn['notes'].toString().isNotEmpty) ...[
+                     if (_grn['notes'] != null && _grn['notes'].toString().isNotEmpty) ...[
                       const SizedBox(height: 24),
                       Text("Notes", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
                       const SizedBox(height: 8),
-                      Text(widget.grn['notes'], style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary)),
+                      Text(_grn['notes'], style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary)),
                     ],
                     const SizedBox(height: 32),
                     _buildConversions(),
                     const SizedBox(height: 32),
                     SizedBox(
                       width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () async {
-                           Navigator.pop(context);
-                           final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => PurchaseGrnFormScreen(grn: widget.grn)));
-                           if (result == true) widget.onRefresh();
-                        },
-                        icon: const Icon(Icons.edit_outlined, size: 18),
-                        label: const Text("Edit GRN", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: context.cardBg,
-                          foregroundColor: context.textPrimary,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: context.borderColor)),
-                        ),
-                      ),
+                      child: _buildActionButton(Icons.edit_outlined, "Edit GRN", () async {
+                           final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => PurchaseGrnFormScreen(grn: _grn)));
+                           if (result == true) {
+                             _refreshData();
+                           }
+                      }),
                     ),
                     const SizedBox(height: 12),
                     Row(
                       children: [
                         Expanded(
                           child: _buildActionButton(Icons.print_outlined, "Print", () {
-                            final data = Map<String, dynamic>.from(widget.grn);
+                            final data = Map<String, dynamic>.from(_grn);
                             data['items'] = _items;
                             PrintService.printDocument(data, 'purchase_grn');
                           }),
@@ -151,7 +341,7 @@ class _PurchaseGrnDetailsSheetState extends State<PurchaseGrnDetailsSheet> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
-                            final data = Map<String, dynamic>.from(widget.grn);
+                            final data = Map<String, dynamic>.from(_grn);
                             data['items'] = _items;
                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
                             final path = await PrintService.downloadDocument(data, 'purchase_grn');
@@ -168,7 +358,7 @@ class _PurchaseGrnDetailsSheetState extends State<PurchaseGrnDetailsSheet> {
                       child: _buildActionButton(Icons.share_outlined, "Share GRN", () async {
                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparing share...'), duration: Duration(seconds: 1)));
                         try {
-                          final data = Map<String, dynamic>.from(widget.grn);
+                          final data = Map<String, dynamic>.from(_grn);
                           data['items'] = _items;
                           await PrintService.shareDocument(context, data, 'purchase_grn');
                         } catch (e) {
@@ -178,6 +368,43 @@ class _PurchaseGrnDetailsSheetState extends State<PurchaseGrnDetailsSheet> {
                         }
                       }),
                     ),
+                    const SizedBox(height: 24),
+                    const Divider(),
+                    const SizedBox(height: 24),
+                    if (_grn['is_active'] != false)
+                      SizedBox(
+                        width: double.infinity,
+                        child: _buildActionButton(
+                          Icons.archive_outlined, 
+                          "Archive GRN", 
+                          _archiveGRN,
+                          isDestructive: true,
+                        ),
+                      )
+                    else
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildActionButton(
+                              Icons.unarchive_outlined, 
+                              "Restore", 
+                              _restoreGRN,
+                              color: Colors.green.withOpacity(0.1),
+                              textColor: Colors.green,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildActionButton(
+                              Icons.delete_forever_outlined, 
+                              "Delete Forever", 
+                              _deleteGRN,
+                              color: Colors.red.withOpacity(0.1),
+                              textColor: Colors.red,
+                            ),
+                          ),
+                        ],
+                      ),
                     const SizedBox(height: 50),
                   ],
                 ),
@@ -250,23 +477,26 @@ class _PurchaseGrnDetailsSheetState extends State<PurchaseGrnDetailsSheet> {
       ],
     );
   }
-  Widget _buildActionButton(IconData icon, String label, VoidCallback onTap) {
+  Widget _buildActionButton(IconData icon, String label, VoidCallback? onTap, {bool filled = false, bool isDestructive = false, Color? color, Color? textColor}) {
+    final bgColor = color ?? (filled ? AppColors.primaryBlue : (isDestructive ? Colors.orange.withOpacity(0.1) : context.cardBg));
+    final fgColor = textColor ?? (filled ? Colors.white : (isDestructive ? Colors.orange : context.textPrimary));
+
     return ElevatedButton.icon(
       onPressed: onTap,
       icon: Icon(icon, size: 18),
       label: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
       style: ElevatedButton.styleFrom(
-        backgroundColor: context.cardBg,
-        foregroundColor: context.textPrimary,
+        backgroundColor: bgColor,
+        foregroundColor: fgColor,
         elevation: 0,
         padding: const EdgeInsets.symmetric(vertical: 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: context.borderColor)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: (filled || isDestructive || color != null) ? Colors.transparent : context.borderColor)),
       ),
     );
   }
 
   Widget _buildConversions() {
-    final status = widget.grn['status']?.toString().toLowerCase() ?? 'received';
+    final status = _grn['status']?.toString().toLowerCase() ?? 'received';
     if (status == 'converted' || status == 'invoiced') return const SizedBox.shrink();
 
     return Column(
@@ -331,9 +561,9 @@ class _PurchaseGrnDetailsSheetState extends State<PurchaseGrnDetailsSheet> {
   void _convertToBill() async {
     final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => PurchaseBillFormScreen(
       bill: {
-        'vendor_id': widget.grn['vendor_id'],
-        'vendor_name': widget.grn['vendor']?['name'] ?? widget.grn['vendor_name'],
-        'branch_id': widget.grn['branch_id'],
+        'vendor_id': _grn['vendor_id'],
+        'vendor_name': _grn['vendor']?['name'] ?? _grn['vendor_name'],
+        'branch_id': _grn['branch_id'],
         'items': _items.map((i) {
           return <String, dynamic>{
             'item_id': i['item_id'],

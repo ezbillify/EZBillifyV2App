@@ -48,6 +48,184 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
     }
   }
 
+  Future<void> _archiveBill() async {
+    final confirm = await _showConfirmDialog(
+      title: "Archive Bill",
+      message: "Are you sure you want to archive this bill? It will be moved to the archive section.",
+      confirmLabel: "Archive",
+      isDestructive: true,
+    );
+    if (confirm != true) return;
+
+    try {
+      await Supabase.instance.client
+          .from('purchase_bills')
+          .update({'is_active': false, 'deleted_at': DateTime.now().toIso8601String()})
+          .eq('id', widget.bill['id']);
+      
+      if (mounted) {
+        widget.onRefresh();
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill archived successfully")));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error archiving bill: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<void> _restoreBill() async {
+    try {
+      await Supabase.instance.client
+          .from('purchase_bills')
+          .update({'is_active': true, 'deleted_at': null})
+          .eq('id', widget.bill['id']);
+      
+      if (mounted) {
+        widget.onRefresh();
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill restored successfully"), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error restoring bill: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<void> _deleteBill() async {
+    final confirm = await _showConfirmDialog(
+      title: "Delete Permanently",
+      message: "WARNING: This action cannot be undone. Are you sure you want to delete this bill forever?",
+      confirmLabel: "Delete Forever",
+      isDestructive: true,
+    );
+    if (confirm != true) return;
+
+    try {
+      await Supabase.instance.client
+          .from('purchase_bills')
+          .delete()
+          .eq('id', widget.bill['id']);
+      
+      if (mounted) {
+        widget.onRefresh();
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill deleted permanently"), backgroundColor: Colors.black));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error deleting bill: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<bool?> _showConfirmDialog({required String title, required String message, required String confirmLabel, bool isDestructive = false}) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: context.surfaceBg,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: context.borderColor),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: (isDestructive ? Colors.red : AppColors.primaryBlue).withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isDestructive ? Icons.warning_amber_rounded : Icons.info_outline_rounded,
+                  color: isDestructive ? Colors.red : AppColors.primaryBlue,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Outfit',
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: context.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Outfit',
+                  fontSize: 14,
+                  color: context.textSecondary,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 32),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(color: context.borderColor),
+                        ),
+                      ),
+                      child: Text(
+                        "Cancel",
+                        style: TextStyle(
+                          fontFamily: 'Outfit',
+                          color: context.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isDestructive ? Colors.red : AppColors.primaryBlue,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        confirmLabel,
+                        style: const TextStyle(
+                          fontFamily: 'Outfit',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final status = widget.bill['status'] ?? 'Draft';
@@ -83,7 +261,7 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
                   children: [
                     _buildHeader(context, billNumber, vendorName, status),
                     const SizedBox(height: 32),
-                    _buildQuickStats(context, date, total),
+                    _buildQuickStats(context, date, total, widget.bill['terms'] ?? 'Net 0'),
                     const SizedBox(height: 32),
                     Text("Line Items", style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary)),
                     const SizedBox(height: 16),
@@ -139,6 +317,21 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
                         ],
                       ),
                     ),
+                    if (widget.bill['notes'] != null && widget.bill['notes'].toString().isNotEmpty) ...[
+                      const SizedBox(height: 24),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                         decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text("Notes", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 13, color: context.textSecondary)),
+                            const SizedBox(height: 4),
+                            Text(widget.bill['notes'], style: TextStyle(fontFamily: 'Outfit', fontSize: 14, color: context.textPrimary)),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 40),
                     SizedBox(
                       width: double.infinity,
@@ -229,6 +422,44 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
                         }
                       ),
                     ),
+                    const SizedBox(height: 24),
+                    const Divider(),
+                    const SizedBox(height: 24),
+                    if (widget.bill['is_active'] != false)
+                      SizedBox(
+                        width: double.infinity,
+                        child: _buildActionButton(
+                          Icons.archive_outlined, 
+                          "Archive Bill", 
+                          _archiveBill,
+                          color: Colors.orange.withOpacity(0.1),
+                          textColor: Colors.orange,
+                        ),
+                      )
+                    else
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildActionButton(
+                              Icons.unarchive_outlined, 
+                              "Restore", 
+                              _restoreBill,
+                              color: Colors.green.withOpacity(0.1),
+                              textColor: Colors.green,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildActionButton(
+                              Icons.delete_forever_outlined, 
+                              "Delete", 
+                              _deleteBill,
+                              color: Colors.red.withOpacity(0.1),
+                              textColor: Colors.red,
+                            ),
+                          ),
+                        ],
+                      ),
                     const SizedBox(height: 50),
                   ],
                 ),
@@ -262,7 +493,7 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
     );
   }
 
-  Widget _buildQuickStats(BuildContext context, DateTime date, double total) {
+  Widget _buildQuickStats(BuildContext context, DateTime date, double total, String terms) {
     return Row(
       children: [
         Expanded(
@@ -292,6 +523,22 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
                 const SizedBox(height: 12),
                 Text("₹${total.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary)),
                 Text("Total Amount", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary)),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Container(
+             padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(20), border: Border.all(color: context.borderColor)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.handshake_rounded, color: AppColors.primaryBlue, size: 20),
+                const SizedBox(height: 12),
+                Text(terms, style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                Text("Terms", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary)),
               ],
             ),
           ),

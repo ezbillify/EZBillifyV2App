@@ -23,6 +23,7 @@ class _PurchaseRfqsScreenState extends State<PurchaseRfqsScreen> {
   bool _sortAscending = false;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  bool _showArchived = false;
 
   @override
   void initState() {
@@ -53,6 +54,12 @@ class _PurchaseRfqsScreenState extends State<PurchaseRfqsScreen> {
           .from('purchase_rfqs')
           .select('*, vendor:vendors(name)')
           .eq('company_id', profile['company_id']);
+
+      if (_showArchived) {
+        query = query.eq('is_active', false);
+      } else {
+        query = query.or('is_active.is.null,is_active.eq.true');
+      }
           
       if (_filterStatus != 'all') {
         query = query.eq('status', _filterStatus);
@@ -225,6 +232,16 @@ class _PurchaseRfqsScreenState extends State<PurchaseRfqsScreen> {
               ],
             ),
           ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                _buildArchivedToggle(),
+              ],
+            ),
+          ),
           const SizedBox(height: 16),
         ],
       ),
@@ -380,6 +397,31 @@ class _PurchaseRfqsScreenState extends State<PurchaseRfqsScreen> {
            borderRadius: BorderRadius.circular(12),
            side: BorderSide(color: isSelected ? AppColors.primaryBlue : context.borderColor),
         ),
+      ),
+    );
+  }
+
+  Widget _buildArchivedToggle() {
+    return FilterChip(
+      label: const Text("Show Archived"),
+      selected: _showArchived,
+      onSelected: (v) {
+        setState(() => _showArchived = v);
+        _fetchRfqs();
+      },
+      backgroundColor: context.cardBg,
+      selectedColor: Colors.red.withOpacity(0.1),
+      labelStyle: TextStyle(
+        color: _showArchived ? Colors.red : context.textSecondary,
+        fontWeight: _showArchived ? FontWeight.bold : FontWeight.normal,
+        fontFamily: 'Outfit',
+        fontSize: 13,
+      ),
+      showCheckmark: false,
+      avatar: Icon(Icons.archive_outlined, size: 16, color: _showArchived ? Colors.red : context.textSecondary),
+      shape: RoundedRectangleBorder(
+         borderRadius: BorderRadius.circular(12),
+         side: BorderSide(color: _showArchived ? Colors.red : context.borderColor),
       ),
     );
   }

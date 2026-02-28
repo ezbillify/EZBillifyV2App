@@ -32,6 +32,8 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
   DateTime _dueDate = DateTime.now().add(const Duration(days: 30));
   String _billNumber = "";
   String _referenceNumber = ""; // Vendor Bill Number
+  String _notes = "";
+  String _terms = "Net 0";
   
   // Line Items
   List<Map<String, dynamic>> _items = [];
@@ -110,6 +112,8 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
         _billDate = DateTime.parse(widget.bill!['date'] ?? widget.bill!['created_at']);
         _dueDate = DateTime.parse(widget.bill!['due_date'] ?? DateTime.now().add(const Duration(days: 30)).toIso8601String());
         _referenceNumber = widget.bill!['reference_number'] ?? '';
+        _notes = widget.bill!['notes'] ?? '';
+        _terms = widget.bill!['terms'] ?? 'Net 0';
         
         // Fetch items if not provided
         if (widget.bill!['items'] == null) {
@@ -503,7 +507,10 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
         'date': _billDate.toIso8601String(),
         'due_date': _dueDate.toIso8601String(),
         'total_amount': double.parse(_totalAmount.toStringAsFixed(2)),
+        'notes': _notes,
+        'terms': _terms,
       };
+
       
       if (widget.bill == null) {
         final paid = _recordPayment ? _paidAmount : 0.0;
@@ -701,6 +708,8 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
                     _buildItemsSection(),
                     const SizedBox(height: 32),
                     _buildSummarySection(),
+                    const SizedBox(height: 32),
+                    _buildNotesSection(),
                     const SizedBox(height: 100),
                   ],
                 ),
@@ -1001,6 +1010,51 @@ class _PurchaseBillFormScreenState extends State<PurchaseBillFormScreen> {
       children: [
         Text(label, style: TextStyle(fontFamily: 'Outfit', fontSize: isTotal ? 16 : 14, fontWeight: isTotal ? FontWeight.bold : FontWeight.normal, color: color ?? context.textSecondary)),
         Text(value, style: TextStyle(fontFamily: 'Outfit', fontSize: isTotal ? 20 : 14, fontWeight: isTotal ? FontWeight.bold : FontWeight.w600, color: color ?? context.textPrimary)),
+      ],
+    );
+  }
+
+  Widget _buildNotesSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle("Notes & Terms"),
+        const SizedBox(height: 16),
+        TextFormField(
+          initialValue: _notes,
+          maxLines: 2,
+          decoration: InputDecoration(
+            labelText: "Internal Notes",
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            filled: true,
+            fillColor: context.cardBg,
+          ),
+          onChanged: (v) => _notes = v,
+        ),
+        const SizedBox(height: 16),
+        DropdownButtonFormField<String>(
+          value: _terms.isEmpty ? "Net 0" : _terms,
+          decoration: InputDecoration(
+            labelText: "Payment Terms",
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            filled: true,
+            fillColor: context.cardBg,
+          ),
+          items: ["Net 0", "Net 15", "Net 30", "Net 45", "Net 60", "COD"].map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
+          onChanged: (v) => setState(() {
+             _terms = v!;
+             // Auto-calculate Due Date based on terms
+             int days = 0;
+             switch(v) {
+               case "Net 15": days = 15; break;
+               case "Net 30": days = 30; break;
+               case "Net 45": days = 45; break;
+               case "Net 60": days = 60; break;
+               default: days = 0; break;
+             }
+             _dueDate = _billDate.add(Duration(days: days));
+          }),
+        ),
       ],
     );
   }
