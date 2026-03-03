@@ -78,12 +78,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           .from('sales_payments')
           .select('*, customer:customers(name), allocations:sales_payment_allocations(amount, invoice:sales_invoices(invoice_number))')
           .eq('company_id', companyId);
-          
-      if (_searchQuery.isNotEmpty) {
-        query = query.or('payment_number.ilike.%$_searchQuery%');
-      }
-      
-      final response = await query.order('date', ascending: false);
+final response = await query.order('date', ascending: false);
       
       if (mounted) {
         setState(() {
@@ -177,8 +172,16 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   }
 
   Widget _buildPaymentList() {
+    final filteredList = _payments.where((item) {
+      if (_searchQuery.isEmpty) return true;
+      final q = _searchQuery.toLowerCase();
+      return item.values.any((v) => v != null && v.toString().toLowerCase().contains(q)) || 
+             (item['customer'] != null && item['customer']['name'] != null && item['customer']['name'].toString().toLowerCase().contains(q)) ||
+             (item['vendor'] != null && item['vendor']['name'] != null && item['vendor']['name'].toString().toLowerCase().contains(q));
+    }).toList();
+
     if (_loading) return const SliverFillRemaining(child: Center(child: CircularProgressIndicator()));
-    if (_payments.isEmpty) {
+    if (filteredList.isEmpty) {
       return SliverFillRemaining(
         child: Center(
           child: Column(
@@ -196,13 +199,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     return SliverList(
       delegate: SliverChildBuilderDelegate(
         (context, index) {
-          final payment = _payments[index];
-          return FadeInUp(
-            duration: Duration(milliseconds: 300 + (index % 5 * 100)),
-            child: _buildPaymentCard(payment),
-          );
+          final payment = filteredList[index];
+          return _buildPaymentCard(payment);
         },
-        childCount: _payments.length,
+        childCount: filteredList.length,
       ),
     );
   }

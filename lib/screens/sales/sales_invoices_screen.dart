@@ -122,12 +122,10 @@ class _SalesInvoicesScreenState extends State<SalesInvoicesScreen> {
         query = query.or('is_active.is.null,is_active.eq.true');
       }
 
-      if (_searchQuery.isNotEmpty) {
-        // Nested condition ensures company_id filter is ALWAYS respected regardless of OR complexity
-        query = query.or('invoice_number.ilike.%$_searchQuery%,customer:customers.name.ilike.%$_searchQuery%');
+      if (_filterStatus != 'all') {
+        query = query.eq('status', _filterStatus);
       }
-      
-      final response = await query.order('created_at', ascending: false);
+final response = await query.order('created_at', ascending: false);
       
       if (mounted) {
         setState(() {
@@ -249,15 +247,13 @@ class _SalesInvoicesScreenState extends State<SalesInvoicesScreen> {
                               _searchQuery = '';
                               _searchController.clear();
                             });
-                            _fetchInvoices();
-                          }
+                            }
                         ) 
                       : null,
                   ),
                   onChanged: (v) {
                     setState(() => _searchQuery = v);
-                    _fetchInvoices();
-                  },
+                    },
                 ),
               ),
             ),
@@ -287,8 +283,16 @@ class _SalesInvoicesScreenState extends State<SalesInvoicesScreen> {
   }
 
   Widget _buildInvoiceList() {
+    final filteredList = _invoices.where((item) {
+      if (_searchQuery.isEmpty) return true;
+      final q = _searchQuery.toLowerCase();
+      return item.values.any((v) => v != null && v.toString().toLowerCase().contains(q)) || 
+             (item['customer'] != null && item['customer']['name'] != null && item['customer']['name'].toString().toLowerCase().contains(q)) ||
+             (item['vendor'] != null && item['vendor']['name'] != null && item['vendor']['name'].toString().toLowerCase().contains(q));
+    }).toList();
+
     if (_loading) return const SliverFillRemaining(child: Center(child: CircularProgressIndicator()));
-    if (_invoices.isEmpty) {
+    if (filteredList.isEmpty) {
       return SliverFillRemaining(
         child: Center(
           child: Column(
@@ -308,13 +312,10 @@ class _SalesInvoicesScreenState extends State<SalesInvoicesScreen> {
       sliver: SliverList(
         delegate: SliverChildBuilderDelegate(
           (context, index) {
-            final inv = _invoices[index];
-            return FadeInUp(
-              duration: Duration(milliseconds: 400 + (index % 5 * 100)),
-              child: _buildInvoiceCard(inv),
-            );
+            final inv = filteredList[index];
+            return _buildInvoiceCard(inv);
           },
-          childCount: _invoices.length,
+          childCount: filteredList.length,
         ),
       ),
     );

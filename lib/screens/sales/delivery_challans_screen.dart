@@ -84,12 +84,7 @@ class _DeliveryChallansScreenState extends State<DeliveryChallansScreen> {
       if (_filterStatus != 'all') {
         query = query.eq('status', _filterStatus);
       }
-
-      if (_searchQuery.isNotEmpty) {
-        query = query.or('dc_number.ilike.%$_searchQuery%,customers.name.ilike.%$_searchQuery%');
-      }
-      
-      final response = await query.order('created_at', ascending: false);
+final response = await query.order('created_at', ascending: false);
       
       if (mounted) {
         setState(() {
@@ -204,15 +199,13 @@ class _DeliveryChallansScreenState extends State<DeliveryChallansScreen> {
                               _searchQuery = '';
                               _searchController.clear();
                             });
-                            _fetchChallans();
-                          }
+                            }
                         ) 
                       : null,
                   ),
                   onChanged: (v) {
                     setState(() => _searchQuery = v);
-                    _fetchChallans();
-                  },
+                    },
                 ),
               ),
             ),
@@ -248,8 +241,16 @@ class _DeliveryChallansScreenState extends State<DeliveryChallansScreen> {
   }
 
   Widget _buildChallanList() {
+    final filteredList = _challans.where((item) {
+      if (_searchQuery.isEmpty) return true;
+      final q = _searchQuery.toLowerCase();
+      return item.values.any((v) => v != null && v.toString().toLowerCase().contains(q)) || 
+             (item['customer'] != null && item['customer']['name'] != null && item['customer']['name'].toString().toLowerCase().contains(q)) ||
+             (item['vendor'] != null && item['vendor']['name'] != null && item['vendor']['name'].toString().toLowerCase().contains(q));
+    }).toList();
+
     if (_loading) return const SliverFillRemaining(child: Center(child: CircularProgressIndicator()));
-    if (_challans.isEmpty) {
+    if (filteredList.isEmpty) {
       return SliverFillRemaining(
         child: Center(
           child: Column(
@@ -269,13 +270,10 @@ class _DeliveryChallansScreenState extends State<DeliveryChallansScreen> {
       sliver: SliverList(
         delegate: SliverChildBuilderDelegate(
           (context, index) {
-            final challan = _challans[index];
-            return FadeInUp(
-              duration: Duration(milliseconds: 400 + (index % 5 * 100)),
-              child: _buildChallanCard(challan),
-            );
+            final challan = filteredList[index];
+            return _buildChallanCard(challan);
           },
-          childCount: _challans.length,
+          childCount: filteredList.length,
         ),
       ),
     );

@@ -11,7 +11,7 @@ final themeServiceProvider = ChangeNotifierProvider<ThemeService>((ref) {
 
 class ThemeService extends ChangeNotifier {
   static const String _themeKey = 'app_theme_mode';
-  AppThemeMode _themeMode = AppThemeMode.system;
+  AppThemeMode _themeMode = AppThemeMode.light;
   
   AppThemeMode get themeMode => _themeMode;
 
@@ -25,7 +25,7 @@ class ThemeService extends ChangeNotifier {
     if (saved != null) {
       _themeMode = AppThemeMode.values.firstWhere(
         (e) => e.name == saved,
-        orElse: () => AppThemeMode.system,
+        orElse: () => AppThemeMode.light,
       );
       notifyListeners();
     }

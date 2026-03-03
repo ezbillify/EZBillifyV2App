@@ -7,6 +7,8 @@ import '../../core/theme_service.dart';
 import 'invoice_form_screen.dart';
 import 'payment_form_screen.dart';
 import '../../services/print_service.dart';
+import '../../services/numbering_service.dart';
+import '../../services/sales_refresh_service.dart';
 
 class InvoiceDetailsSheet extends StatefulWidget {
   final Map<String, dynamic> invoice;
@@ -23,6 +25,7 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
   bool _loading = false;
   bool _isSharing = false;
   List<Map<String, dynamic>> _items = [];
+  List<Map<String, dynamic>> _payments = [];
 
   @override
   void initState() {
@@ -58,10 +61,23 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
           .select('*, item:items(name, sku, hsn_code)')
           .eq('invoice_id', _invoice['id']);
       
+      // 3. Fetch Payments linked to this invoice via allocations
+      final allocs = await Supabase.instance.client
+          .from('sales_payment_allocations')
+          .select('amount, payment:sales_payments(*)')
+          .eq('invoice_id', _invoice['id']);
+      
       if (mounted) {
         setState(() {
           _invoice = Map<String, dynamic>.from(latest);
           _items = List<Map<String, dynamic>>.from(res);
+          _payments = (allocs as List).map((a) {
+            final p = a['payment'] as Map<String, dynamic>;
+            return {
+              ...p,
+              'allocated_amount': a['amount']
+            };
+          }).toList()..sort((a, b) => b['date'].compareTo(a['date']));
           _loading = false;
         });
         // Also update parent list
@@ -281,6 +297,12 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
                     const SizedBox(height: 16),
                     _buildItemsList(),
                     const SizedBox(height: 32),
+                    if (_payments.isNotEmpty) ...[
+                      _buildSectionHeader("Payment History"),
+                      const SizedBox(height: 16),
+                      _buildPaymentsList(),
+                      const SizedBox(height: 32),
+                    ],
                     _buildSummaryCard(),
                     const SizedBox(height: 40),
                     _buildActions(),
@@ -441,14 +463,7 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
         if (_invoice['status'] != 'paid')
           SizedBox(
             width: double.infinity,
-            child: _buildActionButton(Icons.payments_outlined, "Record Payment", () async {
-              final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => PaymentFormScreen(
-                initialInvoice: _invoice,
-              )));
-              if (result == true) {
-                _refreshData();
-              }
-            }, filled: true),
+            child: _buildActionButton(Icons.payments_outlined, "Record Payment", () => _showRecordPaymentModal(), filled: true),
           ),
         const SizedBox(height: 12),
         Row(
@@ -575,6 +590,57 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
     );
   }
 
+  Widget _buildPaymentsList() {
+    return Column(
+      children: _payments.map((p) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Material(
+          color: context.cardBg,
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: context.borderColor.withOpacity(0.5)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                  child: Icon(_getPaymentIcon(p['payment_mode'] ?? 'Cash'), color: Colors.green, size: 18),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(p['payment_number'] ?? 'Payment', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      Text("${DateFormat('dd MMM, yyyy').format(DateTime.parse(p['date']))} • ${p['payment_mode']}", style: TextStyle(fontSize: 11, color: context.textSecondary)),
+                    ],
+                  ),
+                ),
+                Text("₹${p['allocated_amount']}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.green)),
+              ],
+            ),
+          ),
+        ),
+      )).toList(),
+    );
+  }
+
+  IconData _getPaymentIcon(String mode) {
+    switch (mode) {
+      case 'Cash': return Icons.payments_rounded;
+      case 'UPI': return Icons.qr_code_scanner_rounded;
+      case 'Card': return Icons.credit_card_rounded;
+      case 'Bank Transfer': return Icons.account_balance_rounded;
+      case 'Cheque': return Icons.history_edu_rounded;
+      default: return Icons.more_horiz_rounded;
+    }
+  }
+
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'paid': return Colors.green;
@@ -588,5 +654,327 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
 
   Widget _buildSectionHeader(String title) {
     return Text(title, style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary));
+  }
+
+  String _formatAmount(double val) {
+    if (val % 1 == 0) return val.toInt().toString();
+    return val.toStringAsFixed(2);
+  }
+
+  void _showRecordPaymentModal() {
+    final balanceDueNow = (_invoice['balance_due'] ?? 0).toDouble();
+    if (balanceDueNow <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invoice is already fully paid")));
+      return;
+    }
+
+    List<Map<String, dynamic>> modalPayments = [
+      {
+        'mode': 'Cash', 
+        'amount': balanceDueNow, 
+        'controller': TextEditingController(text: _formatAmount(balanceDueNow))
+      }
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      clipBehavior: Clip.antiAlias,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          double totalAmount = (_invoice['total_amount'] ?? 0).toDouble();
+          double currentNewPaid = modalPayments.fold(0.0, (sum, p) => sum + (double.tryParse(p['controller'].text) ?? 0.0));
+          double remainingBalance = balanceDueNow - currentNewPaid;
+
+          return Container(
+            decoration: BoxDecoration(
+              color: context.surfaceBg,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+            ),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + MediaQuery.of(context).viewInsets.bottom),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2)))),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text("Record Payment", style: TextStyle(fontFamily: 'Outfit', fontSize: 22, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                      IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryBlue.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: AppColors.primaryBlue.withOpacity(0.1)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text("TOTAL INVOICE VALUE", style: TextStyle(fontFamily: 'Outfit', fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primaryBlue.withOpacity(0.5))),
+                            const SizedBox(height: 4),
+                            Text("₹${_formatAmount(totalAmount)}", style: const TextStyle(fontFamily: 'Outfit', fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                          ],
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(remainingBalance > 0 ? "BALANCE DUE" : "REMAINING", style: TextStyle(fontFamily: 'Outfit', fontSize: 10, fontWeight: FontWeight.bold, color: remainingBalance > 0 ? Colors.red.withOpacity(0.5) : Colors.green.withOpacity(0.5))),
+                            const SizedBox(height: 4),
+                            Text("₹${_formatAmount(remainingBalance.abs())}", style: TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: remainingBalance > 0 ? Colors.red : Colors.green)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Text("Payments", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textSecondary)),
+                  const SizedBox(height: 12),
+                  ...modalPayments.asMap().entries.map((entry) {
+                    final idx = entry.key;
+                    final p = entry.value;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: InkWell(
+                              onTap: () => _showModeSelectionSheet(context, (mode) => setModalState(() => p['mode'] = mode)),
+                              borderRadius: BorderRadius.circular(16),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                decoration: BoxDecoration(
+                                  color: context.cardBg,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: context.borderColor),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(child: Text(p['mode'], style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 14))),
+                                    const Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: AppColors.primaryBlue),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 3,
+                            child: TextField(
+                              controller: p['controller'],
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              decoration: InputDecoration(
+                                prefixText: "₹ ",
+                                prefixStyle: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryBlue),
+                                filled: true,
+                                fillColor: context.cardBg,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: context.borderColor)),
+                                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.primaryBlue, width: 2)),
+                              ),
+                              style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+                              onChanged: (v) => setModalState(() {}),
+                            ),
+                          ),
+                          if (modalPayments.length > 1)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: IconButton(
+                                onPressed: () => setModalState(() {
+                                  modalPayments[idx]['controller'].dispose();
+                                  modalPayments.removeAt(idx);
+                                }), 
+                                icon: const Icon(Icons.remove_circle_outline_rounded, color: Colors.red)
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                  const SizedBox(height: 8),
+                  InkWell(
+                    onTap: () {
+                      setModalState(() {
+                        double currentBalance = balanceDueNow - modalPayments.fold(0.0, (sum, p) => sum + (double.tryParse(p['controller'].text) ?? 0.0));
+                        modalPayments.add({
+                          'mode': 'UPI', 
+                          'amount': currentBalance > 0 ? currentBalance : 0.0,
+                          'controller': TextEditingController(text: _formatAmount(currentBalance > 0 ? currentBalance : 0.0))
+                        });
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.add_circle_outline_rounded, size: 20, color: AppColors.primaryBlue),
+                          const SizedBox(width: 8),
+                          Text("Add Another Payment Mode", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        final finalPayments = modalPayments.map((p) => {
+                          'mode': p['mode'],
+                          'amount': double.tryParse(p['controller'].text) ?? 0.0
+                        }).where((p) => (p['amount'] as double) > 0).toList();
+                        
+                        if (finalPayments.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter a valid payment amount")));
+                          return;
+                        }
+
+                        Navigator.pop(context);
+                        _recordPayment(finalPayments);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryBlue, 
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        "Confirm Payment",
+                        style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    ).then((_) {
+      for (var p in modalPayments) {
+        p['controller'].dispose();
+      }
+    });
+  }
+
+  void _showModeSelectionSheet(BuildContext context, Function(String) onSelect) {
+    final modes = ["Cash", "UPI", "Card", "Bank Transfer", "Cheque", "Other"];
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: context.surfaceBg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
+              const SizedBox(height: 24),
+              Text("Select Payment Mode", style: TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.bold, color: context.textPrimary)),
+              const SizedBox(height: 16),
+              ...modes.map((mode) => ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                  child: Icon(_getPaymentIcon(mode), color: AppColors.primaryBlue, size: 20),
+                ),
+                title: Text(mode, style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+                onTap: () {
+                  onSelect(mode);
+                  Navigator.pop(context);
+                },
+              )),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _recordPayment(List<Map<String, dynamic>> finalPayments) async {
+    setState(() => _loading = true);
+    try {
+      final companyId = _invoice['company_id'];
+      final branchId = _invoice['branch_id']?.toString();
+      final internalUserId = Supabase.instance.client.auth.currentUser!.id; // fallback, usually from profile
+      
+      // Get real User ID from profile
+      final userProfile = await Supabase.instance.client
+          .from('users')
+          .select('id')
+          .eq('auth_id', internalUserId)
+          .single();
+      final userId = userProfile['id'];
+
+      final totalAmt = finalPayments.fold(0.0, (sum, p) => sum + (p['amount'] as double));
+      
+      final pNum = await NumberingService.getNextDocumentNumber(
+        companyId: companyId,
+        documentType: 'SALES_PAYMENT',
+        branchId: branchId,
+        previewOnly: false,
+      );
+
+      final isMulti = finalPayments.length > 1;
+
+      final payment = await Supabase.instance.client.from('sales_payments').insert({
+        'company_id': companyId,
+        'branch_id': branchId,
+        'customer_id': _invoice['customer_id'],
+        'payment_number': pNum,
+        'date': DateTime.now().toIso8601String(),
+        'amount': totalAmt,
+        'payment_mode': isMulti ? 'Multi' : finalPayments[0]['mode'],
+        'created_by': userId,
+        'is_active': true,
+        'payment_methods': finalPayments, // Store splits
+      }).select().single();
+
+      await Supabase.instance.client.from('sales_payment_allocations').insert({
+        'payment_id': payment['id'],
+        'invoice_id': _invoice['id'],
+        'amount': totalAmt,
+      });
+
+      // Update Invoice
+      final currentBalance = (_invoice['balance_due'] ?? 0).toDouble();
+      final newBalance = currentBalance - totalAmt;
+      final status = newBalance <= 0.5 ? 'paid' : (newBalance < (_invoice['total_amount'] ?? 0).toDouble() ? 'partial' : 'unpaid');
+
+      await Supabase.instance.client.from('sales_invoices').update({
+        'balance_due': newBalance < 0 ? 0 : newBalance,
+        'status': status,
+      }).eq('id', _invoice['id']);
+
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Payment recorded successfully"), backgroundColor: Colors.green));
+      _refreshData();
+      SalesRefreshService.triggerRefresh();
+    } catch (e) {
+      debugPrint("Error recording payment: $e");
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+    } finally {
+      setState(() => _loading = false);
+    }
   }
 }

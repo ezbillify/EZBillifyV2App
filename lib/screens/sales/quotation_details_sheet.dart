@@ -329,7 +329,9 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
 
   Widget _buildWorkflowTimeline() {
     final status = _quotation['status']?.toString().toLowerCase() ?? 'draft';
-    final isConverted = status == 'converted';
+    final isConvertedToInvoice = status == 'converted_to_invoice';
+    final isConvertedToOrder = status == 'converted' || status == 'converted_to_order' || isConvertedToInvoice;
+    final isAnyConverted = isConvertedToOrder || isConvertedToInvoice;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
@@ -350,10 +352,10 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
           Row(
             children: [
               _buildTimelineStep("Quote", true, true),
-              _buildTimelineDivider(isConverted),
-              _buildTimelineStep("Order", isConverted, isConverted),
-              _buildTimelineDivider(false),
-              _buildTimelineStep("Invoice", false, false),
+              _buildTimelineDivider(isAnyConverted),
+              _buildTimelineStep("Order", isConvertedToOrder || isConvertedToInvoice, isConvertedToOrder || isConvertedToInvoice),
+              _buildTimelineDivider(isConvertedToInvoice),
+              _buildTimelineStep("Invoice", isConvertedToInvoice, isConvertedToInvoice),
             ],
           ),
           const SizedBox(height: 16),
@@ -361,19 +363,21 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                isConverted ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                isAnyConverted ? Icons.check_circle_rounded : Icons.info_outline_rounded,
                 size: 14,
-                color: isConverted ? Colors.green : AppColors.primaryBlue,
+                color: isAnyConverted ? Colors.green : AppColors.primaryBlue,
               ),
               const SizedBox(width: 6),
               Text(
-                isConverted 
-                  ? "Conversion Complete" 
-                  : status == 'rejected' ? "Quotation Rejected" : "Ready for Conversion",
+                isConvertedToInvoice 
+                  ? "Fully Converted to Invoice"
+                  : isConvertedToOrder
+                    ? "Converted to Sales Order" 
+                    : status == 'rejected' ? "Quotation Rejected" : "Ready for Conversion",
                 style: TextStyle(
                   fontFamily: 'Outfit', 
                   fontSize: 12, 
-                  color: isConverted ? Colors.green : status == 'rejected' ? Colors.red : context.textSecondary,
+                  color: isAnyConverted ? Colors.green : status == 'rejected' ? Colors.red : context.textSecondary,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -541,7 +545,7 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
 
   Widget _buildConversions() {
     final status = _quotation['status']?.toString().toLowerCase() ?? 'draft';
-    if (status == 'converted') return const SizedBox.shrink();
+    if (status == 'converted' || status == 'converted_to_order' || status == 'converted_to_invoice') return const SizedBox.shrink();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -721,7 +725,16 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
     )));
     
     if (result == true && mounted) {
-      Navigator.pop(context, true);
+      try {
+        await Supabase.instance.client
+            .from('sales_quotations')
+            .update({'status': 'converted_to_invoice'})
+            .eq('id', _quotation['id']);
+        Navigator.pop(context, true);
+      } catch (e) {
+        debugPrint("Error updating quotation status: $e");
+        Navigator.pop(context, true);
+      }
     }
   }
 
@@ -747,7 +760,16 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
     )));
 
     if (result == true && mounted) {
-      Navigator.pop(context, true);
+      try {
+        await Supabase.instance.client
+            .from('sales_quotations')
+            .update({'status': 'converted_to_order'})
+            .eq('id', _quotation['id']);
+        Navigator.pop(context, true);
+      } catch (e) {
+        debugPrint("Error updating quotation status: $e");
+        Navigator.pop(context, true);
+      }
     }
   }
 
@@ -771,7 +793,9 @@ class _QuotationDetailsSheetState extends State<QuotationDetailsSheet> {
 
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
-      case 'converted': return Colors.green;
+      case 'converted': 
+      case 'converted_to_order':
+      case 'converted_to_invoice': return Colors.green;
       case 'sent': return Colors.blue;
       case 'draft': return Colors.grey;
       case 'rejected': return Colors.red;

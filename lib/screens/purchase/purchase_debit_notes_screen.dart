@@ -295,10 +295,7 @@ class _PurchaseDebitNotesScreenState extends State<PurchaseDebitNotesScreen> {
         delegate: SliverChildBuilderDelegate(
           (context, index) {
             final note = _notes[index];
-            return FadeInUp(
-              duration: Duration(milliseconds: 400 + (index % 5 * 100)),
-              child: _buildNoteCard(note),
-            );
+            return _buildNoteCard(note);
           },
           childCount: _notes.length,
         ),

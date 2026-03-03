@@ -76,12 +76,7 @@ class _CreditNotesScreenState extends State<CreditNotesScreen> {
       } else {
         query = query.or('is_active.is.null,is_active.eq.true');
       }
-
-      if (_searchQuery.isNotEmpty) {
-        query = query.or('cn_number.ilike.%$_searchQuery%');
-      }
-      
-      final response = await query.order('created_at', ascending: false);
+final response = await query.order('created_at', ascending: false);
       
       if (mounted) {
         setState(() {
@@ -110,132 +105,142 @@ class _CreditNotesScreenState extends State<CreditNotesScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _fetchCreditNotes,
-        child: CustomScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            if (widget.showAppBar) SliverAppBar(
-              pinned: true,
-              backgroundColor: context.scaffoldBg,
-              elevation: 0,
-              title: Text("Credit Notes (Returns)", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
-            ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Container(
-                  decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      hintText: "Search credit note #...",
-                      hintStyle: TextStyle(color: context.textSecondary.withOpacity(0.5)),
-                      prefixIcon: Icon(Icons.search, color: context.textSecondary),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.all(16),
-                    ),
-                    onChanged: (v) { setState(() => _searchQuery = v); _fetchCreditNotes(); },
-                  ),
+        child: Builder(
+          builder: (context) {
+            final filteredList = _creditNotes.where((cn) {
+              if (_searchQuery.isEmpty) return true;
+              final q = _searchQuery.toLowerCase();
+              final customerName = (cn['customer']?['name'] ?? '').toString().toLowerCase();
+              final cnNumber = (cn['cn_number'] ?? cn['credit_note_number'] ?? '').toString().toLowerCase();
+              return customerName.contains(q) || cnNumber.contains(q);
+            }).toList();
+
+            return CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                if (widget.showAppBar) SliverAppBar(
+                  pinned: true,
+                  backgroundColor: context.scaffoldBg,
+                  elevation: 0,
+                  title: Text("Credit Notes (Returns)", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
                 ),
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    _buildArchivedToggle(),
-                  ],
-                ),
-              ),
-            ),
-            const SliverToBoxAdapter(child: SizedBox(height: 12)),
-            if (_loading) const SliverFillRemaining(child: Center(child: CircularProgressIndicator()))
-            else if (_creditNotes.isEmpty)
-               SliverFillRemaining(
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.assignment_return_outlined, size: 64, color: context.textSecondary.withOpacity(0.2)),
-                      const SizedBox(height: 16),
-                      Text("No credit notes found", style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary)),
-                    ],
-                  ),
-                ),
-              )
-            else
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final cn = _creditNotes[index];
-                    final date = DateTime.tryParse(cn['credit_note_date'] ?? '') ?? DateTime.now();
-                    final amount = (cn['total_amount'] ?? 0).toDouble();
-                    final customerName = cn['customer']?['name'] ?? 'Unknown';
-                    
-                    return FadeInUp(
-                      duration: Duration(milliseconds: 300 + (index % 5 * 100)),
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: context.cardBg,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: context.borderColor),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Container(
+                      decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
+                      child: TextField(
+                        controller: _searchController,
+                        decoration: InputDecoration(
+                          hintText: "Search credit note #...",
+                          hintStyle: TextStyle(color: context.textSecondary.withOpacity(0.5)),
+                          prefixIcon: Icon(Icons.search, color: context.textSecondary),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.all(16),
                         ),
-                        child: InkWell(
-                          onTap: () async {
-                            await showModalBottomSheet(
-                              context: context,
-                              isScrollControlled: true,
-                              backgroundColor: Colors.transparent,
-                              shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
-                              clipBehavior: Clip.antiAlias,
-                              useSafeArea: true,
-                              builder: (context) => CreditNoteDetailsSheet(
-                                creditNote: cn,
-                                onRefresh: _fetchCreditNotes,
-                              ),
-                            );
-                            _fetchCreditNotes();
-                          },
-                          borderRadius: BorderRadius.circular(16),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), shape: BoxShape.circle),
-                                  child: const Icon(Icons.undo_rounded, color: Colors.red, size: 20),
+                        onChanged: (v) { setState(() => _searchQuery = v); },
+                      ),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      children: [
+                        _buildArchivedToggle(),
+                      ],
+                    ),
+                  ),
+                ),
+                const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                if (_loading)
+                  const SliverFillRemaining(child: Center(child: CircularProgressIndicator()))
+                else if (filteredList.isEmpty)
+                  SliverFillRemaining(
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.assignment_return_outlined, size: 64, color: context.textSecondary.withOpacity(0.2)),
+                          const SizedBox(height: 16),
+                          Text("No credit notes found", style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary)),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final cn = filteredList[index];
+                        final date = DateTime.tryParse(cn['credit_note_date'] ?? '') ?? DateTime.now();
+                        final amount = (cn['total_amount'] ?? 0).toDouble();
+                        final customerName = cn['customer']?['name'] ?? 'Unknown';
+                        
+                        return Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: context.cardBg,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: context.borderColor),
+                          ),
+                          child: InkWell(
+                            onTap: () async {
+                              await showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+                                clipBehavior: Clip.antiAlias,
+                                useSafeArea: true,
+                                builder: (context) => CreditNoteDetailsSheet(
+                                  creditNote: cn,
+                                  onRefresh: _fetchCreditNotes,
                                 ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                              );
+                              _fetchCreditNotes();
+                            },
+                            borderRadius: BorderRadius.circular(16),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), shape: BoxShape.circle),
+                                    child: const Icon(Icons.undo_rounded, color: Colors.red, size: 20),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(customerName, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
+                                        Text("#${cn['cn_number'] ?? cn['credit_note_number']}", style: TextStyle(fontFamily: 'Outfit', fontSize: 13, color: AppColors.primaryBlue)),
+                                      ],
+                                    ),
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
-                                      Text(customerName, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
-                                      Text("#${cn['cn_number'] ?? cn['credit_note_number']}", style: TextStyle(fontFamily: 'Outfit', fontSize: 13, color: AppColors.primaryBlue)),
+                                      Text("-₹${NumberFormat('#,##,##0.00').format(amount)}", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: Colors.red)),
+                                      Text(DateFormat('dd MMM').format(date), style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
                                     ],
                                   ),
-                                ),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text("-₹${NumberFormat('#,##,##0.00').format(amount)}", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: Colors.red)),
-                                    Text(DateFormat('dd MMM').format(date), style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
-                                  ],
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-                    );
-                  },
-                  childCount: _creditNotes.length,
-                ),
-              ),
-          ],
+                        );
+                      },
+                      childCount: filteredList.length,
+                    ),
+                  ),
+              ],
+            );
+          },
         ),
       ),
     );

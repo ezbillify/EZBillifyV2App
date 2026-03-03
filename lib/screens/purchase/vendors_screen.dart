@@ -573,10 +573,7 @@ class _VendorsScreenState extends State<VendorsScreen> {
                         itemCount: _vendors.length,
                         itemBuilder: (context, index) {
                           final vendor = _vendors[index];
-                          return FadeInUp(
-                            duration: Duration(milliseconds: 400 + (index % 5 * 100)),
-                            child: _buildVendorCard(vendor),
-                          );
+                          return _buildVendorCard(vendor);
                         },
                       ),
           ),

@@ -9,43 +9,28 @@ import 'package:flutter/cupertino.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import '../inventory/item_form_sheet.dart';
 import 'scanner_modal_content.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../providers/invoice_provider.dart';
 import '../../services/numbering_service.dart';
 import '../../services/master_data_service.dart';
 import '../../services/print_service.dart';
 import '../../services/sales_refresh_service.dart';
 
-class InvoiceFormScreen extends StatefulWidget {
+class InvoiceFormScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic>? invoice; // Null for new
   const InvoiceFormScreen({super.key, this.invoice});
 
   @override
-  State<InvoiceFormScreen> createState() => _InvoiceFormScreenState();
+  ConsumerState<InvoiceFormScreen> createState() => _InvoiceFormScreenState();
 }
 
-class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
+class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
   final _formKey = GlobalKey<FormState>();
   bool _loading = false;
   
-  // Header Info
+  // Removed local _items and _companyId in favor of state but need to keep _companyId and _internalUserId for init
   String? _companyId;
   String? _internalUserId;
-  String? _branchId;
-  String? _branchName;
-  String? _customerId;
-  String? _customerName;
-  DateTime _invoiceDate = DateTime.now();
-  DateTime _dueDate = DateTime.now().add(const Duration(days: 7));
-  String _invoiceNumber = "";
-  String? _quotationId;
-  
-  // Line Items
-  List<Map<String, dynamic>> _items = [];
-  
-  // Totals
-  double _subtotal = 0;
-  double _totalTax = 0;
-  double _totalAmount = 0;
-  double _existingPaid = 0.0;
 
   @override
   void initState() {
@@ -54,17 +39,16 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
   }
 
   Future<void> _initializeData() async {
-    setState(() => _loading = true);
+    ref.read(invoiceProvider.notifier).setLoading(true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
       final profile = await Supabase.instance.client.from('users').select('id, company_id').eq('auth_id', user!.id).single();
-      _companyId = profile['company_id'];
+      _companyId = profile['company_id']!; // Keep companyId local as it's used in many queries
       _internalUserId = profile['id'];
       
       final isEdit = widget.invoice != null && widget.invoice!['id'] != null;
       
       if (isEdit) {
-        // FETCH EVERYTHING FRESH FOR EDIT
         final invId = widget.invoice!['id'];
         final inv = await Supabase.instance.client
             .from('sales_invoices')
@@ -72,22 +56,11 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
             .eq('id', invId)
             .single();
             
-        _invoiceNumber = inv['invoice_number'] ?? '';
-        _branchId = inv['branch_id']?.toString();
-        _branchName = inv['branch']?['name'];
-        _customerId = inv['customer_id']?.toString();
-        _customerName = inv['customer']?['name'] ?? inv['customer_name'];
-        _invoiceDate = DateTime.tryParse(inv['date'] ?? inv['invoice_date'] ?? '') ?? DateTime.now();
-        _dueDate = DateTime.tryParse(inv['due_date'] ?? '') ?? DateTime.now();
-        
-        // Fetch items — simple join, tax_rate is already on the line item row
         final itemsRes = await Supabase.instance.client.from('sales_invoice_items')
             .select('*, item:items(name, uom, default_sales_price, default_purchase_price)')
             .eq('invoice_id', invId);
 
-        debugPrint("Edit Invoice: fetched ${itemsRes.length} items for invoice $invId");
-        
-        _items = List<Map<String, dynamic>>.from(itemsRes.map((i) {
+        final mappedItems = List<Map<String, dynamic>>.from(itemsRes.map((i) {
           final qty = i['quantity'];
           final up = i['unit_price'];
           final tr = i['tax_rate'];
@@ -101,35 +74,48 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
             'tax_rate': (tr is num) ? tr.toDouble() : (double.tryParse(tr?.toString() ?? '0') ?? 0.0),
             'unit': i['item']?['uom'],
             'purchase_price': (pp is num) ? pp.toDouble() : (double.tryParse(pp?.toString() ?? '0') ?? 0.0),
-            'total_amount': (i['total_amount'] is num) ? i['total_amount'].toDouble() : (double.tryParse(i['total_amount']?.toString() ?? '0') ?? 0.0),
-            'tax_amount': (i['tax_amount'] is num) ? i['tax_amount'].toDouble() : (double.tryParse(i['tax_amount']?.toString() ?? '0') ?? 0.0),
           };
         }));
 
-        debugPrint("Edit Invoice: mapped ${_items.length} items");
-        
         final allocations = await Supabase.instance.client
             .from('sales_payment_allocations')
             .select('amount')
             .eq('invoice_id', invId);
-        _existingPaid = (allocations as List).fold(0.0, (sum, a) => sum + (a['amount'] ?? 0));
+        final existingPaid = (allocations as List).fold(0.0, (sum, a) => sum + (a['amount'] ?? 0));
         
-        _calculateTotals();
+        ref.read(invoiceProvider.notifier).setInitialData(
+          companyId: _companyId!,
+          internalUserId: _internalUserId!,
+          branchId: inv['branch_id']?.toString(),
+          branchName: inv['branch']?['name'],
+          customerId: inv['customer_id']?.toString(),
+          customerName: inv['customer']?['name'] ?? inv['customer_name'],
+          invoiceDate: DateTime.tryParse(inv['date'] ?? inv['invoice_date'] ?? '') ?? DateTime.now(),
+          dueDate: DateTime.tryParse(inv['due_date'] ?? '') ?? DateTime.now(),
+          invoiceNumber: inv['invoice_number'] ?? '',
+          items: mappedItems,
+          existingPaid: existingPaid,
+        );
       } else {
-        // NEW INVOICE
-        // Set default branch
         final branches = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
+        String? bId;
+        String? bName;
         if (branches.isNotEmpty) {
-          _branchId = branches[0]['id'].toString();
-          _branchName = branches[0]['name'];
+          bId = branches[0]['id'].toString();
+          bName = branches[0]['name'];
         }
-        await _generateInvoiceNumber();
 
-        // Check if we have pre-fill data (like from Quotation conversion)
+        List<Map<String, dynamic>> initialItems = [];
+        String? cId;
+        String? cName;
+        String? qId;
+        String? oId;
+        String? chId;
+
         if (widget.invoice != null) {
            if (widget.invoice!['items'] != null) {
               final rawItems = List<dynamic>.from(widget.invoice!['items']);
-              _items = List<Map<String, dynamic>>.from(rawItems.map((it) {
+              initialItems = List<Map<String, dynamic>>.from(rawItems.map((it) {
                 final qty = it['quantity'];
                 final up = it['unit_price'];
                 final tr = it['tax_rate'];
@@ -143,22 +129,36 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                   'tax_rate': (tr is num) ? tr.toDouble() : (double.tryParse(tr?.toString() ?? '0') ?? 0.0),
                   'unit': it['unit'] ?? it['item']?['uom'],
                   'purchase_price': (pp is num) ? pp.toDouble() : (double.tryParse(pp?.toString() ?? '0') ?? 0.0),
-                  'total_amount': (it['total_amount'] is num) ? it['total_amount'].toDouble() : (double.tryParse(it['total_amount']?.toString() ?? '0') ?? 0.0),
-                  'tax_amount': (it['tax_amount'] is num) ? it['tax_amount'].toDouble() : (double.tryParse(it['tax_amount']?.toString() ?? '0') ?? 0.0),
                 };
               }));
            }
-           _customerId = widget.invoice!['customer_id']?.toString();
-           _customerName = widget.invoice!['customer_name'] ?? widget.invoice!['customer']?['name'];
+           cId = widget.invoice!['customer_id']?.toString();
+           cName = widget.invoice!['customer_name'] ?? widget.invoice!['customer']?['name'];
            
            if (widget.invoice!['branch_id'] != null) {
-              _branchId = widget.invoice!['branch_id'].toString();
-              final bMatch = branches.firstWhere((b) => b['id'].toString() == _branchId, orElse: () => {});
-              if (bMatch.isNotEmpty) _branchName = bMatch['name'];
+              bId = widget.invoice!['branch_id'].toString();
+              final bMatch = branches.firstWhere((b) => b['id'].toString() == bId, orElse: () => {});
+              if (bMatch.isNotEmpty) bName = bMatch['name'];
            }
-           _quotationId = widget.invoice!['quotation_id']?.toString();
-           _calculateTotals();
+           qId = (widget.invoice!['quotation_id'] ?? widget.invoice!['quote_id'])?.toString();
+           oId = (widget.invoice!['order_id'] ?? widget.invoice!['so_id'])?.toString();
+           chId = (widget.invoice!['challan_id'] ?? widget.invoice!['dc_id'])?.toString();
         }
+
+        ref.read(invoiceProvider.notifier).setInitialData(
+          companyId: _companyId!,
+          internalUserId: _internalUserId!,
+          branchId: bId,
+          branchName: bName,
+          customerId: cId,
+          customerName: cName,
+          quotationId: qId,
+          orderId: oId,
+          dcId: chId,
+          items: initialItems,
+        );
+        
+        await _generateInvoiceNumber();
       }
     } catch (e) {
       debugPrint("Error initializing invoice form: $e");
@@ -169,52 +169,29 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
         ));
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      ref.read(invoiceProvider.notifier).setLoading(false);
     }
   }
 
+
   Future<void> _generateInvoiceNumber() async {
-    if (_branchId == null || _companyId == null) return;
+    final state = ref.read(invoiceProvider);
+    if (state.branchId == null || state.companyId == null) return;
     
     final nextNum = await NumberingService.getNextDocumentNumber(
-      companyId: _companyId!,
+      companyId: state.companyId!,
       documentType: 'SALES_INVOICE',
-      branchId: _branchId,
+      branchId: state.branchId,
       previewOnly: true,
     );
     
-    setState(() => _invoiceNumber = nextNum);
-  }
-
-  void _calculateTotals() {
-    double sub = 0;
-    double tax = 0;
-    for (var item in _items) {
-      final qty = (item['quantity'] ?? 0).toDouble();
-      final price = (item['unit_price'] ?? 0).toDouble();
-      final taxRate = (item['tax_rate'] ?? 0).toDouble();
-      
-      final totalInclusive = qty * price;
-      // Back calculate base price from inclusive price: Base = Total / (1 + Rate/100)
-      final lineSub = totalInclusive / (1 + (taxRate / 100));
-      final lineTax = totalInclusive - lineSub;
-      
-      // Essential for Printing - Populate per-item totals
-      item['total_amount'] = double.parse(totalInclusive.toStringAsFixed(2));
-      item['tax_amount'] = double.parse(lineTax.toStringAsFixed(2));
-
-      sub += lineSub;
-      tax += lineTax;
-    }
-    setState(() {
-      _subtotal = double.parse(sub.toStringAsFixed(2));
-      _totalTax = double.parse(tax.toStringAsFixed(2));
-      _totalAmount = double.parse((sub + tax).toStringAsFixed(2));
-    });
+    ref.read(invoiceProvider.notifier).updateHeader(invoiceNumber: nextNum);
   }
 
   @override
   Widget build(BuildContext context) {
+    final state = ref.watch(invoiceProvider);
+    
     return Scaffold(
       backgroundColor: context.scaffoldBg,
       appBar: AppBar(
@@ -225,29 +202,79 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(widget.invoice == null ? "New Invoice" : "Edit Invoice", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary, fontSize: 18)),
-            Text(_invoiceNumber.isEmpty ? "Generating ID..." : _invoiceNumber, style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
+            Text(state.invoiceNumber.isEmpty ? "Generating ID..." : state.invoiceNumber, style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
           ],
         ),
         leading: IconButton(icon: Icon(Icons.arrow_back_ios_new_rounded, color: context.textPrimary), onPressed: () => Navigator.pop(context)),
       ),
-      body: _loading ? const Center(child: CircularProgressIndicator()) : Form(
+      body: state.loading ? const Center(child: CircularProgressIndicator()) : Form(
         key: _formKey,
         child: Column(
           children: [
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildHeaderSection(),
-                    const SizedBox(height: 32),
-                    _buildItemsSection(),
-                    const SizedBox(height: 32),
-                    _buildSummarySection(),
-                    const SizedBox(height: 100),
-                  ],
-                ),
+              child: CustomScrollView(
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.all(20),
+                    sliver: SliverToBoxAdapter(child: _buildHeaderSection()),
+                  ),
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    sliver: SliverToBoxAdapter(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _buildSectionTitle("Line Items"),
+                          TextButton.icon(
+                            onPressed: _addItem,
+                            icon: const Icon(Icons.add_circle_outline_rounded, size: 20),
+                            label: const Text("Add Item", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (state.items.isEmpty)
+                    SliverPadding(
+                      padding: const EdgeInsets.all(20),
+                      sliver: SliverToBoxAdapter(
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(32),
+                          decoration: BoxDecoration(
+                            color: context.cardBg,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: context.borderColor, style: BorderStyle.solid),
+                          ),
+                          child: Column(
+                            children: [
+                              Icon(Icons.inventory_2_outlined, size: 48, color: context.textSecondary.withOpacity(0.2)),
+                              const SizedBox(height: 12),
+                              Text("No items added yet", style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.5))),
+                            ],
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      sliver: SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _buildLineItemCard(state.items[index], index),
+                          ),
+                          childCount: state.items.length,
+                        ),
+                      ),
+                    ),
+                  SliverPadding(
+                    padding: const EdgeInsets.all(20),
+                    sliver: SliverToBoxAdapter(child: _buildSummarySection()),
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 100)),
+                ],
               ),
             ),
             _buildBottomBar(),
@@ -258,6 +285,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
   }
 
   Widget _buildDocumentHeader() {
+    final state = ref.watch(invoiceProvider);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
@@ -272,7 +300,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text("DOCUMENT NUMBER", style: TextStyle(fontFamily: 'Outfit', fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.primaryBlue.withOpacity(0.5))),
-                Text(_invoiceNumber.isEmpty ? "#---" : _invoiceNumber, style: const TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                Text(state.invoiceNumber.isEmpty ? "#---" : state.invoiceNumber, style: const TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
               ],
             ),
           ),
@@ -293,6 +321,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
   }
 
   Widget _buildHeaderSection() {
+    final state = ref.watch(invoiceProvider);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -311,7 +340,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                   children: [
                     Icon(Icons.storefront_rounded, size: 16, color: context.textSecondary),
                     const SizedBox(width: 8),
-                    Text(_branchName ?? "Select Branch", style: TextStyle(fontFamily: 'Outfit', fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                    Text(state.branchName ?? "Select Branch", style: TextStyle(fontFamily: 'Outfit', fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary)),
                     const SizedBox(width: 4),
                     const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: AppColors.primaryBlue),
                   ],
@@ -345,8 +374,8 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(_customerName ?? "Select Customer", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: _customerName == null ? context.textSecondary.withOpacity(0.4) : context.textPrimary)),
-                      if (_customerName != null) Text("Click to change customer", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+                      Text(state.customerName ?? "Select Customer", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: state.customerName == null ? context.textSecondary.withOpacity(0.4) : context.textPrimary)),
+                      if (state.customerName != null) Text("Click to change customer", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
                     ],
                   ),
                 ),
@@ -361,21 +390,21 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
         Row(
           children: [
             Expanded(
-              child: _buildInfoCard("Invoice Date", DateFormat('dd MMM, yyyy').format(_invoiceDate), Icons.calendar_today_rounded, () => _selectDate(true)),
+              child: _buildInfoCard("Invoice Date", DateFormat('dd MMM, yyyy').format(state.invoiceDate), Icons.calendar_today_rounded, () => _selectDate(true)),
             ),
             const SizedBox(width: 16),
             Expanded(
-              child: _buildInfoCard("Due Date", DateFormat('dd MMM, yyyy').format(_dueDate), Icons.event_available_rounded, () => _selectDate(false)),
+              child: _buildInfoCard("Due Date", DateFormat('dd MMM, yyyy').format(state.dueDate), Icons.event_available_rounded, () => _selectDate(false)),
             ),
           ],
         ),
         const SizedBox(height: 16),
-        // Reference Number removed
       ],
     );
   }
 
   Widget _buildItemsSection() {
+    final state = ref.watch(invoiceProvider);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -391,7 +420,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        if (_items.isEmpty)
+        if (state.items.isEmpty)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(32),
@@ -412,10 +441,10 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
           ListView.separated(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            itemCount: _items.length,
+            itemCount: state.items.length,
             separatorBuilder: (c, i) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
-              final item = _items[index];
+              final item = state.items[index];
               return _buildLineItemCard(item, index);
             },
           ),
@@ -483,6 +512,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
   }
 
   Widget _buildSummarySection() {
+    final state = ref.watch(invoiceProvider);
     return Column(
       children: [
         Container(
@@ -490,11 +520,11 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
           decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.05), borderRadius: BorderRadius.circular(24), border: Border.all(color: AppColors.primaryBlue.withOpacity(0.1))),
           child: Column(
             children: [
-              _buildSummaryRow("Subtotal", "₹${_subtotal.toStringAsFixed(2)}"),
+              _buildSummaryRow("Subtotal", "₹${state.subtotal.toStringAsFixed(2)}"),
               const SizedBox(height: 12),
-              _buildSummaryRow("Total Tax", "₹${_totalTax.toStringAsFixed(2)}"),
+              _buildSummaryRow("Total Tax", "₹${state.totalTax.toStringAsFixed(2)}"),
               const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider()),
-              _buildSummaryRow("Grand Total", "₹${_totalAmount.toStringAsFixed(2)}", isTotal: true),
+              _buildSummaryRow("Grand Total", "₹${state.totalAmount.toStringAsFixed(2)}", isTotal: true),
             ],
           ),
         ),
@@ -505,6 +535,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
 
 
   Widget _buildBottomBar() {
+    final state = ref.watch(invoiceProvider);
     return Container(
       padding: EdgeInsets.fromLTRB(20, 16, 20, 16 + MediaQuery.of(context).padding.bottom),
       decoration: BoxDecoration(color: context.surfaceBg, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))]),
@@ -516,13 +547,13 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text("Total Amount", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
-                Text("₹${_totalAmount.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                Text("₹${state.totalAmount.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
               ],
             ),
           ),
           const SizedBox(width: 12),
           ElevatedButton(
-            onPressed: (_loading || _items.isEmpty) ? null : () => _showPaymentModal(shouldPrint: false),
+            onPressed: (state.loading || state.items.isEmpty) ? null : () => _showPaymentModal(shouldPrint: false),
             style: ElevatedButton.styleFrom(
               backgroundColor: context.cardBg,
               foregroundColor: context.textPrimary,
@@ -535,7 +566,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
           ),
           const SizedBox(width: 8),
           ElevatedButton(
-            onPressed: (_loading || _items.isEmpty) ? null : () => _showPaymentModal(shouldPrint: true),
+            onPressed: (state.loading || state.items.isEmpty) ? null : () => _showPaymentModal(shouldPrint: true),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primaryBlue,
               foregroundColor: Colors.white,
@@ -551,7 +582,8 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
   }
 
   void _showPaymentModal({required bool shouldPrint}) {
-    if (_customerId == null) {
+    final state = ref.read(invoiceProvider);
+    if (state.customerId == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a customer first")));
       return;
     }
@@ -562,8 +594,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       return val.toStringAsFixed(2);
     }
 
-    // For new invoices, existingPaid is 0. For edits, it's what we fetched in initState or re-fetch here for absolute safety
-    final balanceDueNow = _totalAmount - _existingPaid;
+    final balanceDueNow = state.totalAmount - state.existingPaid;
     
     List<Map<String, dynamic>> payments = [
       {
@@ -582,7 +613,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
           double currentNewPaid = payments.fold(0.0, (sum, p) => sum + (double.tryParse(p['controller'].text) ?? 0.0));
-          double remainingBalance = _totalAmount - _existingPaid - currentNewPaid;
+          double remainingBalance = state.totalAmount - state.existingPaid - currentNewPaid;
 
           return Container(
             decoration: BoxDecoration(
@@ -620,7 +651,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                           children: [
                             Text("TOTAL INVOICE VALUE", style: TextStyle(fontFamily: 'Outfit', fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primaryBlue.withOpacity(0.5))),
                             const SizedBox(height: 4),
-                            Text("₹${formatAmount(_totalAmount)}", style: const TextStyle(fontFamily: 'Outfit', fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                            Text("₹${formatAmount(state.totalAmount)}", style: const TextStyle(fontFamily: 'Outfit', fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
                           ],
                         ),
                         if (remainingBalance != 0)
@@ -704,7 +735,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                   InkWell(
                     onTap: () {
                       setModalState(() {
-                        double currentBalance = _totalAmount - _existingPaid - payments.fold(0.0, (sum, p) => sum + (double.tryParse(p['controller'].text) ?? 0.0));
+                        double currentBalance = state.totalAmount - state.existingPaid - payments.fold(0.0, (sum, p) => sum + (double.tryParse(p['controller'].text) ?? 0.0));
                         payments.add({
                           'mode': 'UPI', 
                           'amount': currentBalance > 0 ? currentBalance : 0.0,
@@ -889,15 +920,32 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
   }
 
   Widget _buildQtySelector(int index) {
-    final qty = _items[index]['quantity'] ?? 1;
+    final state = ref.watch(invoiceProvider);
+    final qty = state.items[index]['quantity'] ?? 1;
     return Container(
       decoration: BoxDecoration(color: context.scaffoldBg, borderRadius: BorderRadius.circular(12), border: Border.all(color: context.borderColor)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(onPressed: () { if(qty > 1) { setState(() => _items[index]['quantity'] = qty - 1); _calculateTotals(); } }, icon: const Icon(Icons.remove_rounded, size: 18)),
+          IconButton(
+            onPressed: () { 
+              if(qty > 1) { 
+                final newItems = List<Map<String, dynamic>>.from(state.items);
+                newItems[index] = {...newItems[index], 'quantity': qty - 1};
+                ref.read(invoiceProvider.notifier).setItems(newItems);
+              } 
+            }, 
+            icon: const Icon(Icons.remove_rounded, size: 18)
+          ),
           Text("$qty", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
-          IconButton(onPressed: () { setState(() => _items[index]['quantity'] = qty + 1); _calculateTotals(); }, icon: const Icon(Icons.add_rounded, size: 18)),
+          IconButton(
+            onPressed: () { 
+              final newItems = List<Map<String, dynamic>>.from(state.items);
+              newItems[index] = {...newItems[index], 'quantity': qty + 1};
+              ref.read(invoiceProvider.notifier).setItems(newItems);
+            }, 
+            icon: const Icon(Icons.add_rounded, size: 18)
+          ),
         ],
       ),
     );
@@ -905,6 +953,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
 
   // Action Methods
   Future<void> _selectBranch() async {
+    final state = ref.read(invoiceProvider);
     final results = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
     if (!mounted) return;
 
@@ -912,17 +961,19 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       title: "Select Branch",
       items: List<Map<String, dynamic>>.from(results),
       labelMapper: (b) => b['name'],
-      onSelect: (b) => setState(() {
-        _branchId = b['id'].toString();
-        _branchName = b['name'];
+      onSelect: (b) {
+        ref.read(invoiceProvider.notifier).updateHeader(
+          branchId: b['id'].toString(),
+          branchName: b['name'],
+        );
         _generateInvoiceNumber(); // Regenerate number for the new branch
-      }),
-      currentValue: _branchName,
+      },
+      currentValue: state.branchName,
     );
   }
 
   Future<void> _selectCustomer() async {
-    // Use MasterDataService for caching
+    final state = ref.read(invoiceProvider);
     final results = await MasterDataService().getCustomers(_companyId!);
     if(!mounted) return;
     
@@ -930,8 +981,13 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       title: "Select Customer",
       items: List<Map<String, dynamic>>.from(results),
       labelMapper: (c) => c['name'],
-      onSelect: (c) => setState(() { _customerId = c['id'].toString(); _customerName = c['name']; }),
-      currentValue: _customerName,
+      onSelect: (c) {
+        ref.read(invoiceProvider.notifier).updateHeader(
+          customerId: c['id'].toString(),
+          customerName: c['name'],
+        );
+      },
+      currentValue: state.customerName,
       badgeMapper: (c) => c['customer_type'] ?? 'B2C',
       badgeColorMapper: (c) => (c['customer_type'] == 'B2B') ? Colors.purple : Colors.blue,
       onRefresh: () async {
@@ -941,29 +997,32 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
   }
 
   Future<void> _selectDate(bool isInvoiceDate) async {
+    final state = ref.read(invoiceProvider);
     final picked = await showCustomCalendarSheet(
       context: context,
-      initialDate: isInvoiceDate ? _invoiceDate : _dueDate,
+      initialDate: isInvoiceDate ? state.invoiceDate : state.dueDate,
       title: isInvoiceDate ? "Select Invoice Date" : "Select Due Date",
     );
     
     if (picked != null) {
-      setState(() {
-        if (isInvoiceDate) {
-          _invoiceDate = picked;
-          // Auto update due date if it becomes before invoice date
-          if (_dueDate.isBefore(_invoiceDate)) {
-            _dueDate = _invoiceDate.add(const Duration(days: 7));
-          }
-        } else {
-          _dueDate = picked;
+      if (isInvoiceDate) {
+        DateTime newDueDate = state.dueDate;
+        if (state.dueDate.isBefore(picked)) {
+          newDueDate = picked.add(const Duration(days: 7));
         }
-      });
+        ref.read(invoiceProvider.notifier).updateHeader(
+          invoiceDate: picked,
+          dueDate: newDueDate,
+        );
+      } else {
+        ref.read(invoiceProvider.notifier).updateHeader(dueDate: picked);
+      }
     }
   }
 
   Future<void> _editItemPrice(int index) async {
-    final item = _items[index];
+    final state = ref.read(invoiceProvider);
+    final item = state.items[index];
     final controller = TextEditingController(text: item['unit_price'].toString());
     
     await showModalBottomSheet(
@@ -1011,10 +1070,9 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                 child: ElevatedButton(
                   onPressed: () {
                     final newPrice = double.tryParse(controller.text) ?? item['unit_price'];
-                    setState(() {
-                      _items[index]['unit_price'] = newPrice;
-                      _calculateTotals();
-                    });
+                    final newItems = List<Map<String, dynamic>>.from(state.items);
+                    newItems[index] = {...newItems[index], 'unit_price': newPrice};
+                    ref.read(invoiceProvider.notifier).setItems(newItems);
                     Navigator.pop(context);
                   },
                   style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 0),
@@ -1030,13 +1088,14 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
 
 
   Future<void> _addItem() async {
+    final state = ref.read(invoiceProvider);
     final results = await MasterDataService().getItems(_companyId!);
     if (!mounted) return;
 
     // Construct currentValues based on ALL items currently in the list
     // If an item has quantity > 1, add it multiple times to the list so the sheet shows correct count
     List<Map<String, dynamic>> currentValues = [];
-    for (var i in _items) {
+    for (var i in state.items) {
       final match = results.firstWhere((r) => r['id'] == i['item_id'], orElse: () => {});
       if (match.isNotEmpty) {
         final qty = (i['quantity'] ?? 1).toInt();
@@ -1065,57 +1124,50 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
         await MasterDataService().getItems(_companyId!, forceRefresh: true);
       },
       onSelectMultiple: (selectedList) {
-        setState(() {
-          // Since the sheet now returns the 'Absolute Truth' of the selection (including previous items)
-          // We map the selectedList into a consolidated map of ID -> Qty
-          final qtyMap = <String, int>{};
-          final itemMap = <String, Map<String, dynamic>>{};
+        final state = ref.read(invoiceProvider);
+        final qtyMap = <String, int>{};
+        final itemMap = <String, Map<String, dynamic>>{};
+        
+        for (var item in selectedList) {
+          final id = item['id'].toString();
+          qtyMap[id] = (qtyMap[id] ?? 0) + 1;
+          itemMap[id] = item;
+        }
+
+        final currentItems = List<Map<String, dynamic>>.from(state.items);
+        currentItems.removeWhere((existing) => !qtyMap.containsKey(existing['item_id'].toString()));
+
+        for (var itemEntry in currentItems) {
+          final id = itemEntry['item_id'].toString();
+          itemEntry['quantity'] = qtyMap[id]?.toDouble();
+          qtyMap.remove(id);
+        }
+
+        for (var id in qtyMap.keys) {
+          final item = itemMap[id]!;
+          final qty = qtyMap[id]!;
+          final mrp = (item['default_sales_price'] ?? 0).toDouble();
+          final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
+          final inclusivePrice = double.parse((mrp * (1 + rate / 100)).toStringAsFixed(2));
           
-          for (var item in selectedList) {
-            final id = item['id'].toString();
-            qtyMap[id] = (qtyMap[id] ?? 0) + 1;
-            itemMap[id] = item;
-          }
-
-          // We want to keep existing edited items (to preserve manual price changes etc.)
-          // 1. Remove items that are no longer in the selection
-          _items.removeWhere((existing) => !qtyMap.containsKey(existing['item_id'].toString()));
-
-          // 2. Update quantities for items that still exist
-          for (var itemEntry in _items) {
-            final id = itemEntry['item_id'].toString();
-            itemEntry['quantity'] = qtyMap[id];
-            qtyMap.remove(id); // Mark as processed
-          }
-
-          // 3. Add entirely new items
-          for (var id in qtyMap.keys) {
-            final item = itemMap[id]!;
-            final qty = qtyMap[id]!;
-            final mrp = (item['default_sales_price'] ?? 0).toDouble();
-            final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
-            final inclusivePrice = double.parse((mrp * (1 + rate / 100)).toStringAsFixed(2));
-            
-            _items.add({
-              'item_id': item['id'],
-              'name': item['name'],
-              'quantity': qty,
-              'unit_price': inclusivePrice,
-              'tax_rate': rate,
-              'unit': item['uom'],
-              'purchase_price': (item['default_purchase_price'] ?? 0).toDouble(),
-            });
-          }
-        });
-        _calculateTotals();
+          currentItems.add({
+            'item_id': item['id'],
+            'name': item['name'],
+            'quantity': qty.toDouble(),
+            'unit_price': inclusivePrice,
+            'tax_rate': rate,
+            'unit': item['uom'],
+            'purchase_price': (item['default_purchase_price'] ?? 0).toDouble(),
+          });
+        }
+        ref.read(invoiceProvider.notifier).setItems(currentItems);
       },
       showScanner: true,
       itemContentBuilder: (context, item, count, onAdd, onRemove) {
-        final itemMrp = (item['mrp'] ?? 0).toDouble();
         final salesPrice = (item['default_sales_price'] ?? 0).toDouble();
         final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
         final salesPriceInclTax = salesPrice * (1 + rate / 100);
-        final purchasePrice = (item['default_purchase_price'] ?? 0).toDouble();
+        final itemMrp = salesPriceInclTax; // Defaulting MRP to tax inclusive sales price
         final unit = item['uom'] ?? 'unt';
 
         return Padding(
@@ -1163,7 +1215,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                            ],
                          ),
                          const SizedBox(height: 4),
-                         Text("Pur: ₹${purchasePrice.toStringAsFixed(2)} • $unit • ${rate.toStringAsFixed(0)}% Tax", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary.withOpacity(0.7))),
+                         Text("Pur: ₹${(item['default_purchase_price'] ?? 0).toStringAsFixed(2)} • $unit • ${rate.toStringAsFixed(0)}% Tax", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary.withOpacity(0.7))),
                        ],
                      ),
                    ),
@@ -1214,8 +1266,10 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
   }
 
   void _removeItem(int index) {
-    setState(() => _items.removeAt(index));
-    _calculateTotals();
+    final state = ref.read(invoiceProvider);
+    final newItems = List<Map<String, dynamic>>.from(state.items);
+    newItems.removeAt(index);
+    ref.read(invoiceProvider.notifier).setItems(newItems);
   }
 
   void _showPrintingStatusModal() {
@@ -1224,7 +1278,9 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       barrierDismissible: false,
       barrierColor: Colors.black.withOpacity(0.95),
       transitionDuration: const Duration(milliseconds: 600),
-      pageBuilder: (context, anim1, anim2) => WillPopScope(
+      pageBuilder: (context, anim1, anim2) {
+        final state = ref.read(invoiceProvider);
+        return WillPopScope(
         onWillPop: () async => false,
         child: Scaffold(
           backgroundColor: Colors.transparent,
@@ -1239,10 +1295,10 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                     children: [
                       // The Receipt - Larger and more detailed, moving UP and OUT
                       Positioned(
-                        top: (MediaQuery.of(context).size.height * value) - 200, // Move from height to -200
+                        top: (MediaQuery.of(context).size.height * value) - 200,
                         left: (MediaQuery.of(context).size.width - 320) / 2,
                         child: Opacity(
-                          opacity: value < 0.1 ? (value * 10) : 1.0, // Fade out as it leaves
+                          opacity: value < 0.1 ? (value * 10) : 1.0,
                           child: Container(
                             width: 320,
                             height: 600,
@@ -1274,7 +1330,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                                       const SizedBox(height: 16),
                                       Text("TAX INVOICE", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 2, color: Colors.grey[800])),
                                       const SizedBox(height: 8),
-                                      Text(_invoiceNumber, style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.primaryBlue)),
+                                      Text(state.invoiceNumber, style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.primaryBlue)),
                                     ],
                                   ),
                                 ),
@@ -1287,7 +1343,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                                     children: [
                                       Text("BILL TO", style: TextStyle(fontFamily: 'Outfit', fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[400], letterSpacing: 1)),
                                       const SizedBox(height: 4),
-                                      Text(_customerName ?? 'Walking Customer', style: TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[900])),
+                                      Text(state.customerName ?? 'Walking Customer', style: TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[900])),
                                       const SizedBox(height: 4),
                                       Text(DateTime.now().toString().substring(0, 16), style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: Colors.grey[500])),
                                     ],
@@ -1313,18 +1369,22 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                                           ],
                                         ),
                                         const SizedBox(height: 16),
-                                        ...(_items.take(4).map((item) => Padding(
-                                          padding: const EdgeInsets.only(bottom: 16),
-                                          child: Row(
-                                            children: [
-                                              Expanded(flex: 3, child: Text(item['name'] ?? 'Item', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: 'Outfit', fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[800]))),
-                                              Expanded(child: Text("${item['quantity']}", textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Outfit', fontSize: 14, color: Colors.grey[700]))),
-                                              Expanded(child: Text("₹${(item['total_amount'] ?? 0).toStringAsFixed(0)}", textAlign: TextAlign.right, style: TextStyle(fontFamily: 'Outfit', fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black))),
-                                            ],
-                                          ),
-                                        )).toList()),
-                                        if (_items.length > 4) 
-                                          Center(child: Text("+ ${_items.length - 4} more items", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey[400])))
+                                        ...(state.items.take(4).map((item) {
+                                          final qty = (item['quantity'] ?? 0).toDouble();
+                                          final price = (item['unit_price'] ?? 0).toDouble();
+                                          return Padding(
+                                            padding: const EdgeInsets.only(bottom: 16),
+                                            child: Row(
+                                              children: [
+                                                Expanded(flex: 3, child: Text(item['name'] ?? 'Item', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: 'Outfit', fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[800]))),
+                                                Expanded(child: Text("$qty", textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Outfit', fontSize: 14, color: Colors.grey[700]))),
+                                                Expanded(child: Text("₹${(qty * price).toStringAsFixed(0)}", textAlign: TextAlign.right, style: TextStyle(fontFamily: 'Outfit', fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black))),
+                                              ],
+                                            ),
+                                          );
+                                        }).toList()),
+                                        if (state.items.length > 4) 
+                                          Center(child: Text("+ ${state.items.length - 4} more items", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey[400])))
                                       ],
                                     ),
                                   ),
@@ -1347,7 +1407,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                                           Text("Payable Amount", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: Colors.white70)),
                                         ],
                                       ),
-                                      Text("₹${_totalAmount.toStringAsFixed(2)}", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w900, fontSize: 26, color: Colors.white)),
+                                      Text("₹${state.totalAmount.toStringAsFixed(2)}", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w900, fontSize: 26, color: Colors.white)),
                                     ],
                                   ),
                                 ),
@@ -1434,26 +1494,29 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
             ],
           ),
         ),
-      ),
+      );
+    },
     );
   }
 
 
   Future<void> _saveInvoice({List<Map<String, dynamic>>? customPayments, bool shouldPrint = false}) async {
-    if (_customerId == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a customer"))); return; }
-    if (_items.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Add at least one item"))); return; }
+    final state = ref.read(invoiceProvider);
+    if (state.customerId == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a customer"))); return; }
+    if (state.items.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Add at least one item"))); return; }
     
-    final companyId = _companyId;
-    final branchId = _branchId;
+    final companyId = state.companyId;
+    final branchId = state.branchId;
     if (companyId == null) return;
 
-    setState(() => _loading = true);
+    ref.read(invoiceProvider.notifier).setLoading(true);
     try {
       double existingPaid = 0.0;
       final isEdit = widget.invoice != null && widget.invoice!['id'] != null;
       String? savedInvoiceId = isEdit ? widget.invoice!['id'].toString() : null;
-      String? sourceQuotationId = _quotationId ?? widget.invoice?['quotation_id']?.toString();
-      String? sourceOrderId = widget.invoice?['order_id']?.toString();
+      String? sourceQuotationId = state.quotationId;
+      String? sourceOrderId = state.orderId;
+      String? sourceDcId = state.dcId;
 
       if (isEdit) {
         final invoiceId = savedInvoiceId!;
@@ -1463,7 +1526,6 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
             .eq('invoice_id', invoiceId);
         existingPaid = (allocations as List).fold(0.0, (sum, a) => sum + (a['amount'] ?? 0));
 
-        // Fetch previously issued automatic credits to avoid double-crediting
         final credits = await Supabase.instance.client
             .from('sales_credit_notes')
             .select('total_amount')
@@ -1475,9 +1537,8 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
 
       final double newPaid = customPayments?.fold(0.0, (sum, p) => sum! + (p['amount'] ?? 0)) ?? 0.0;
       final totalPaid = existingPaid + newPaid;
-      var balanceDue = _totalAmount - totalPaid;
+      var balanceDue = state.totalAmount - totalPaid;
 
-      // Handle Overpayment by adjusting allocations instead of creating a double-deducting Credit Note
       if (isEdit && balanceDue < -0.5) {
         final invoiceId = savedInvoiceId!;
         double excessToRemove = balanceDue.abs();
@@ -1506,16 +1567,18 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       final invoiceData = {
         'company_id': companyId,
         'branch_id': branchId,
-        'customer_id': _customerId,
-        'invoice_number': _invoiceNumber,
-        'date': _invoiceDate.toIso8601String(),
-        'due_date': _dueDate.toIso8601String(),
-        'sub_total': _subtotal,
-        'tax_total': _totalTax,
-        'total_amount': _totalAmount,
+        'customer_id': state.customerId,
+        'invoice_number': state.invoiceNumber,
+        'date': state.invoiceDate.toIso8601String(),
+        'due_date': state.dueDate.toIso8601String(),
+        'sub_total': state.subtotal,
+        'tax_total': state.totalTax,
+        'total_amount': state.totalAmount,
         'balance_due': balanceDue < 0 ? 0 : balanceDue,
         'status': status,
-        'created_by': _internalUserId,
+        'created_by': state.internalUserId,
+        'so_id': sourceOrderId,
+        'dc_id': sourceDcId,
       };
 
       if (!isEdit) {
@@ -1533,13 +1596,23 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
         
         // If conversion, update source status
         if (sourceQuotationId != null) {
-          await Supabase.instance.client.from('sales_quotations').update({'status': 'converted'}).eq('id', sourceQuotationId);
+          await Supabase.instance.client.from('sales_quotations').update({'status': 'converted_to_invoice'}).eq('id', sourceQuotationId);
         }
         if (sourceOrderId != null) {
           await Supabase.instance.client.from('sales_orders').update({'status': 'completed'}).eq('id', sourceOrderId);
+          
+          // Also update the linked quotation if this order came from one
+          try {
+            final orderData = await Supabase.instance.client.from('sales_orders').select('quote_id').eq('id', sourceOrderId).maybeSingle();
+            if (orderData != null && orderData['quote_id'] != null) {
+              await Supabase.instance.client.from('sales_quotations').update({'status': 'converted_to_invoice'}).eq('id', orderData['quote_id']);
+            }
+          } catch (e) {
+            debugPrint("Error updating linked quotation status: $e");
+          }
         }
 
-        for (var item in _items) {
+        for (var item in state.items) {
           final qty = (item['quantity'] ?? 0).toDouble();
           final price = (item['unit_price'] ?? 0).toDouble();
           final taxRate = (item['tax_rate'] ?? 0).toDouble();
@@ -1586,7 +1659,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                 'reference_id': inserted['id'],
                 'reference_type': 'INVOICE',
                 'notes': "Sales Invoice: ${inserted['invoice_number']}",
-                'created_by': _internalUserId,
+                'created_by': state.internalUserId,
               });
             }
           } catch (e) {
@@ -1597,10 +1670,8 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
         
         // Record Multiple Payments
         if (customPayments != null && customPayments.isNotEmpty) {
-          for (var p in customPayments) {
-            double amt = (p['amount'] ?? 0).toDouble();
-            if (amt <= 0) continue;
-
+          final double totalAmt = customPayments.fold(0.0, (sum, p) => sum + (p['amount'] ?? 0));
+          if (totalAmt > 0) {
             final pNum = await NumberingService.getNextDocumentNumber(
               companyId: companyId,
               documentType: 'SALES_PAYMENT',
@@ -1608,22 +1679,25 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
               previewOnly: false,
             );
 
+            final isMulti = customPayments.length > 1;
+
             final payment = await Supabase.instance.client.from('sales_payments').insert({
               'company_id': companyId,
               'branch_id': branchId,
-              'customer_id': _customerId,
+              'customer_id': state.customerId,
               'payment_number': pNum,
               'date': DateTime.now().toIso8601String(),
-              'amount': amt,
-              'payment_mode': p['mode'],
-              'created_by': _internalUserId,
+              'amount': totalAmt,
+              'payment_mode': isMulti ? 'Multi' : customPayments[0]['mode'],
+              'created_by': state.internalUserId,
               'is_active': true,
+              'payment_methods': customPayments, // Store splits
             }).select().single();
 
             await Supabase.instance.client.from('sales_payment_allocations').insert({
               'payment_id': payment['id'],
               'invoice_id': savedInvoiceId,
-              'amount': amt,
+              'amount': totalAmt,
             });
           }
         }
@@ -1666,7 +1740,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                   'reference_id': invoiceId,
                   'reference_type': 'INVOICE',
                   'notes': "Reversal for Invoice Edit: ${currentInvoice['invoice_number']}",
-                  'created_by': _internalUserId,
+                  'created_by': state.internalUserId,
                 });
               } catch (e) {
                 debugPrint("Stock reversal error: $e");
@@ -1677,7 +1751,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
 
         // 3. Replace Items and Apply New Stock
         await Supabase.instance.client.from('sales_invoice_items').delete().eq('invoice_id', invoiceId);
-        for (var item in _items) {
+        for (var item in state.items) {
           final qty = (item['quantity'] ?? 0).toDouble();
           final price = (item['unit_price'] ?? 0).toDouble();
           final taxRate = (item['tax_rate'] ?? 0).toDouble();
@@ -1724,7 +1798,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
                   'reference_id': invoiceId,
                   'reference_type': 'INVOICE',
                   'notes': "Sales Invoice (Updated): ${currentInvoice['invoice_number']}",
-                  'created_by': _internalUserId,
+                  'created_by': state.internalUserId,
                 });
               }
             } catch (e) {
@@ -1750,7 +1824,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
           if (mounted) {
             await PrintService.printDocument({
               ...fullInvoice,
-              'items': _items,
+              'items': state.items,
             }, 'SALES_INVOICE', context);
             
             // Dismiss the animation modal
@@ -1766,7 +1840,7 @@ class _InvoiceFormScreenState extends State<InvoiceFormScreen> {
       debugPrint("Error saving invoice: $e");
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
     } finally {
-       if (mounted) setState(() => _loading = false);
+       if (mounted) ref.read(invoiceProvider.notifier).setLoading(false);
     }
   }
 

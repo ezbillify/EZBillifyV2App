@@ -231,13 +231,13 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                                 )
                               ],
                             ),
-                            child: Image.asset(
+                            child: Hero(tag: 'app_logo', child: Image.asset(
                               'assets/images/logomain.png',
                               fit: BoxFit.contain,
                               errorBuilder: (context, error, stackTrace) {
                                 return const Icon(Icons.account_balance_wallet_rounded, size: 80, color: Colors.white);
                               },
-                            ),
+                            )),
                           ),
                         ),
                       ),

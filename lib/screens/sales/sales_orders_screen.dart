@@ -123,12 +123,7 @@ class _SalesOrdersScreenState extends State<SalesOrdersScreen> {
       if (_filterStatus != 'all') {
         query = query.eq('status', _filterStatus);
       }
-
-      if (_searchQuery.isNotEmpty) {
-        query = query.or('so_number.ilike.%$_searchQuery%,customer:customers.name.ilike.%$_searchQuery%');
-      }
-      
-      final response = await query.order('created_at', ascending: false);
+final response = await query.order('created_at', ascending: false);
       
       if (mounted) {
         setState(() {
@@ -252,15 +247,13 @@ class _SalesOrdersScreenState extends State<SalesOrdersScreen> {
                               _searchQuery = '';
                               _searchController.clear();
                             });
-                            _fetchOrders();
-                          }
+                            }
                         ) 
                       : null,
                   ),
                   onChanged: (v) {
                     setState(() => _searchQuery = v);
-                    _fetchOrders();
-                  },
+                    },
                 ),
               ),
             ),
@@ -290,8 +283,16 @@ class _SalesOrdersScreenState extends State<SalesOrdersScreen> {
   }
 
   Widget _buildOrderList() {
+    final filteredList = _orders.where((item) {
+      if (_searchQuery.isEmpty) return true;
+      final q = _searchQuery.toLowerCase();
+      return item.values.any((v) => v != null && v.toString().toLowerCase().contains(q)) || 
+             (item['customer'] != null && item['customer']['name'] != null && item['customer']['name'].toString().toLowerCase().contains(q)) ||
+             (item['vendor'] != null && item['vendor']['name'] != null && item['vendor']['name'].toString().toLowerCase().contains(q));
+    }).toList();
+
     if (_loading) return const SliverFillRemaining(child: Center(child: CircularProgressIndicator()));
-    if (_orders.isEmpty) {
+    if (filteredList.isEmpty) {
       return SliverFillRemaining(
         child: Center(
           child: Column(
@@ -311,13 +312,10 @@ class _SalesOrdersScreenState extends State<SalesOrdersScreen> {
       sliver: SliverList(
         delegate: SliverChildBuilderDelegate(
           (context, index) {
-            final order = _orders[index];
-            return FadeInUp(
-              duration: Duration(milliseconds: 400 + (index % 5 * 100)),
-              child: _buildOrderCard(order),
-            );
+            final order = filteredList[index];
+            return _buildOrderCard(order);
           },
-          childCount: _orders.length,
+          childCount: filteredList.length,
         ),
       ),
     );

@@ -35,6 +35,7 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
   String _status = "draft";
   String _vehicleNumber = "";
   String _transportMode = "Road";
+  String? _soId;
   
   // Line Items
   List<Map<String, dynamic>> _items = [];
@@ -60,6 +61,7 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
            _customerName = widget.challan!['customer_name'];
            _branchId = widget.challan!['branch_id']?.toString();
            _items = List<Map<String, dynamic>>.from(widget.challan!['items'] ?? []);
+           _soId = (widget.challan!['order_id'] ?? widget.challan!['so_id'])?.toString();
         }
 
         final branches = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
@@ -83,6 +85,7 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
         final shipping = widget.challan!['shipping_details'] ?? {};
         _vehicleNumber = shipping['vehicle_no'] ?? widget.challan!['vehicle_number'] ?? "";
         _transportMode = shipping['mode'] ?? widget.challan!['transport_mode'] ?? "Road";
+        _soId = (widget.challan!['so_id'] ?? widget.challan!['order_id'])?.toString();
         
         // Fetch items
         final items = await Supabase.instance.client.from('sales_dc_items')
@@ -555,6 +558,7 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
         },
         'status': _status,
         'created_by': _internalUserId,
+        'so_id': _soId,
       };
 
       if (widget.challan == null || widget.challan!['id'] == null) {
@@ -587,6 +591,16 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
         }
       }
       SalesRefreshService.triggerRefresh();
+      
+      // Update source Order status
+      if (_soId != null) {
+        try {
+          await Supabase.instance.client.from('sales_orders').update({'status': 'shipped'}).eq('id', _soId!);
+        } catch (e) {
+          debugPrint("Error updating order status: $e");
+        }
+      }
+
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       debugPrint("Error saving challan: $e");

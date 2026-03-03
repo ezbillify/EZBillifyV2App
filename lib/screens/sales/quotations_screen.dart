@@ -124,12 +124,7 @@ class _QuotationsScreenState extends State<QuotationsScreen> {
       if (_filterStatus != 'all') {
         query = query.eq('status', _filterStatus);
       }
-
-      if (_searchQuery.isNotEmpty) {
-        query = query.or('quote_number.ilike.%$_searchQuery%,customer:customers.name.ilike.%$_searchQuery%');
-      }
-      
-      final response = await query.order('created_at', ascending: false);
+final response = await query.order('created_at', ascending: false);
       
       if (mounted) {
         setState(() {
@@ -151,7 +146,9 @@ class _QuotationsScreenState extends State<QuotationsScreen> {
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'accepted': 
-      case 'converted': return Colors.green;
+      case 'converted': 
+      case 'converted_to_order':
+      case 'converted_to_invoice': return Colors.green;
       case 'sent': return Colors.blue;
       case 'rejected': return Colors.red;
       case 'draft': return Colors.grey;
@@ -252,15 +249,13 @@ class _QuotationsScreenState extends State<QuotationsScreen> {
                               _searchQuery = '';
                               _searchController.clear();
                             });
-                            _fetchQuotations();
-                          }
+                            }
                         ) 
                       : null,
                   ),
                   onChanged: (v) {
                     setState(() => _searchQuery = v);
-                    _fetchQuotations();
-                  },
+                    },
                 ),
               ),
             ),
@@ -289,8 +284,16 @@ class _QuotationsScreenState extends State<QuotationsScreen> {
   }
 
   Widget _buildQuotationList() {
+    final filteredList = _quotations.where((item) {
+      if (_searchQuery.isEmpty) return true;
+      final q = _searchQuery.toLowerCase();
+      return item.values.any((v) => v != null && v.toString().toLowerCase().contains(q)) || 
+             (item['customer'] != null && item['customer']['name'] != null && item['customer']['name'].toString().toLowerCase().contains(q)) ||
+             (item['vendor'] != null && item['vendor']['name'] != null && item['vendor']['name'].toString().toLowerCase().contains(q));
+    }).toList();
+
     if (_loading) return const SliverFillRemaining(child: Center(child: CircularProgressIndicator()));
-    if (_quotations.isEmpty) {
+    if (filteredList.isEmpty) {
       return SliverFillRemaining(
         child: Center(
           child: Column(
@@ -310,13 +313,10 @@ class _QuotationsScreenState extends State<QuotationsScreen> {
       sliver: SliverList(
         delegate: SliverChildBuilderDelegate(
           (context, index) {
-            final quote = _quotations[index];
-            return FadeInUp(
-              duration: Duration(milliseconds: 400 + (index % 5 * 100)),
-              child: _buildQuotationCard(quote),
-            );
+            final quote = filteredList[index];
+            return _buildQuotationCard(quote);
           },
-          childCount: _quotations.length,
+          childCount: filteredList.length,
         ),
       ),
     );

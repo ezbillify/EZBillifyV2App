@@ -338,10 +338,7 @@ class _PurchasePaymentsScreenState extends State<PurchasePaymentsScreen> {
         delegate: SliverChildBuilderDelegate(
           (context, index) {
             final payment = _payments[index];
-            return FadeInUp(
-              duration: Duration(milliseconds: 400 + (index % 5 * 100)),
-              child: _buildPaymentCard(payment),
-            );
+            return _buildPaymentCard(payment);
           },
           childCount: _payments.length,
         ),

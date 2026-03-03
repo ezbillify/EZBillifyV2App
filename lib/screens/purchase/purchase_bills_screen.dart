@@ -324,10 +324,7 @@ class _PurchaseBillsScreenState extends State<PurchaseBillsScreen> {
         delegate: SliverChildBuilderDelegate(
           (context, index) {
             final bill = _bills[index];
-            return FadeInUp(
-              duration: Duration(milliseconds: 400 + (index % 5 * 100)),
-              child: _buildBillCard(bill),
-            );
+            return _buildBillCard(bill);
           },
           childCount: _bills.length,
         ),

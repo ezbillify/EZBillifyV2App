@@ -271,10 +271,7 @@ class _PurchaseRfqsScreenState extends State<PurchaseRfqsScreen> {
         delegate: SliverChildBuilderDelegate(
           (context, index) {
             final rfq = _rfqs[index];
-            return FadeInUp(
-              duration: Duration(milliseconds: 400 + (index % 5 * 100)),
-              child: _buildRfqCard(rfq),
-            );
+            return _buildRfqCard(rfq);
           },
           childCount: _rfqs.length,
         ),

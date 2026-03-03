@@ -34,14 +34,12 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
   DateTime _paymentDate = DateTime.now();
   String _paymentNumber = "";
   double _amount = 0;
-  String _paymentMode = "Cash";
   String _referenceNumber = "";
   String _notes = "";
   String? _branchName;
-
   List<Map<String, dynamic>> _unpaidInvoices = [];
-
-  final _amountController = TextEditingController();
+  final List<Map<String, dynamic>> _payments = [];
+  bool _showSplits = false;
 
   @override
   void initState() {
@@ -51,8 +49,26 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
   
   @override
   void dispose() {
-    _amountController.dispose();
+    for (var p in _payments) {
+       p['controller'].dispose();
+    }
     super.dispose();
+  }
+
+  String _formatAmount(double val) {
+    if (val % 1 == 0) return val.toInt().toString();
+    return val.toStringAsFixed(2);
+  }
+
+  IconData _getPaymentIcon(String mode) {
+    switch (mode) {
+      case 'Cash': return Icons.payments_rounded;
+      case 'UPI': return Icons.qr_code_scanner_rounded;
+      case 'Card': return Icons.credit_card_rounded;
+      case 'Bank Transfer': return Icons.account_balance_rounded;
+      case 'Cheque': return Icons.history_edu_rounded;
+      default: return Icons.more_horiz_rounded;
+    }
   }
 
   Future<void> _initializeData() async {
@@ -80,8 +96,18 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
            _invoiceNumber = widget.initialInvoice!['invoice_number'];
            _invoiceBalance = (widget.initialInvoice!['balance_due'] ?? widget.initialInvoice!['balance_amount'] ?? 0).toDouble();
            _amount = _invoiceBalance;
-           _amountController.text = _amount.toStringAsFixed(2);
+           _payments.add({
+             'mode': 'Cash', 
+             'amount': _amount, 
+             'controller': TextEditingController(text: _formatAmount(_amount))
+           });
            await _fetchUnpaidInvoices(); // To populate list and validate
+        } else {
+           _payments.add({
+             'mode': 'Cash', 
+             'amount': 0.0, 
+             'controller': TextEditingController(text: "0")
+           });
         }
       } else {
         // Edit mode (Rare for payments - usually void/delete, but let's support view/edit if needed)
@@ -92,6 +118,53 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _updateTotalAmount() {
+    setState(() {
+      _amount = _payments.fold(0.0, (sum, p) => sum + (double.tryParse(p['controller'].text) ?? 0.0));
+    });
+  }
+
+  void _showModeSelectionSheet(BuildContext context, Function(String) onSelect) {
+    final modes = ["Cash", "UPI", "Card", "Bank Transfer", "Cheque", "Other"];
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: context.surfaceBg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
+              const SizedBox(height: 24),
+              Text("Select Payment Mode", style: TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.bold, color: context.textPrimary)),
+              const SizedBox(height: 16),
+              ...modes.map((mode) => ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                  child: Icon(_getPaymentIcon(mode), color: AppColors.primaryBlue, size: 20),
+                ),
+                title: Text(mode, style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+                onTap: () {
+                  onSelect(mode);
+                  Navigator.pop(context);
+                },
+              )),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _generatePaymentNumber() async {
@@ -130,7 +203,17 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
         _invoiceNumber = null;
         _invoiceBalance = 0;
         _amount = 0;
-        _amountController.clear();
+        if (_payments.isNotEmpty) {
+           _payments[0]['amount'] = 0.0;
+           _payments[0]['controller'].text = "0";
+           // If we had more than one payment mode, reset it
+           if (_payments.length > 1) {
+             for (int i = 1; i < _payments.length; i++) {
+               _payments[i]['controller'].dispose();
+             }
+             _payments.removeRange(1, _payments.length);
+           }
+        }
       }
     });
   }
@@ -212,45 +295,136 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                       );
                       if (picked != null) setState(() => _paymentDate = picked);
                    }),
+                   const SizedBox(height: 24),
+                   
+                   // Payment Breakdown
+                   Row(
+                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                     children: [
+                       _buildSectionTitle("Payment Breakdown"),
+                       if (!_showSplits && _payments.length <= 1)
+                         TextButton.icon(
+                           onPressed: () => setState(() => _showSplits = true),
+                           icon: const Icon(Icons.call_split_rounded, size: 16),
+                           label: const Text("Split Payment", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                         ),
+                     ],
+                   ),
+                   const SizedBox(height: 8),
+                   
+                   ..._payments.asMap().entries.map((entry) {
+                     int idx = entry.key;
+                     var p = entry.value;
+                     return Container(
+                       margin: const EdgeInsets.only(bottom: 12),
+                       padding: const EdgeInsets.all(16),
+                       decoration: BoxDecoration(
+                         color: context.cardBg,
+                         borderRadius: BorderRadius.circular(20),
+                         border: Border.all(color: context.borderColor),
+                       ),
+                       child: Column(
+                         children: [
+                           Row(
+                             children: [
+                               InkWell(
+                                 onTap: () => _showModeSelectionSheet(context, (mode) {
+                                   setState(() => p['mode'] = mode);
+                                 }),
+                                 borderRadius: BorderRadius.circular(12),
+                                 child: Container(
+                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                   decoration: BoxDecoration(
+                                     color: AppColors.primaryBlue.withOpacity(0.1),
+                                     borderRadius: BorderRadius.circular(12),
+                                   ),
+                                   child: Row(
+                                     mainAxisSize: MainAxisSize.min,
+                                     children: [
+                                       Icon(_getPaymentIcon(p['mode']), size: 16, color: AppColors.primaryBlue),
+                                       const SizedBox(width: 8),
+                                       Text(p['mode'], style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                                       const SizedBox(width: 4),
+                                       const Icon(Icons.arrow_drop_down_rounded, size: 16, color: AppColors.primaryBlue),
+                                     ],
+                                   ),
+                                 ),
+                               ),
+                               const Spacer(),
+                               if (_payments.length > 1)
+                                 IconButton(
+                                   onPressed: () => setState(() {
+                                     p['controller'].dispose();
+                                     _payments.removeAt(idx);
+                                     _updateTotalAmount();
+                                   }),
+                                   icon: const Icon(Icons.remove_circle_outline_rounded, color: Colors.red, size: 20),
+                                 ),
+                             ],
+                           ),
+                           const SizedBox(height: 12),
+                           TextFormField(
+                             controller: p['controller'],
+                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                             style: TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primaryBlue),
+                             decoration: InputDecoration(
+                               prefixText: "₹ ",
+                               labelText: "Amount",
+                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                               filled: true,
+                               fillColor: context.surfaceBg,
+                               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                             ),
+                             onChanged: (v) {
+                               p['amount'] = double.tryParse(v) ?? 0.0;
+                               _updateTotalAmount();
+                             },
+                           ),
+                         ],
+                       ),
+                     );
+                   }).toList(),
+
+                   if (_showSplits || _payments.length > 1)
+                     Center(
+                       child: TextButton.icon(
+                         onPressed: () {
+                           setState(() {
+                             double currentTotal = _payments.fold(0.0, (sum, p) => sum + (double.tryParse(p['controller'].text) ?? 0.0));
+                             double remaining = _invoiceId != null ? (_invoiceBalance - currentTotal) : 0.0;
+                             if (remaining < 0) remaining = 0;
+                             
+                             _payments.add({
+                               'mode': 'UPI', 
+                               'amount': remaining, 
+                               'controller': TextEditingController(text: _formatAmount(remaining))
+                             });
+                             _updateTotalAmount();
+                           });
+                         },
+                         icon: const Icon(Icons.add_circle_outline_rounded, size: 16),
+                         label: const Text("Add Another Mode", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                       ),
+                     ),
+                   
                    const SizedBox(height: 16),
                    
-                   // Amount Field
-                   TextFormField(
-                     controller: _amountController,
-                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                     style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primaryBlue),
-                     decoration: InputDecoration(
-                       labelText: "Amount Received",
-                       prefixText: "₹ ",
-                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                       filled: true,
-                       fillColor: context.cardBg,
-                       contentPadding: const EdgeInsets.all(20),
+                   Container(
+                     padding: const EdgeInsets.all(16),
+                     decoration: BoxDecoration(
+                       color: AppColors.primaryBlue.withOpacity(0.05),
+                       borderRadius: BorderRadius.circular(16),
+                       border: Border.all(color: AppColors.primaryBlue.withOpacity(0.1)),
                      ),
-                     onChanged: (v) => _amount = double.tryParse(v) ?? 0,
-                     validator: (v) {
-                       if (v == null || v.isEmpty) return "Enter amount";
-                       final val = double.tryParse(v);
-                       if (val == null || val <= 0) return "Invalid amount";
-                       if (_invoiceId != null && val > _invoiceBalance + 0.99) return "Exceeds balance (₹$_invoiceBalance)"; 
-                       return null;
-                     },
-                   ),
-                   const SizedBox(height: 16),
-                   
-                   // Mode Selector
-                   DropdownButtonFormField<String>(
-                     value: _paymentMode,
-                     decoration: InputDecoration(
-                       labelText: "Payment Mode", 
-                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none), 
-                       filled: true, 
-                       fillColor: context.cardBg,
+                     child: Row(
+                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                       children: [
+                         Text("Total Amount", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+                         Text("₹ ${_formatAmount(_amount)}", style: const TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primaryBlue)),
+                       ],
                      ),
-                     items: ["Cash", "Bank Transfer", "Cheque", "UPI", "Other"].map((m) => DropdownMenuItem(value: m, child: Text(m, style: const TextStyle(fontFamily: 'Outfit')))).toList(),
-                     onChanged: (v) => setState(() => _paymentMode = v!),
                    ),
-                   const SizedBox(height: 16),
+                   const SizedBox(height: 24),
                    
                    TextFormField(
                      decoration: InputDecoration(labelText: "Reference # (Optional)", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none), filled: true, fillColor: context.cardBg),
@@ -463,7 +637,10 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                             _invoiceNumber = inv['invoice_number'];
                             _invoiceBalance = (inv['balance_amount'] ?? 0).toDouble();
                             _amount = _invoiceBalance;
-                            _amountController.text = _amount.toStringAsFixed(2);
+                            if (_payments.isNotEmpty) {
+                              _payments[0]['amount'] = _amount;
+                              _payments[0]['controller'].text = _formatAmount(_amount);
+                            }
                           });
                           Navigator.pop(context);
                         },
@@ -563,18 +740,30 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
       )
     );
   }
-
   Future<void> _savePayment() async {
-    if (!_formKey.currentState!.validate()) return;
     if (_customerId == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Select customer"))); return; }
     if (_invoiceId == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Select invoice"))); return; }
+    
+    final finalPayments = _payments.map((p) => {
+      'mode': p['mode'],
+      'amount': double.tryParse(p['controller'].text) ?? 0.0,
+      'reference': _referenceNumber ?? '',
+    }).where((p) => (p['amount'] as double) > 0).toList();
+
+    if (finalPayments.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter payment amount")));
+      return;
+    }
+
+    double totalAmt = finalPayments.fold(0.0, (sum, p) => sum + (p['amount'] as double));
+    if (_invoiceId != null && totalAmt > _invoiceBalance + 0.99) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Total amount exceeds balance (₹$_invoiceBalance)")));
+      return;
+    }
     
     setState(() => _loading = true);
     
     try {
-      final user = Supabase.instance.client.auth.currentUser;
-
-      // 1. Consume actual number and Insert Payment
       final actualNumber = await NumberingService.getNextDocumentNumber(
         companyId: _companyId!,
         documentType: 'SALES_PAYMENT',
@@ -582,18 +771,21 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
         previewOnly: false,
       );
 
+      final isMulti = finalPayments.length > 1;
+
       final paymentPayload = {
         'company_id': _companyId,
         'branch_id': _branchId,
         'customer_id': _customerId,
         'payment_number': actualNumber,
         'date': _paymentDate.toIso8601String(),
-        'amount': _amount,
-        'payment_mode': _paymentMode,
+        'amount': totalAmt,
+        'payment_mode': isMulti ? 'Multi' : finalPayments[0]['mode'],
         'reference_number': _referenceNumber,
         'notes': _notes,
         'created_by': _internalUserId,
         'is_active': true,
+        'payment_methods': finalPayments, // Store splits for multi-mode
       };
 
       final payment = await Supabase.instance.client.from('sales_payments').insert(paymentPayload).select().single();
@@ -602,12 +794,11 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
       await Supabase.instance.client.from('sales_payment_allocations').insert({
         'payment_id': payment['id'],
         'invoice_id': _invoiceId,
-        'amount': _amount,
+        'amount': totalAmt,
       });
 
       // 3. Update Invoice Balance
-      final newBalance = _invoiceBalance - _amount;
-      // Web logic: balance_due <= 0.5 ? 'paid' : partially_paid / unpaid
+      final newBalance = _invoiceBalance - totalAmt;
       final newStatus = newBalance <= 0.5 ? 'paid' : 'partially_paid';
       
       await Supabase.instance.client.from('sales_invoices').update({

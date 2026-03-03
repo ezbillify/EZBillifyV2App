@@ -271,6 +271,8 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   children: [
                     _buildHeader(),
+                    const SizedBox(height: 24),
+                    _buildWorkflowTimeline(),
                     const SizedBox(height: 32),
                     _buildQuickStats(),
                     const SizedBox(height: 32),
@@ -373,6 +375,10 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
   }
 
   Widget _buildConversions() {
+    final status = _order['status']?.toString().toLowerCase() ?? 'pending';
+    if (status == 'completed' || status == 'cancelled') return const SizedBox.shrink();
+    final isShipped = status == 'shipped' || status == 'delivered';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -380,13 +386,15 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
         const SizedBox(height: 16),
         Row(
           children: [
-            Expanded(
-              child: _buildActionButton(Icons.local_shipping_outlined, "Create Challan", () {
-                Navigator.pop(context);
-                _convertToChallan();
-              }, filled: true),
-            ),
-            const SizedBox(width: 12),
+            if (!isShipped) ...[
+              Expanded(
+                child: _buildActionButton(Icons.local_shipping_outlined, "Create Challan", () {
+                  Navigator.pop(context);
+                  _convertToChallan();
+                }, filled: true),
+              ),
+              const SizedBox(width: 12),
+            ],
             Expanded(
               child: _buildActionButton(Icons.receipt_long_outlined, "Create Invoice", () {
                 Navigator.pop(context);
@@ -506,6 +514,14 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
     )));
     
     if (result == true && mounted) {
+      try {
+        await Supabase.instance.client
+            .from('sales_orders')
+            .update({'status': 'completed'})
+            .eq('id', _order['id']);
+      } catch (e) {
+        debugPrint("Error updating order status: $e");
+      }
       Navigator.pop(context, true);
     }
   }
@@ -529,6 +545,14 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
     )));
     
     if (result == true && mounted) {
+      try {
+        await Supabase.instance.client
+            .from('sales_orders')
+            .update({'status': 'shipped'})
+            .eq('id', _order['id']);
+      } catch (e) {
+        debugPrint("Error updating order status: $e");
+      }
       Navigator.pop(context, true);
     }
   }
@@ -609,6 +633,7 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
 
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
+      case 'completed':
       case 'confirmed': return Colors.green;
       case 'pending': return Colors.orange;
       case 'cancelled': return Colors.red;
@@ -616,6 +641,98 @@ class _OrderDetailsSheetState extends State<OrderDetailsSheet> {
       case 'delivered': return Colors.teal;
       default: return Colors.orange;
     }
+  }
+
+  Widget _buildWorkflowTimeline() {
+    final status = _order['status']?.toString().toLowerCase() ?? 'pending';
+    final isShipped = status == 'shipped' || status == 'delivered' || status == 'completed';
+    final isCompleted = status == 'completed';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      decoration: BoxDecoration(
+        color: context.cardBg,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: context.borderColor),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _buildTimelineStep("Draft", true, true),
+              _buildTimelineDivider(isShipped),
+              _buildTimelineStep("Challan", isShipped, isShipped),
+              _buildTimelineDivider(isCompleted),
+              _buildTimelineStep("Invoice", isCompleted, isCompleted),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                isCompleted ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                size: 14,
+                color: isCompleted ? Colors.green : AppColors.primaryBlue,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                isCompleted 
+                  ? "Order Fully Invoiced" 
+                  : isShipped ? "Order Shipped (Challan Created)" : "Order Pending Processing",
+                style: TextStyle(
+                  fontFamily: 'Outfit', 
+                  fontSize: 12, 
+                  color: isCompleted ? Colors.green : context.textSecondary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineStep(String label, bool isActive, bool isCompleted) {
+    return Expanded(
+      child: Column(
+        children: [
+          Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: isCompleted ? Colors.green : (isActive ? AppColors.primaryBlue : context.borderColor),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              isCompleted ? Icons.check : Icons.circle,
+              size: 14,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontFamily: 'Outfit',
+              fontSize: 10,
+              fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+              color: isActive ? context.textPrimary : context.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineDivider(bool isActive) {
+    return Container(
+      width: 40,
+      height: 2,
+      margin: const EdgeInsets.only(bottom: 18),
+      color: isActive ? Colors.green : context.borderColor,
+    );
   }
 
   Widget _buildSectionHeader(String title) {

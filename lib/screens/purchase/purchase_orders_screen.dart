@@ -320,10 +320,7 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
         delegate: SliverChildBuilderDelegate(
           (context, index) {
             final order = _orders[index];
-            return FadeInUp(
-              duration: Duration(milliseconds: 400 + (index % 5 * 100)),
-              child: _buildOrderCard(order),
-            );
+            return _buildOrderCard(order);
           },
           childCount: _orders.length,
         ),

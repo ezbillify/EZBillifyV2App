@@ -335,10 +335,7 @@ class _PurchaseGrnsScreenState extends State<PurchaseGrnsScreen> {
         delegate: SliverChildBuilderDelegate(
           (context, index) {
             final grn = _grns[index];
-            return FadeInUp(
-              duration: Duration(milliseconds: 400 + (index % 5 * 100)),
-              child: _buildGrnCard(grn),
-            );
+            return _buildGrnCard(grn);
           },
           childCount: _grns.length,
         ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:intl/intl.dart';
@@ -14,39 +15,26 @@ import '../../services/numbering_service.dart';
 import '../../services/master_data_service.dart';
 import '../../widgets/calendar_sheet.dart';
 import '../../services/sales_refresh_service.dart';
+import '../../providers/sales_order_provider.dart';
 
-class SalesOrderFormScreen extends StatefulWidget {
+
+class SalesOrderFormScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic>? order; // Null for new
   const SalesOrderFormScreen({super.key, this.order});
 
   @override
-  State<SalesOrderFormScreen> createState() => _SalesOrderFormScreenState();
+  ConsumerState<SalesOrderFormScreen> createState() => _SalesOrderFormScreenState();
 }
 
-class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
+class _SalesOrderFormScreenState extends ConsumerState<SalesOrderFormScreen> {
   final _formKey = GlobalKey<FormState>();
-  bool _loading = false;
   
-  // Header Info
+  // Header Info - Keep simple refs for initialization
   String? _companyId;
   String? _internalUserId;
-  String? _branchId;
-  String? _branchName;
-  String? _customerId;
-  String? _customerName;
-  DateTime _orderDate = DateTime.now();
-  DateTime _expectedDelivery = DateTime.now().add(const Duration(days: 7));
-  String _orderNumber = "";
-  String _status = "pending";
-  String? _quotationId;
-  
-  // Line Items
-  List<Map<String, dynamic>> _items = [];
-  
-  // Totals
-  double _subtotal = 0;
-  double _totalTax = 0;
-  double _totalAmount = 0;
+
+  // State is now managed by salesOrderProvider
+
 
   @override
   void initState() {
@@ -55,7 +43,8 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
   }
 
   Future<void> _initializeData() async {
-    setState(() => _loading = true);
+    final notifier = ref.read(salesOrderProvider.notifier);
+    notifier.setLoading(true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
       final profile = await Supabase.instance.client.from('users').select('id, company_id').eq('auth_id', user!.id).single();
@@ -73,21 +62,11 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
             .eq('id', orderId)
             .single();
             
-        _orderNumber = order['so_number'] ?? order['order_number'] ?? '';
-        _branchId = order['branch_id']?.toString();
-        _branchName = order['branch']?['name'];
-        _customerId = order['customer_id']?.toString();
-        _customerName = order['customer']?['name'];
-        _orderDate = DateTime.tryParse(order['date'] ?? order['order_date'] ?? '') ?? DateTime.now();
-        _expectedDelivery = DateTime.tryParse(order['delivery_date'] ?? order['expected_delivery'] ?? '') ?? DateTime.now().add(const Duration(days: 7));
-        _status = order['status'] ?? 'pending';
-        
-        // Fetch items
         final itemsRes = await Supabase.instance.client.from('sales_order_items')
             .select('*, item:items(name, uom, default_sales_price, default_purchase_price)')
             .eq('so_id', orderId);
         
-        _items = List<Map<String, dynamic>>.from(itemsRes.map((i) {
+        final items = List<Map<String, dynamic>>.from(itemsRes.map((i) {
           final qty = i['quantity'];
           final up = i['unit_price'];
           final tr = i['tax_rate'];
@@ -104,24 +83,33 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
           };
         }));
 
-        _calculateTotals();
+        notifier.updateHeader(
+          orderNumber: order['so_number'] ?? order['order_number'] ?? '',
+          branchId: order['branch_id']?.toString(),
+          branchName: order['branch']?['name'],
+          customerId: order['customer_id']?.toString(),
+          customerName: order['customer']?['name'],
+          orderDate: DateTime.tryParse(order['date'] ?? order['order_date'] ?? '') ?? DateTime.now(),
+          expectedDelivery: DateTime.tryParse(order['delivery_date'] ?? order['expected_delivery'] ?? '') ?? DateTime.now().add(const Duration(days: 7)),
+        );
+        notifier.setItems(items);
       } else {
         // NEW ORDER
         final branches = await Supabase.instance.client.from('branches').select().eq('company_id', _companyId!);
         if (branches.isNotEmpty) {
-          _branchId = branches[0]['id'].toString();
-          _branchName = branches[0]['name'];
+           notifier.updateHeader(
+             branchId: branches[0]['id'].toString(),
+             branchName: branches[0]['name'],
+           );
         }
         await _generateOrderNumber();
 
         // Handle pre-filled data (e.g. from Quotation)
         if (widget.order != null) {
-           _customerId = widget.order!['customer_id']?.toString();
-           _customerName = widget.order!['customer_name'] ?? widget.order!['customer']?['name'];
-           
+           List<Map<String, dynamic>> items = [];
            if (widget.order!['items'] != null) {
               final rawItems = List<dynamic>.from(widget.order!['items']);
-              _items = rawItems.map((it) {
+              items = rawItems.map((it) {
                 final qty = it['quantity'];
                 final up = it['unit_price'];
                 final tr = it['tax_rate'];
@@ -139,64 +127,52 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
               }).toList();
            }
            
+           String? bId, bName;
            if (widget.order!['branch_id'] != null) {
-              _branchId = widget.order!['branch_id'].toString();
-              final bMatch = branches.firstWhere((b) => b['id'].toString() == _branchId, orElse: () => {});
-              if (bMatch.isNotEmpty) _branchName = bMatch['name'];
+              bId = widget.order!['branch_id'].toString();
+              final bMatch = branches.firstWhere((b) => b['id'].toString() == bId, orElse: () => {});
+              if (bMatch.isNotEmpty) bName = bMatch['name'];
            }
-           _quotationId = widget.order!['quotation_id']?.toString();
-           _quotationId = widget.order!['quotation_id']?.toString();
-           _calculateTotals();
+
+           notifier.updateHeader(
+             customerId: widget.order!['customer_id']?.toString(),
+             customerName: widget.order!['customer_name'] ?? widget.order!['customer']?['name'],
+             branchId: bId,
+             branchName: bName,
+           );
+           notifier.setItems(items);
         }
       }
     } catch (e) {
       debugPrint("Error initializing: $e");
     } finally {
-      if (mounted) setState(() => _loading = false);
+      notifier.setLoading(false);
     }
   }
 
+
   Future<void> _generateOrderNumber() async {
-    if (_branchId == null || _companyId == null) return;
+    final state = ref.read(salesOrderProvider);
+    if (state.branchId == null || _companyId == null) return;
     
     final nextNum = await NumberingService.getNextDocumentNumber(
       companyId: _companyId!,
       documentType: 'SALES_ORDER',
-      branchId: _branchId,
+      branchId: state.branchId,
       previewOnly: true,
     );
     
-    setState(() => _orderNumber = nextNum);
+    ref.read(salesOrderProvider.notifier).updateHeader(orderNumber: nextNum);
   }
 
-  void _calculateTotals() {
-    double sub = 0;
-    double tax = 0;
-    for (var item in _items) {
-      final qty = (item['quantity'] ?? 0).toDouble();
-      final price = (item['unit_price'] ?? 0).toDouble(); 
-      final taxRate = (item['tax_rate'] ?? 0).toDouble();
-      
-      final totalInclusive = qty * price;
-      final lineSub = totalInclusive / (1 + (taxRate / 100));
-      final lineTax = totalInclusive - lineSub;
-      
-      // Essential for Printing - Populate per-item totals
-      item['total_amount'] = double.parse(totalInclusive.toStringAsFixed(2));
-      item['tax_amount'] = double.parse(lineTax.toStringAsFixed(2));
 
-      sub += lineSub;
-      tax += lineTax;
-    }
-    setState(() {
-      _subtotal = double.parse(sub.toStringAsFixed(2));
-      _totalTax = double.parse(tax.toStringAsFixed(2));
-      _totalAmount = double.parse((sub + tax).toStringAsFixed(2));
-    });
-  }
+  // Totals are now handled by SalesOrderNotifier
+
 
   @override
   Widget build(BuildContext context) {
+    final state = ref.watch(salesOrderProvider);
+    
     return Scaffold(
       backgroundColor: context.scaffoldBg,
       appBar: AppBar(
@@ -207,9 +183,10 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(widget.order == null ? "New Sales Order" : "Edit Order", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary, fontSize: 18)),
-            Text(_orderNumber.isEmpty ? "Generating ID..." : _orderNumber, style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
+            Text(state.orderNumber.isEmpty ? "Generating ID..." : state.orderNumber, style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
           ],
         ),
+
         leading: IconButton(icon: Icon(Icons.arrow_back_ios_new_rounded, color: context.textPrimary), onPressed: () => Navigator.pop(context)),
         actions: [
           if (widget.order != null)
@@ -226,58 +203,87 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
              )
         ]
       ),
-      body: _loading ? const Center(child: CircularProgressIndicator()) : Form(
+      body: state.loading ? const Center(child: CircularProgressIndicator()) : Form(
         key: _formKey,
         child: Column(
           children: [
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildHeaderSection(),
-                    const SizedBox(height: 32),
-                    _buildItemsSection(),
-                    const SizedBox(height: 32),
-                    _buildSummarySection(),
-                    const SizedBox(height: 100),
-                  ],
-                ),
+              child: CustomScrollView(
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.all(20),
+                    sliver: SliverToBoxAdapter(
+                      child: _buildHeaderSection(state),
+                    ),
+                  ),
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    sliver: SliverToBoxAdapter(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _buildSectionTitle("Order Items"),
+                          TextButton.icon(
+                            onPressed: _addItem,
+                            icon: const Icon(Icons.add_circle_outline_rounded, size: 20),
+                            label: const Text("Add Item", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 8)),
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    sliver: _buildItemsList(state), // Refactored to return a Sliver
+                  ),
+                  SliverPadding(
+                    padding: const EdgeInsets.all(20),
+                    sliver: SliverToBoxAdapter(
+                      child: _buildSummarySection(state),
+                    ),
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 100)),
+                ],
               ),
             ),
-            _buildBottomBar(),
+            _buildBottomBar(state),
           ],
         ),
       ),
+
+
     );
   }
 
   void _convertToInvoice() {
+    final state = ref.read(salesOrderProvider);
     Navigator.push(context, MaterialPageRoute(builder: (c) => InvoiceFormScreen(
       invoice: {
-        'customer_id': _customerId,
-        'customer_name': _customerName,
-        'branch_id': _branchId,
-        'items': _items,
+        'customer_id': state.customerId,
+        'customer_name': state.customerName,
+        'branch_id': state.branchId,
+        'items': state.items,
         'order_id': widget.order!['id'],
       },
     )));
   }
 
   void _convertToChallan() {
+    final state = ref.read(salesOrderProvider);
     Navigator.push(context, MaterialPageRoute(builder: (c) => DeliveryChallanFormScreen(
       challan: {
-        'customer_id': _customerId,
-        'customer_name': _customerName,
-        'branch_id': _branchId,
-        'items': _items,
+        'customer_id': state.customerId,
+        'customer_name': state.customerName,
+        'branch_id': state.branchId,
+        'items': state.items,
         'order_id': widget.order!['id'],
       },
     )));
   }
 
-  Widget _buildHeaderSection() {
+
+  Widget _buildHeaderSection(SalesOrderState state) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -296,7 +302,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
                   children: [
                     Icon(Icons.storefront_rounded, size: 16, color: context.textSecondary),
                     const SizedBox(width: 8),
-                    Text(_branchName ?? "Select Branch", style: TextStyle(fontFamily: 'Outfit', fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                    Text(state.branchName ?? "Select Branch", style: TextStyle(fontFamily: 'Outfit', fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary)),
                     const SizedBox(width: 4),
                     const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: AppColors.primaryBlue),
                   ],
@@ -318,7 +324,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
               children: [
                 Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), shape: BoxShape.circle), child: const Icon(Icons.person_pin_rounded, color: AppColors.primaryBlue, size: 24)),
                 const SizedBox(width: 16),
-                Expanded(child: Text(_customerName ?? "Select Customer", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: _customerName == null ? context.textSecondary.withOpacity(0.4) : context.textPrimary))),
+                Expanded(child: Text(state.customerName ?? "Select Customer", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: state.customerName == null ? context.textSecondary.withOpacity(0.4) : context.textPrimary))),
                 Icon(Icons.chevron_right_rounded, color: context.textSecondary.withOpacity(0.3)),
               ],
             ),
@@ -327,111 +333,105 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
         const SizedBox(height: 24),
         Row(
           children: [
-            Expanded(child: _buildInfoCard("Order Date", DateFormat('dd MMM, yyyy').format(_orderDate), Icons.calendar_today_rounded, () => _selectDate(true))),
+            Expanded(child: _buildInfoCard("Order Date", DateFormat('dd MMM, yyyy').format(state.orderDate), Icons.calendar_today_rounded, () => _selectDate(true))),
             const SizedBox(width: 16),
-            Expanded(child: _buildInfoCard("Delivery Date", DateFormat('dd MMM, yyyy').format(_expectedDelivery), Icons.local_shipping_rounded, () => _selectDate(false))),
+            Expanded(child: _buildInfoCard("Delivery Date", DateFormat('dd MMM, yyyy').format(state.expectedDelivery), Icons.local_shipping_rounded, () => _selectDate(false))),
           ],
         ),
       ],
     );
   }
 
-  Widget _buildItemsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            _buildSectionTitle("Order Items"),
-            TextButton.icon(
-              onPressed: _addItem,
-              icon: const Icon(Icons.add_circle_outline_rounded, size: 20),
-              label: const Text("Add Item", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
-            ),
-          ],
+
+  Widget _buildItemsList(SalesOrderState state) {
+    if (state.items.isEmpty) {
+      return SliverToBoxAdapter(
+        child: Container(
+          width: double.infinity, padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(20), border: Border.all(color: context.borderColor)),
+          child: Column(children: [
+            Icon(Icons.shopping_bag_outlined, size: 48, color: context.textSecondary.withOpacity(0.2)),
+            const SizedBox(height: 12),
+            Text("No items added yet", style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.5))),
+          ]),
         ),
-        const SizedBox(height: 8),
-        if (_items.isEmpty)
-          Container(
-            width: double.infinity, padding: const EdgeInsets.all(32),
-            decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(20), border: Border.all(color: context.borderColor)),
-            child: Column(children: [
-              Icon(Icons.shopping_bag_outlined, size: 48, color: context.textSecondary.withOpacity(0.2)),
-              const SizedBox(height: 12),
-              Text("No items added yet", style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.5))),
-            ]),
-          )
-        else
-          ListView.separated(
-            shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-            itemCount: _items.length, separatorBuilder: (c, i) => const SizedBox(height: 12),
-            itemBuilder: (context, index) {
-              final item = _items[index];
-              return Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
-                child: Row(children: [
-                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(item['name'], style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
-                      InkWell(
-                        onTap: () => _editItemPrice(index),
-                        borderRadius: BorderRadius.circular(8),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryBlue.withOpacity(0.05),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text("₹${item['unit_price']}", style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
-                              const SizedBox(width: 4),
-                              const Icon(Icons.edit_rounded, size: 10, color: AppColors.primaryBlue),
-                            ],
-                          ),
+      );
+    }
+
+    return SliverList(
+      delegate: SliverChildBuilderDelegate(
+        (context, index) {
+          final item = state.items[index];
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
+              child: Row(children: [
+                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(item['name'], style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary)),
+                    InkWell(
+                      onTap: () => _editItemPrice(index),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryBlue.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text("₹${item['unit_price']}", style: const TextStyle(fontFamily: 'Outfit', fontSize: 12, color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.edit_rounded, size: 10, color: AppColors.primaryBlue),
+                          ],
                         ),
                       ),
-                   ])),
-                   Row(children: [
-                     IconButton(onPressed: () { if((item['quantity']??1) > 1) { setState(() { item['quantity']--; _calculateTotals(); }); } }, icon: const Icon(Icons.remove_circle_outline_rounded)),
-                     Text("${item['quantity']}", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
-                     IconButton(onPressed: () { setState(() { item['quantity']++; _calculateTotals(); }); }, icon: const Icon(Icons.add_circle_outline_rounded)),
-                   ]),
-                   IconButton(onPressed: () => setState(() { _items.removeAt(index); _calculateTotals(); }), icon: const Icon(Icons.delete_outline_rounded, color: Colors.red)),
-                ]),
-              );
-            },
-          ),
-      ],
+                    ),
+                 ])),
+                 Row(children: [
+                   IconButton(onPressed: () { if((item['quantity']??1) > 1) ref.read(salesOrderProvider.notifier).updateItemQuantity(index, item['quantity'] - 1); }, icon: const Icon(Icons.remove_circle_outline_rounded)),
+                   Text("${item['quantity'].toInt()}", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                   IconButton(onPressed: () => ref.read(salesOrderProvider.notifier).updateItemQuantity(index, item['quantity'] + 1), icon: const Icon(Icons.add_circle_outline_rounded)),
+                 ]),
+                 IconButton(onPressed: () => ref.read(salesOrderProvider.notifier).removeItem(index), icon: const Icon(Icons.delete_outline_rounded, color: Colors.red)),
+              ]),
+            ),
+          );
+        },
+        childCount: state.items.length,
+      ),
     );
   }
 
-  Widget _buildSummarySection() {
+
+
+  Widget _buildSummarySection(SalesOrderState state) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.05), borderRadius: BorderRadius.circular(24), border: Border.all(color: AppColors.primaryBlue.withOpacity(0.1))),
       child: Column(
         children: [
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Subtotal"), Text("₹${_subtotal.toStringAsFixed(2)}")]),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Subtotal"), Text("₹${state.subtotal.toStringAsFixed(2)}")]),
           const SizedBox(height: 12),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Total Tax"), Text("₹${_totalTax.toStringAsFixed(2)}")]),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Total Tax"), Text("₹${state.totalTax.toStringAsFixed(2)}")]),
           const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider()),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Grand Total", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)), Text("₹${_totalAmount.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: AppColors.primaryBlue))]),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Grand Total", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)), Text("₹${state.totalAmount.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: AppColors.primaryBlue))]),
         ],
       ),
     );
   }
 
-  Widget _buildBottomBar() {
+
+  Widget _buildBottomBar(SalesOrderState state) {
     return Container(
       padding: EdgeInsets.fromLTRB(20, 16, 20, 16 + MediaQuery.of(context).padding.bottom),
       decoration: BoxDecoration(color: context.surfaceBg, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))]),
       child: SizedBox(
         width: double.infinity, height: 54,
         child: ElevatedButton(
-          onPressed: _loading ? null : _saveOrder,
+          onPressed: state.loading ? null : _saveOrder,
           style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 0),
           child: Text(widget.order == null ? "Place Order" : "Update Order", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
         ),
@@ -439,8 +439,10 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
     );
   }
 
+
   Future<void> _editItemPrice(int index) async {
-    final item = _items[index];
+    final state = ref.read(salesOrderProvider);
+    final item = state.items[index];
     final controller = TextEditingController(text: item['unit_price'].toString());
     
     await showModalBottomSheet(
@@ -482,10 +484,9 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
               child: ElevatedButton(
                 onPressed: () {
                   final newPrice = double.tryParse(controller.text) ?? item['unit_price'];
-                  setState(() {
-                    _items[index]['unit_price'] = newPrice;
-                    _calculateTotals();
-                  });
+                  final newItems = List<Map<String, dynamic>>.from(state.items);
+                  newItems[index] = Map<String, dynamic>.from(newItems[index])..['unit_price'] = newPrice;
+                  ref.read(salesOrderProvider.notifier).setItems(newItems);
                   Navigator.pop(context);
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 0),
@@ -498,6 +499,7 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
       ),
     );
   }
+
 
   Widget _buildSectionTitle(String title) {
     return Text(title, style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary));
@@ -523,32 +525,46 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
     if (!mounted) return;
     _showSelectionSheet<Map<String, dynamic>>(
       title: "Select Branch", items: List<Map<String, dynamic>>.from(results), labelMapper: (b) => b['name'],
-      onSelect: (b) => setState(() { _branchId = b['id'].toString(); _branchName = b['name']; _generateOrderNumber(); }),
+      onSelect: (b) {
+        ref.read(salesOrderProvider.notifier).updateHeader(
+          branchId: b['id'].toString(),
+          branchName: b['name'],
+        );
+        _generateOrderNumber();
+      },
     );
   }
+
 
   Future<void> _selectCustomer() async {
     final results = await MasterDataService().getCustomers(_companyId!);
     if(!mounted) return;
+    final currentState = ref.read(salesOrderProvider);
     _showSelectionSheet<Map<String, dynamic>>(
       title: "Select Customer", 
       items: List<Map<String, dynamic>>.from(results), 
       labelMapper: (c) => c['name'],
-      onSelect: (c) => setState(() { _customerId = c['id'].toString(); _customerName = c['name']; }),
-      currentValue: _customerName,
+      onSelect: (c) => ref.read(salesOrderProvider.notifier).updateHeader(
+        customerId: c['id'].toString(),
+        customerName: c['name'],
+      ),
+      currentValue: currentState.customerName,
       onRefresh: () async {
         await MasterDataService().getCustomers(_companyId!, forceRefresh: true);
       },
     );
   }
 
+
   Future<void> _addItem() async {
      final results = await MasterDataService().getItems(_companyId!);
      if(!mounted) return;
 
+     final currentState = ref.read(salesOrderProvider);
+     
      // Construct currentValues based on ALL items currently in the list
      List<Map<String, dynamic>> currentValues = [];
-     for (var i in _items) {
+     for (var i in currentState.items) {
        final match = results.firstWhere((r) => r['id'] == i['item_id'], orElse: () => {});
        if (match.isNotEmpty) {
          final qty = (i['quantity'] ?? 1).toInt();
@@ -578,43 +594,36 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
          await MasterDataService().getItems(_companyId!, forceRefresh: true);
        },
        onSelectMultiple: (selectedList) {
-         setState(() {
-            final qtyMap = <String, int>{};
-            final itemMap = <String, Map<String, dynamic>>{};
-            
-            for (var item in selectedList) {
-              final id = item['id'].toString();
-              qtyMap[id] = (qtyMap[id] ?? 0) + 1;
-              itemMap[id] = item;
-            }
+         final qtyMap = <String, int>{};
+         final itemMap = <String, Map<String, dynamic>>{};
+         
+         for (var item in selectedList) {
+           final id = item['id'].toString();
+           qtyMap[id] = (qtyMap[id] ?? 0) + 1;
+           itemMap[id] = item;
+         }
 
-            // Sync using the same logic as Invoice Form
-            _items.removeWhere((existing) => !qtyMap.containsKey(existing['item_id'].toString()));
-
-            for (var itemEntry in _items) {
-              final id = itemEntry['item_id'].toString();
-              itemEntry['quantity'] = qtyMap[id];
-              qtyMap.remove(id);
-            }
-
-            for (var id in qtyMap.keys) {
-              final item = itemMap[id]!;
-              final qty = qtyMap[id]!;
-              final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
-              final mrp = (item['default_sales_price'] ?? 0).toDouble();
-              final inclusive = double.parse((mrp * (1 + rate / 100)).toStringAsFixed(2));
-              
-              _items.add({
-                'item_id': item['id'],
-                'name': item['name'],
-                'quantity': qty,
-                'unit_price': inclusive,
-                'tax_rate': rate,
-              });
-            }
-            _calculateTotals();
-         });
+         final newItems = <Map<String, dynamic>>[];
+         for (var id in qtyMap.keys) {
+           final item = itemMap[id]!;
+           final qty = qtyMap[id]!;
+           final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
+           final mrp = (item['default_sales_price'] ?? 0).toDouble();
+           final inclusive = double.parse((mrp * (1 + rate / 100)).toStringAsFixed(2));
+           
+           newItems.add({
+             'item_id': item['id'],
+             'name': item['name'],
+             'quantity': qty.toDouble(),
+             'unit_price': inclusive,
+             'tax_rate': rate,
+             'tax_amount': double.parse((inclusive - (inclusive / (1 + (rate / 100)))).toStringAsFixed(2)),
+             'total_amount': double.parse((qty * inclusive).toStringAsFixed(2)),
+           });
+         }
+         ref.read(salesOrderProvider.notifier).setItems(newItems);
        }
+
      );
   }
 
@@ -875,33 +884,40 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
   }
 
   Future<void> _selectDate(bool isOrderDate) async {
+    final state = ref.read(salesOrderProvider);
+    final notifier = ref.read(salesOrderProvider.notifier);
+    
     final p = await showCustomCalendarSheet(
       context: context,
-      initialDate: isOrderDate ? _orderDate : _expectedDelivery,
+      initialDate: isOrderDate ? state.orderDate : state.expectedDelivery,
       title: isOrderDate ? "Select Order Date" : "Select Delivery Date",
-      firstDate: isOrderDate ? DateTime(2000) : (_orderDate),
+      firstDate: isOrderDate ? DateTime(2000) : (state.orderDate),
     );
     if (p != null) {
-      setState(() { 
-        if (isOrderDate) {
-          _orderDate = p;
-          // Auto update delivery date if it becomes before order date
-          if (_expectedDelivery.isBefore(_orderDate)) {
-             _expectedDelivery = _orderDate.add(const Duration(days: 7));
-          }
-        } else {
-          _expectedDelivery = p; 
+      if (isOrderDate) {
+        DateTime delivery = state.expectedDelivery;
+        if (delivery.isBefore(p)) {
+           delivery = p.add(const Duration(days: 7));
         }
-      });
+        notifier.updateHeader(orderDate: p, expectedDelivery: delivery);
+      } else {
+        notifier.updateHeader(expectedDelivery: p);
+      }
     }
   }
 
+
   Future<void> _saveOrder() async {
-    if (_customerId == null) {
+    if (!_formKey.currentState!.validate()) return;
+    
+    final state = ref.read(salesOrderProvider);
+    final notifier = ref.read(salesOrderProvider.notifier);
+
+    if (state.customerId == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a customer")));
       return;
     }
-    if (_items.isEmpty) {
+    if (state.items.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please add at least one item")));
       return;
     }
@@ -911,42 +927,38 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
        return;
     }
     
-    setState(() => _loading = true);
+    notifier.setLoading(true);
     try {
       final orderData = {
         'company_id': _companyId,
-        'branch_id': _branchId,
-        'customer_id': _customerId,
-        'so_number': _orderNumber,
-        'date': _orderDate.toIso8601String(),
-        'delivery_date': _expectedDelivery.toIso8601String(),
-        'sub_total': _subtotal,
-        'tax_total': _totalTax,
-        'total_amount': _totalAmount,
-        'status': _status,
+        'branch_id': state.branchId,
+        'customer_id': state.customerId,
+        'so_number': state.orderNumber,
+        'date': state.orderDate.toIso8601String(),
+        'delivery_date': state.expectedDelivery.toIso8601String(),
+        'sub_total': state.subtotal,
+        'tax_total': state.totalTax,
+        'total_amount': state.totalAmount,
+        'status': 'pending',
         'created_by': _internalUserId,
+        'quote_id': widget.order?['quotation_id'] ?? widget.order?['quote_id'],
       };
 
       String orderId;
       final bool isNewOrder = widget.order == null || widget.order!['id'] == null;
 
       if (isNewOrder) {
-        // NEW ORDER (Blank or Conversion)
+        // NEW ORDER
         final actualNumber = await NumberingService.getNextDocumentNumber(
           companyId: _companyId!,
           documentType: 'SALES_ORDER',
-          branchId: _branchId,
+          branchId: state.branchId,
           previewOnly: false,
         );
         orderData['so_number'] = actualNumber;
 
         final inserted = await Supabase.instance.client.from('sales_orders').insert(orderData).select().single();
         orderId = inserted['id'].toString();
-
-        // If converted from quotation, update status
-        if (_quotationId != null) {
-          await Supabase.instance.client.from('sales_quotations').update({'status': 'converted'}).eq('id', _quotationId!);
-        }
       } else {
         // UPDATE EXISTING
         orderId = widget.order!['id'].toString();
@@ -956,32 +968,30 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
       }
 
       // Preparation for bulk items insert
-      final List<Map<String, dynamic>> itemsToInsert = [];
-      for (var item in _items) {
-        if (item['item_id'] == null) continue; // Skip invalid items
-        
-        final qty = (item['quantity'] ?? 0).toDouble();
-        final price = (item['unit_price'] ?? 0).toDouble();
-        final taxRate = (item['tax_rate'] ?? 0).toDouble();
-        
-        final totalInclusive = qty * price;
-        final lineSub = totalInclusive / (1 + (taxRate / 100));
-        final lineTax = totalInclusive - lineSub;
-
-        itemsToInsert.add({
-          'so_id': orderId,
-          'item_id': item['item_id'].toString(),
-          'description': (item['name'] ?? 'Item').toString(),
-          'quantity': qty,
-          'unit_price': price,
-          'tax_rate': taxRate,
-          'tax_amount': double.parse(lineTax.toStringAsFixed(2)),
-          'total_amount': double.parse(totalInclusive.toStringAsFixed(2)),
-        });
-      }
+      final List<Map<String, dynamic>> itemsToInsert = state.items.map((it) => {
+        'so_id': orderId,
+        'item_id': it['item_id'].toString(),
+        'description': (it['name'] ?? 'Item').toString(),
+        'quantity': it['quantity'],
+        'unit_price': it['unit_price'],
+        'tax_rate': it['tax_rate'],
+        'tax_amount': it['tax_amount'],
+        'total_amount': it['total_amount'],
+      }).toList();
 
       if (itemsToInsert.isNotEmpty) {
         await Supabase.instance.client.from('sales_order_items').insert(itemsToInsert);
+      }
+
+      // If this was converted from a Quotation, update the Quotation status to 'converted'
+      final sourceQuoteId = widget.order?['quotation_id'] ?? widget.order?['quote_id'];
+      if (sourceQuoteId != null && isNewOrder) {
+        try {
+          await Supabase.instance.client.from('sales_quotations').update({'status': 'converted'}).eq('id', sourceQuoteId);
+        } catch (e) {
+          debugPrint("Note: Could not update source quotation status: $e");
+          // Non-critical error, don't fail the whole save
+        }
       }
 
       if (mounted) {
@@ -994,9 +1004,10 @@ class _SalesOrderFormScreenState extends State<SalesOrderFormScreen> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error saving order: ${e.toString()}"), backgroundColor: Colors.red));
       }
     } finally {
-       if (mounted) setState(() => _loading = false);
+       notifier.setLoading(false);
     }
   }
+
 
   void _openScanner<T>({
     required List<T> allItems,

@@ -54,12 +54,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
           .from('customers')
           .select()
           .eq('company_id', profile['company_id']);
-          
-      if (_searchQuery.isNotEmpty) {
-        query = query.or('name.ilike.%$_searchQuery%,email.ilike.%$_searchQuery%,phone.ilike.%$_searchQuery%');
-      }
-      
-      final response = await query.order(_sortBy, ascending: _sortAscending);
+final response = await query.order(_sortBy, ascending: _sortAscending);
       
       if (mounted) {
         setState(() {
@@ -855,15 +850,13 @@ class _CustomersScreenState extends State<CustomersScreen> {
                           icon: const Icon(Icons.close_rounded, size: 20, color: AppColors.primaryBlue), 
                           onPressed: () {
                             setState(() => _searchQuery = '');
-                            _fetchCustomers();
                           }
                         ) 
                       : null,
                   ),
                   onChanged: (v) {
                     setState(() => _searchQuery = v);
-                    _fetchCustomers();
-                  },
+                    },
                 ),
               ),
             ),
@@ -874,17 +867,29 @@ class _CustomersScreenState extends State<CustomersScreen> {
               ? const Center(child: CircularProgressIndicator()) 
               : RefreshIndicator(
                   onRefresh: _fetchCustomers,
-                  child: _customers.isEmpty 
-                    ? _buildEmptyState()
-                    : ListView.separated(
+                  child: Builder(
+                    builder: (context) {
+                      final filteredCustomers = _customers.where((c) {
+                        if (_searchQuery.isEmpty) return true;
+                        final q = _searchQuery.toLowerCase();
+                        final name = (c['name'] ?? '').toString().toLowerCase();
+                        final email = (c['email'] ?? '').toString().toLowerCase();
+                        final phone = (c['phone'] ?? '').toString().toLowerCase();
+                        final gstin = (c['gstin'] ?? '').toString().toLowerCase();
+                        return name.contains(q) || email.contains(q) || phone.contains(q) || gstin.contains(q);
+                      }).toList();
+                      if (filteredCustomers.isEmpty) return _buildEmptyState();
+                      return ListView.separated(
                         padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-                        itemCount: _customers.length,
+                        itemCount: filteredCustomers.length,
                         separatorBuilder: (c, i) => const SizedBox(height: 12),
                         itemBuilder: (context, index) {
-                          final customer = _customers[index];
+                          final customer = filteredCustomers[index];
                           return _buildCustomerCard(customer);
                         },
-                      ),
+                      );
+                    },
+                  ),
                 ),
           ),
         ],
