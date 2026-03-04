@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme_service.dart';
 import 'vendor_form_screen.dart';
 import 'vendor_ledger_screen.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class VendorsScreen extends StatefulWidget {
   final bool isSelecting; // If true, return selected vendor
@@ -495,7 +496,7 @@ class _VendorsScreenState extends State<VendorsScreen> {
     } catch (e) {
       debugPrint("Error launching URL: $e");
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+        StatusService.show(context, "Error: $e", backgroundColor: Colors.red);
       }
     }
   }
@@ -509,7 +510,6 @@ class _VendorsScreenState extends State<VendorsScreen> {
         elevation: 0,
         title: Text(widget.isSelecting ? "Select Vendor" : "Vendors", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
         titleTextStyle: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary, fontSize: 20),
-        centerTitle: false,
         iconTheme: IconThemeData(color: context.textPrimary),
       ),
       body: Column(
@@ -519,21 +519,33 @@ class _VendorsScreenState extends State<VendorsScreen> {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 250),
               height: 54,
+              alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: _searchFocusNode.hasFocus ? AppColors.primaryBlue.withOpacity(0.04) : context.cardBg,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: _searchFocusNode.hasFocus ? AppColors.primaryBlue : context.borderColor),
+                border: Border.all(
+                  color: _searchFocusNode.hasFocus ? AppColors.primaryBlue : context.textSecondary.withOpacity(0.2),
+                  width: 1.5,
+                  strokeAlign: BorderSide.strokeAlignInside,
+                ),
               ),
-              child: TextField(
-                controller: _searchController,
-                focusNode: _searchFocusNode,
-                style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary),
-                decoration: InputDecoration(
-                  hintText: "Search vendor by name, email or phone...",
-                  hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.5), fontSize: 14),
-                  prefixIcon: Icon(Icons.search_rounded, color: _searchFocusNode.hasFocus ? AppColors.primaryBlue : context.textSecondary.withOpacity(0.5)),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 15),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: TextField(
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  textAlignVertical: TextAlignVertical.center,
+                  style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    filled: false,
+                    hintText: "Search vendor by name, email or phone...",
+                    hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.5), fontSize: 14),
+                    prefixIcon: Icon(Icons.search_rounded, color: _searchFocusNode.hasFocus ? AppColors.primaryBlue : context.textSecondary.withOpacity(0.5)),
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                   suffixIcon: _searchQuery.isNotEmpty 
                     ? IconButton(
                         icon: const Icon(Icons.close_rounded, color: AppColors.primaryBlue), 
@@ -552,6 +564,7 @@ class _VendorsScreenState extends State<VendorsScreen> {
                   _fetchVendors();
                 },
               ),
+            ),
             ),
           ),
           Expanded(

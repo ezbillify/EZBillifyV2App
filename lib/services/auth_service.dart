@@ -13,6 +13,56 @@ class AuthService {
     );
   }
 
+  Future<AuthResponse> signUp(String email, String password, {required String firstName, required String lastName, required String phone}) async {
+    final response = await _supabase.auth.signUp(
+      email: email,
+      password: password,
+      data: {
+        'full_name': '$firstName $lastName',
+        'first_name': firstName,
+        'last_name': lastName,
+        'phone': phone,
+      },
+    );
+
+    if (response.user != null) {
+      // We need to wait for the user to be created in the public users table
+      // and then assign the 'owner' role.
+      // In a real app, this might be handled by a database trigger.
+      // But based on the web code, it makes a manual RPC call.
+      
+      // We'll attempt to find the user profile and assign role if it doesn't have one
+      // But since we are matching web, let's see if we can replicate the logic.
+      
+      // Wait for profile (up to 3 seconds)
+      int attempts = 0;
+      Map<String, dynamic>? userProfile;
+      while (attempts < 6 && userProfile == null) {
+        final result = await _supabase
+            .from('users')
+            .select('id')
+            .eq('auth_id', response.user!.id)
+            .maybeSingle();
+        if (result != null) {
+          userProfile = result;
+        } else {
+          await Future.delayed(const Duration(milliseconds: 500));
+          attempts++;
+        }
+      }
+
+      if (userProfile != null) {
+        await _supabase.rpc('assign_user_role', params: {
+          'target_user_id': userProfile['id'],
+          'target_role': 'owner',
+          'target_branch_id': null,
+        });
+      }
+    }
+
+    return response;
+  }
+
   Future<void> sendOtp(String email) async {
     await _supabase.auth.signInWithOtp(
       email: email,

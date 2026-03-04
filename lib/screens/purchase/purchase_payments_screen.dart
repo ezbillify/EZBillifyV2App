@@ -230,6 +230,7 @@ class _PurchasePaymentsScreenState extends State<PurchasePaymentsScreen> {
                   cursorColor: AppColors.primaryBlue,
                   decoration: InputDecoration(
                     isDense: true,
+                    filled: false,
                     hintText: "Search Payment # or vendor...",
                     hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15),
                     prefixIcon: Icon(

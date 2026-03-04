@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -5,6 +7,7 @@ import 'dart:ui' as ui;
 import '../../core/theme_service.dart';
 import 'purchase_payment_form_screen.dart';
 import '../../services/print_service.dart';
+
 
 class PurchasePaymentDetailsSheet extends StatelessWidget {
   final Map<String, dynamic> payment;
@@ -112,16 +115,16 @@ class PurchasePaymentDetailsSheet extends StatelessWidget {
                       children: [
                         Expanded(
                           child: _buildActionButton(context, Icons.print_outlined, "Print", () {
-                            PrintService.printDocument(Map<String, dynamic>.from(payment), 'payment');
+                            PrintService.printDocument(Map<String, dynamic>.from(payment), 'payment', context);
                           }),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _buildActionButton(context, Icons.file_download_outlined, "Download", () async {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
+                            StatusService.show(context, 'Generating PDF...', isLoading: true);
                             final path = await PrintService.downloadDocument(Map<String, dynamic>.from(payment), 'payment');
                             if (path != null) {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
+                              StatusService.show(context, 'PDF saved successfully', backgroundColor: Colors.green);
                             }
                           }),
                         ),
@@ -131,13 +134,13 @@ class PurchasePaymentDetailsSheet extends StatelessWidget {
                     SizedBox(
                       width: double.infinity,
                       child: _buildActionButton(context, Icons.share_outlined, "Share Receipt", () async {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparing share...'), duration: Duration(seconds: 1)));
+                        StatusService.show(context, 'Preparing share...', isLoading: true);
                         try {
                           final data = Map<String, dynamic>.from(payment);
                           await PrintService.shareDocument(context, data, 'payment');
                         } catch (e) {
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));
+                            StatusService.show(context, 'Failed to share: ${e.toString()}', backgroundColor: Colors.red);
                           }
                         }
                       }),

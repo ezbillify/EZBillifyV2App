@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants.dart';
 import '../../core/theme_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class NotificationSettingsScreen extends ConsumerStatefulWidget {
   const NotificationSettingsScreen({super.key});
@@ -62,9 +63,7 @@ class _NotificationSettingsScreenState extends ConsumerState<NotificationSetting
     await Future.delayed(const Duration(seconds: 1));
     if (mounted) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Preferences Saved'), backgroundColor: Colors.green),
-      );
+      StatusService.show(context, 'Preferences Saved', backgroundColor: Colors.green);
     }
   }
 

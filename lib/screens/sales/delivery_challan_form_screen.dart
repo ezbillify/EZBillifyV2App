@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -129,7 +131,6 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
       appBar: AppBar(
         backgroundColor: context.scaffoldBg,
         elevation: 0,
-        centerTitle: false,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -291,13 +292,13 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
         const SizedBox(height: 16),
         TextFormField(
           initialValue: _vehicleNumber,
-          decoration: InputDecoration(labelText: "Vehicle Number", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), prefixIcon: const Icon(Icons.commute), filled: true, fillColor: context.cardBg),
+          decoration: const InputDecoration(labelText: "Vehicle Number", prefixIcon: Icon(Icons.commute)),
           onChanged: (v) => _vehicleNumber = v,
         ),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
           value: _transportMode,
-          decoration: InputDecoration(labelText: "Transport Mode", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), filled: true, fillColor: context.cardBg),
+          decoration: const InputDecoration(labelText: "Transport Mode"),
           items: ["Road", "Rail", "Air", "Sea", "Hand Delivery"].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
           onChanged: (v) => setState(() => _transportMode = v!),
         ),
@@ -358,6 +359,7 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
       labelMapper: (c) => c['name'],
       onSelect: (c) => setState(() { _customerId = c['id'].toString(); _customerName = c['name']; }),
       currentValue: _customerName,
+      barcodeMapper: (c) => "", // Added missing required property or optional property to match signature safely. 
       onRefresh: () async {
         await MasterDataService().getCustomers(_companyId!, forceRefresh: true);
       },
@@ -367,12 +369,31 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
   Future<void> _addItem() async {
      final results = await MasterDataService().getItems(_companyId!);
      if(!mounted) return;
+
+     List<Map<String, dynamic>> currentValues = [];
+     for (var i in _items) {
+       final match = results.firstWhere((r) => r['id'] == i['item_id'], orElse: () => {});
+       if (match.isNotEmpty) {
+         final qty = (i['quantity'] ?? 1).toInt();
+         for (int q = 0; q < qty; q++) {
+           currentValues.add(match);
+         }
+       }
+     }
+
      _showSelectionSheet<Map<String, dynamic>>(
        title: "Dispatch Items", 
        items: List<Map<String, dynamic>>.from(results), 
+       currentValues: currentValues,
        labelMapper: (i) {
          final price = (i['default_sales_price'] ?? 0).toDouble();
-         return "${i['name']} (₹${price.toStringAsFixed(2)})";
+         final rate = (i['tax_rate']?['rate'] ?? 0).toDouble();
+         final inclusive = price * (1 + rate / 100);
+         return "${i['name']} (₹${inclusive.toStringAsFixed(2)})";
+       },
+       barcodeMapper: (i) {
+         final barcodes = List<String>.from(i['barcodes'] ?? []);
+         return "${i['sku'] ?? ''} ${barcodes.join(' ')}";
        },
        isMultiple: true, 
        showScanner: true,
@@ -381,20 +402,145 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
        },
        onSelectMultiple: (selectedList) {
          setState(() {
-            for(var item in selectedList) {
-               _items.add({
-                 'item_id': item['id'],
-                 'name': item['name'],
-                 'quantity': 1,
-                 'unit_price': double.parse(((item['default_sales_price'] ?? 0).toDouble()).toStringAsFixed(2)),
-                 'unit': item['uom'],
-               });
-            }
-         });
-       }
-     );
-  }
+           final qtyMap = <String, int>{};
+           final itemMap = <String, Map<String, dynamic>>{};
+           
+           for (var item in selectedList) {
+             final id = item['id'].toString();
+             qtyMap[id] = (qtyMap[id] ?? 0) + 1;
+             itemMap[id] = item;
+           }
 
+           // Sync existing items and remove unselected
+           _items.removeWhere((existing) => !qtyMap.containsKey(existing['item_id'].toString()));
+
+           // Update quantities for still existing
+           for (var itemEntry in _items) {
+             final id = itemEntry['item_id'].toString();
+             itemEntry['quantity'] = qtyMap[id]?.toDouble() ?? 1.0;
+             qtyMap.remove(id);
+           }
+
+           // Add new fully
+           for (var id in qtyMap.keys) {
+             final item = itemMap[id]!;
+             final qty = qtyMap[id]!;
+             final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
+             final mrp = (item['default_sales_price'] ?? 0).toDouble();
+             final inclusivePrice = double.parse((mrp * (1 + rate / 100)).toStringAsFixed(2));
+
+             _items.add({
+               'item_id': item['id'],
+               'name': item['name'],
+               'quantity': qty.toDouble(),
+               'unit_price': inclusivePrice,
+               'tax_rate': rate,
+               'unit': item['uom'] ?? 'unt',
+             });
+           }
+         });
+       },
+       itemContentBuilder: (context, item, count, onAdd, onRemove) {
+        final salesPrice = (item['default_sales_price'] ?? 0).toDouble();
+        final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
+        final salesPriceInclTax = salesPrice * (1 + rate / 100);
+        final itemMrp = salesPriceInclTax; // Defaulting MRP to tax inclusive sales price
+        final unit = item['uom'] ?? 'unt';
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Material(
+            color: count > 0 ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
+            borderRadius: BorderRadius.circular(20),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onAdd,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5), width: 1),
+                ),
+                child: Row(
+                  children: [
+                     Container(
+                       width: 48,
+                       height: 48,
+                       decoration: BoxDecoration(
+                         color: AppColors.primaryBlue.withOpacity(0.1),
+                         borderRadius: BorderRadius.circular(12),
+                       ),
+                       child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue),
+                     ),
+                   const SizedBox(width: 16),
+                   Expanded(
+                     child: Column(
+                       crossAxisAlignment: CrossAxisAlignment.start,
+                       children: [
+                         Text(
+                           item['name'],
+                           style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary),
+                           maxLines: 1, overflow: TextOverflow.ellipsis
+                         ),
+                         const SizedBox(height: 4),
+                         Wrap(
+                           spacing: 8,
+                           runSpacing: 4,
+                           children: [
+                             Text("MRP: ₹${itemMrp.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary, fontWeight: FontWeight.w500)),
+                             Text("Rate: ₹${salesPriceInclTax.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+                           ],
+                         ),
+                         const SizedBox(height: 4),
+                         Text("Pur: ₹${(item['default_purchase_price'] ?? 0).toStringAsFixed(2)} • $unit • ${rate.toStringAsFixed(0)}% Tax", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary.withOpacity(0.7))),
+                       ],
+                     ),
+                   ),
+                   const SizedBox(width: 12),
+                   if (count > 0)
+                     Container(
+                       decoration: BoxDecoration(
+                         color: context.surfaceBg,
+                         borderRadius: BorderRadius.circular(12),
+                         border: Border.all(color: context.borderColor),
+                       ),
+                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                       child: Row(
+                         mainAxisSize: MainAxisSize.min,
+                         children: [
+                           InkWell(
+                             onTap: onRemove,
+                             child: const Icon(Icons.remove, size: 20),
+                           ),
+                           SizedBox(
+                             width: 32,
+                             child: Text("$count", textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold)),
+                           ),
+                            InkWell(
+                             onTap: onAdd,
+                             child: const Icon(Icons.add, size: 20),
+                           ),
+                         ],
+                       ),
+                     )
+                   else
+                     Container(
+                       padding: const EdgeInsets.all(8),
+                       decoration: BoxDecoration(
+                         color: AppColors.primaryBlue.withOpacity(0.1),
+                         shape: BoxShape.circle,
+                       ),
+                       child: const Icon(Icons.add, color: AppColors.primaryBlue, size: 24),
+                     ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
   void _showSelectionSheet<T>({
     required String title,
     required List<T> items,
@@ -403,15 +549,18 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
     Function(List<T>)? onSelectMultiple,
     bool isMultiple = false,
     String? currentValue,
+    List<T>? currentValues,
     bool showScanner = false,
     String Function(T)? barcodeMapper,
+    Widget Function(BuildContext, T, int count, VoidCallback onAdd, VoidCallback onRemove)? itemContentBuilder,
     Future<void> Function()? onRefresh,
   }) {
     String searchQuery = "";
     bool isRefreshing = false;
     final searchController = TextEditingController();
     final focusNode = FocusNode();
-    List<T> selectedItems = [];
+    final sheetController = DraggableScrollableController();
+    List<T> selectedItems = currentValues != null ? List<T>.from(currentValues) : [];
 
     showModalBottomSheet(
       context: context,
@@ -421,115 +570,175 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
       useSafeArea: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
+          if (!focusNode.hasListeners) {
+            focusNode.addListener(() { 
+              if (context.mounted) {
+                setModalState(() {});
+                if (focusNode.hasFocus) {
+                  sheetController.animateTo(0.95, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+                }
+              }
+            });
+          }
+
           final List<T> filteredItems = items.where((item) {
             final label = labelMapper(item).toLowerCase();
-            return label.contains(searchQuery.toLowerCase());
+            final barcode = barcodeMapper?.call(item)?.toLowerCase() ?? "";
+            return label.contains(searchQuery.toLowerCase()) || barcode.contains(searchQuery.toLowerCase());
           }).toList();
 
           return DraggableScrollableSheet(
+            controller: sheetController,
             initialChildSize: 0.9,
             minChildSize: 0.5,
             maxChildSize: 0.95,
-            builder: (context, scrollController) => Container(
-              decoration: BoxDecoration(color: context.surfaceBg),
-              child: Column(
-                children: [
-                  const SizedBox(height: 12),
-                  Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
-                  const SizedBox(height: 24),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(title, style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary)),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
+            builder: (context, scrollController) => Stack(
+              children: [
+                Container(
+                  decoration: BoxDecoration(color: context.surfaceBg),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 12),
+                      Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
+                      const SizedBox(height: 24),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            if (onRefresh != null)
-                              isRefreshing 
-                                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                                : IconButton(
-                                    onPressed: () async {
-                                      setModalState(() => isRefreshing = true);
-                                      await onRefresh();
-                                      if (context.mounted) Navigator.pop(context);
-                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Data synchronized! Please reopen to see changes.")));
-                                    }, 
-                                    icon: const Icon(Icons.sync_rounded, color: AppColors.primaryBlue)
-                                  ),
-                            IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded))
+                            Text(title, style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (onRefresh != null)
+                                  isRefreshing 
+                                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : IconButton(
+                                        onPressed: () async {
+                                          setModalState(() => isRefreshing = true);
+                                          await onRefresh();
+                                          if (context.mounted) Navigator.pop(context);
+                                          StatusService.show(context, "Data synchronized! Please reopen to see changes.");
+                                        }, 
+                                        icon: const Icon(Icons.sync_rounded, color: AppColors.primaryBlue)
+                                      ),
+                                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded))
+                              ],
+                            )
                           ],
-                        )
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Container(
-                      decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
-                      child: TextField(
-                        controller: searchController,
-                        onChanged: (v) => setModalState(() => searchQuery = v),
-                        decoration: InputDecoration(
-                          hintText: "Search...",
-                          prefixIcon: const Icon(Icons.search_rounded),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.all(16),
                         ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Expanded(
-                    child: ListView.builder(
-                      controller: scrollController,
-                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 100),
-                      itemCount: filteredItems.length,
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Container(
+                          decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
+                          child: TextField(
+                            controller: searchController,
+                            onChanged: (v) => setModalState(() => searchQuery = v),
+                            decoration: InputDecoration(
+                              filled: false,
+                              hintText: "Search...",
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              prefixIcon: const Icon(Icons.search_rounded),
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.all(16),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Expanded(
+                        child: ListView.separated(
+                          controller: scrollController,
+                          padding: const EdgeInsets.fromLTRB(24, 0, 24, 100),
+                          itemCount: filteredItems.length,
+                          separatorBuilder: (c, i) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
                         final item = filteredItems[index];
                         final label = labelMapper(item);
-                        final isSelected = isMultiple ? selectedItems.contains(item) : currentValue == label;
-                        return ListTile(
-                          title: Text(label, style: TextStyle(fontFamily: 'Outfit', fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-                          trailing: isSelected ? const Icon(Icons.check_circle_rounded, color: AppColors.primaryBlue) : null,
-                          onTap: () {
-                            if (isMultiple) {
-                              setModalState(() => selectedItems.contains(item) ? selectedItems.remove(item) : selectedItems.add(item));
-                            } else {
-                              onSelect?.call(item);
-                              Navigator.pop(context);
-                            }
-                          },
+                        final count = selectedItems.where((e) => e == item).length;
+                        final isSelected = count > 0;
+
+                        if (itemContentBuilder != null) {
+                          return itemContentBuilder(
+                            context,
+                            item,
+                            count,
+                            () {
+                              if (isMultiple) {
+                                setModalState(() => selectedItems.add(item));
+                              } else {
+                                onSelect?.call(item);
+                                Navigator.pop(context);
+                              }
+                            },
+                            () {
+                              if (isMultiple && count > 0) {
+                                setModalState(() => selectedItems.remove(item));
+                              }
+                            },
+                          );
+                        }
+
+                        return Container(
+                          decoration: BoxDecoration(
+                            color: isSelected ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: isSelected ? AppColors.primaryBlue : context.borderColor),
+                          ),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                            title: Text(label, style: TextStyle(fontFamily: 'Outfit', fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                            trailing: isMultiple && isSelected 
+                              ? Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(color: AppColors.primaryBlue, borderRadius: BorderRadius.circular(8)),
+                                  child: Text("x$count", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                                ) 
+                              : (isSelected ? const Icon(Icons.check_circle_rounded, color: AppColors.primaryBlue) : null),
+                            onTap: () {
+                              if (isMultiple) {
+                                setModalState(() => selectedItems.add(item));
+                              } else {
+                                onSelect?.call(item);
+                                Navigator.pop(context);
+                              }
+                            },
+                          ),
                         );
                       },
                     ),
                   ),
-                  if (isMultiple)
-                    Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: SizedBox(
-                        width: double.infinity,
-                        height: 54,
-                        child: ElevatedButton(
-                          onPressed: selectedItems.isEmpty ? null : () {
-                            onSelectMultiple?.call(selectedItems);
-                            Navigator.pop(context);
-                          },
-                          style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-                          child: Text("Add Selected (${selectedItems.length})", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                        ),
-                      ),
-                    )
                 ],
               ),
             ),
-          );
-        },
-      ),
-    );
-  }
+            if (isMultiple && selectedItems.isNotEmpty)
+              Positioned(
+                bottom: 24,
+                left: 24,
+                right: 24,
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 54,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      onSelectMultiple?.call(selectedItems);
+                      Navigator.pop(context);
+                    },
+                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryBlue, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                    child: Text("Add Selected (${selectedItems.length})", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                  ),
+                ),
+              )
+          ],
+        ),
+      );
+    },
+  ),
+);
+}
 
   Future<void> _selectDate() async {
     final p = await showCustomCalendarSheet(
@@ -541,8 +750,8 @@ class _DeliveryChallanFormScreenState extends State<DeliveryChallanFormScreen> {
   }
 
   Future<void> _saveChallan() async {
-    if (_customerId == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Select customer"))); return; }
-    if (_items.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Add items"))); return; }
+    if (_customerId == null) { StatusService.show(context, "Select customer"); return; }
+    if (_items.isEmpty) { StatusService.show(context, "Add items"); return; }
     
     setState(() => _loading = true);
     try {

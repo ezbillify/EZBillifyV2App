@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../services/print_service.dart';
 import '../../services/print_settings_service.dart';
 import '../../core/theme_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class PrinterSettingsScreen extends StatefulWidget {
   const PrinterSettingsScreen({super.key});
@@ -96,7 +97,7 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
       // Check adapter state
       BluetoothAdapterState adapterState = await FlutterBluePlus.adapterState.first;
       if (adapterState != BluetoothAdapterState.on) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please turn on Bluetooth')));
+        if (mounted) StatusService.show(context, 'Please turn on Bluetooth');
         setState(() => _isScanning = false);
         return;
       }
@@ -175,13 +176,7 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
     }
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(btAddress != null ? 'Printer linked!' : 'Settings saved'),
-          backgroundColor: AppColors.success,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      StatusService.show(context, btAddress != null ? 'Printer linked!' : 'Settings saved', backgroundColor: AppColors.success);
       _checkStatus();
     }
   }
@@ -276,13 +271,11 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
                             child: OutlinedButton.icon(
                               onPressed: () async {
                                 try {
-                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Starting Test Print...'), duration: Duration(seconds: 2)));
+                                  StatusService.show(context, 'Starting Test Print...');
                                   await PrintService.printTestPage();
                                 } catch (e) {
                                   if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Print Error: ${e.toString()}'), backgroundColor: Colors.red),
-                                    );
+                                    StatusService.show(context, 'Print Error: ${e.toString()}', backgroundColor: Colors.red);
                                   }
                                 }
                               },

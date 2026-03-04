@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -5,6 +7,7 @@ import 'dart:ui' as ui;
 import '../../core/theme_service.dart';
 import 'credit_note_form_screen.dart';
 import '../../services/print_service.dart';
+
 
 class CreditNoteDetailsSheet extends StatefulWidget {
   final Map<String, dynamic> creditNote;
@@ -86,10 +89,10 @@ class _CreditNoteDetailsSheetState extends State<CreditNoteDetailsSheet> {
       if (mounted) {
         _refreshData();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Credit Note archived successfully")));
+        StatusService.show(context, "Credit Note archived successfully");
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error archiving credit note: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error archiving credit note: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -103,10 +106,10 @@ class _CreditNoteDetailsSheetState extends State<CreditNoteDetailsSheet> {
       if (mounted) {
         _refreshData();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Credit Note restored successfully"), backgroundColor: Colors.green));
+        StatusService.show(context, "Credit Note restored successfully", backgroundColor: Colors.green);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error restoring credit note: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error restoring credit note: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -128,10 +131,10 @@ class _CreditNoteDetailsSheetState extends State<CreditNoteDetailsSheet> {
       if (mounted) {
         widget.onRefresh();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Credit Note deleted permanently"), backgroundColor: Colors.black));
+        StatusService.show(context, "Credit Note deleted permanently", backgroundColor: Colors.black);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error deleting credit note: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error deleting credit note: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -432,7 +435,7 @@ class _CreditNoteDetailsSheetState extends State<CreditNoteDetailsSheet> {
             Expanded(child: _buildActionButton(Icons.print_outlined, "Print", () {
               final printData = Map<String, dynamic>.from(_creditNote);
               printData['items'] = _items;
-              PrintService.printDocument(printData, 'credit_note');
+              PrintService.printDocument(printData, 'credit_note', context);
             })),
           ],
         ),
@@ -442,22 +445,22 @@ class _CreditNoteDetailsSheetState extends State<CreditNoteDetailsSheet> {
             Expanded(child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
               final printData = Map<String, dynamic>.from(_creditNote);
               printData['items'] = _items;
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
+              StatusService.show(context, 'Generating PDF...', isLoading: true);
               final path = await PrintService.downloadDocument(printData, 'credit_note');
               if (path != null && mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
+                StatusService.show(context, 'PDF saved successfully', backgroundColor: Colors.green);
               }
             })),
             const SizedBox(width: 12),
             Expanded(child: _buildActionButton(Icons.share_outlined, "Share", () async {
               final printData = Map<String, dynamic>.from(_creditNote);
               printData['items'] = _items;
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparing share...'), duration: Duration(seconds: 1)));
+              StatusService.show(context, 'Preparing share...', isLoading: true);
               try {
                 await PrintService.shareDocument(context, printData, 'credit_note');
               } catch (e) {
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));
+                  StatusService.show(context, 'Failed to share: ${e.toString()}', backgroundColor: Colors.red);
                 }
               }
             })),

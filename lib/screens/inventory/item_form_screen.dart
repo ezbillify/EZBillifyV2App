@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/constants.dart';
@@ -112,7 +114,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
       final data = {
         'company_id': companyId,
         'name': _name,
-        'sku': _sku, // Handle auto-generate if empty?
+        'sku': _sku,
         'type': _type,
         'category_id': _categoryId,
         'uom': _uom,
@@ -120,10 +122,6 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
         'default_purchase_price': _purchasePrice,
         'mrp': _mrp,
         'min_stock_level': _minStock,
-        // Only update total stock if new? Or separate stock transaction?
-        // Usually total_stock should be updated via transactions, but for MVP/Initial creation, allowing direct set might be okay.
-        // For update, we shouldn't overwrite total_stock directly unless strictly needed.
-        if (widget.item == null) 'total_stock': _openingStock, 
         'tax_rate_id': _taxRateId,
         'hsn_code': _hsnCode,
         'barcodes': _barcodes,
@@ -136,10 +134,13 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
         await Supabase.instance.client.from('items').insert(data);
       }
       
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        StatusService.show(context, widget.item != null ? "Item updated!" : "Item created!", backgroundColor: AppColors.success);
+        Navigator.pop(context);
+      }
     } catch (e) {
       debugPrint("Error saving item: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) StatusService.show(context, "Error: $e");
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -147,20 +148,31 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.item != null ? "Edit Item" : "New Item", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
-        actions: [
-          TextButton(
-            onPressed: _loading ? null : _saveItem,
-            child: _loading 
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) 
-              : const Text("Save", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16)),
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: context.scaffoldBg,
+          elevation: 0,
+          leading: IconButton(
+            icon: Icon(Icons.arrow_back_ios_new_rounded, color: context.textPrimary, size: 20),
+            onPressed: () => Navigator.pop(context),
           ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+          title: Text(widget.item != null ? "Edit Item" : "New Item", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: TextButton(
+                onPressed: _loading ? null : _saveItem,
+                child: _loading 
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) 
+                  : const Text("Save", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.primaryBlue)),
+              ),
+            ),
+          ],
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
         child: Form(
           key: _formKey,
           child: Column(
@@ -169,7 +181,8 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
               _buildSectionTitle("Basic Details"),
               TextFormField(
                 initialValue: _name,
-                decoration: const InputDecoration(labelText: "Item Name", hintText: "e.g. Milk 1L"),
+                style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w500, color: context.textPrimary),
+                decoration: _inputDecoration("Item Name", hintText: "e.g. Milk 1L", icon: Icons.inventory_2_outlined),
                 validator: (v) => v!.isEmpty ? "Required" : null,
                 onSaved: (v) => _name = v!,
               ),
@@ -179,7 +192,8 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                   Expanded(
                     child: TextFormField(
                       initialValue: _sku,
-                      decoration: const InputDecoration(labelText: "SKU / Code", hintText: "Auto if empty"),
+                      style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w500, color: context.textPrimary),
+                      decoration: _inputDecoration("SKU / Code", hintText: "Auto if empty", icon: Icons.qr_code_outlined),
                       onSaved: (v) => _sku = v ?? '',
                     ),
                   ),
@@ -187,7 +201,8 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                   Expanded(
                     child: DropdownButtonFormField<String>(
                       value: _type,
-                      decoration: const InputDecoration(labelText: "Type"),
+                      style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w500, color: context.textPrimary),
+                      decoration: _inputDecoration("Type", icon: Icons.category_outlined),
                       items: const [
                         DropdownMenuItem(value: 'product', child: Text("Product")),
                         DropdownMenuItem(value: 'service', child: Text("Service")),
@@ -204,8 +219,9 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                   Expanded(
                     child: DropdownButtonFormField<String>(
                       value: _categories.any((c) => c['id'] == _categoryId) ? _categoryId : null,
-                      decoration: const InputDecoration(labelText: "Category"),
-                      items: _categories.map((c) => DropdownMenuItem(value: c['id'].toString(), child: Text(c['name']))).toList(),
+                      style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w500, color: context.textPrimary),
+                      decoration: _inputDecoration("Category", icon: Icons.label_important_outline_rounded),
+                      items: _categories.map((c) => DropdownMenuItem(value: c['id'].toString(), child: Text(c['name'], style: TextStyle(color: context.textPrimary)))).toList(),
                       onChanged: (v) => setState(() => _categoryId = v),
                       validator: (v) => v == null ? "Required" : null,
                     ),
@@ -213,13 +229,10 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                   const SizedBox(width: 16),
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _units.any((u) => u['code'] == _uom) ? _uom : null, // Assuming UOM stored as code? Or ID?
-                      // Web interface used code (string) but backend might use ID?
-                      // Wait, web item interface says `uom: string`. UnitList uses code as key.
-                      // Let's assume it stores the code string like 'pcs'.
-                      // If `_units` has `code` field.
-                      decoration: const InputDecoration(labelText: "Unit"),
-                      items: _units.map((u) => DropdownMenuItem(value: u['code'].toString(), child: Text(u['name']))).toList(),
+                      value: _units.any((u) => u['code'] == _uom) ? _uom : null,
+                      style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w500, color: context.textPrimary),
+                      decoration: _inputDecoration("Unit", icon: Icons.straighten_rounded),
+                      items: _units.map((u) => DropdownMenuItem(value: u['code'].toString(), child: Text(u['name'], style: TextStyle(color: context.textPrimary)))).toList(),
                       onChanged: (v) => setState(() => _uom = v!),
                       validator: (v) => v == null ? "Required" : null,
                     ),
@@ -235,8 +248,9 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                   Expanded(
                     child: TextFormField(
                       initialValue: _salesPrice.toString(),
-                      decoration: const InputDecoration(labelText: "Sales Price", prefixText: "₹"),
-                      keyboardType: TypeError().runtimeType == double ? TextInputType.number : const TextInputType.numberWithOptions(decimal: true),
+                      style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w500, color: context.textPrimary),
+                      decoration: _inputDecoration("Sales Price", prefixText: "₹ ", icon: Icons.sell_outlined),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
                       validator: (v) => double.tryParse(v!) == null ? "Invalid" : null,
                       onSaved: (v) => _salesPrice = double.parse(v!),
                     ),
@@ -245,7 +259,8 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                   Expanded(
                     child: TextFormField(
                       initialValue: _mrp.toString(),
-                      decoration: const InputDecoration(labelText: "MRP", prefixText: "₹"),
+                      style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w500, color: context.textPrimary),
+                      decoration: _inputDecoration("MRP", prefixText: "₹ ", icon: Icons.payments_outlined),
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
                       onSaved: (v) => _mrp = double.tryParse(v!) ?? 0,
                     ),
@@ -258,7 +273,8 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                   Expanded(
                     child: TextFormField(
                       initialValue: _purchasePrice.toString(),
-                      decoration: const InputDecoration(labelText: "Purchase Price", prefixText: "₹"),
+                      style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w500, color: context.textPrimary),
+                      decoration: _inputDecoration("Purchase Price", prefixText: "₹ ", icon: Icons.shopping_bag_outlined),
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
                       onSaved: (v) => _purchasePrice = double.tryParse(v!) ?? 0,
                     ),
@@ -267,8 +283,9 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                   Expanded(
                     child: DropdownButtonFormField<String>(
                       value: _taxRates.any((t) => t['id'] == _taxRateId) ? _taxRateId : null,
-                      decoration: const InputDecoration(labelText: "Tax Rate"),
-                      items: _taxRates.map((t) => DropdownMenuItem(value: t['id'].toString(), child: Text("${t['name']} (${t['rate']}%)"))).toList(),
+                      style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w500, color: context.textPrimary),
+                      decoration: _inputDecoration("Tax Rate", icon: Icons.percent_rounded),
+                      items: _taxRates.map((t) => DropdownMenuItem(value: t['id'].toString(), child: Text("${t['name']} (${t['rate']}%)", style: TextStyle(color: context.textPrimary)))).toList(),
                       onChanged: (v) => setState(() => _taxRateId = v),
                     ),
                   ),
@@ -277,7 +294,8 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
               const SizedBox(height: 16),
               TextFormField(
                 initialValue: _hsnCode,
-                decoration: const InputDecoration(labelText: "HSN / SAC Code"),
+                style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w500, color: context.textPrimary),
+                decoration: _inputDecoration("HSN / SAC Code", icon: Icons.receipt_long_outlined),
                 onSaved: (v) => _hsnCode = v ?? '',
               ),
 
@@ -289,7 +307,8 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                   Expanded(
                     child: TextFormField(
                       initialValue: _minStock.toString(),
-                      decoration: const InputDecoration(labelText: "Low Stock Alert Level"),
+                      style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w500, color: context.textPrimary),
+                      decoration: _inputDecoration("Low Stock Alert", icon: Icons.warning_amber_rounded),
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
                       onSaved: (v) => _minStock = double.tryParse(v!) ?? 0,
                     ),
@@ -299,7 +318,8 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                     Expanded(
                       child: TextFormField(
                         initialValue: _openingStock.toString(),
-                        decoration: const InputDecoration(labelText: "Opening Stock"),
+                        style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w500, color: context.textPrimary),
+                        decoration: _inputDecoration("Opening Stock", icon: Icons.warehouse_outlined),
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         onSaved: (v) => _openingStock = double.tryParse(v!) ?? 0,
                       ),
@@ -313,10 +333,11 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
               // Simple comma separated input for now
               TextFormField(
                 initialValue: _barcodes.join(', '),
-                decoration: const InputDecoration(
-                  labelText: "Barcodes (Comma separated)", 
+                style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w500, color: context.textPrimary),
+                decoration: _inputDecoration(
+                  "Barcodes (Comma separated)", 
                   hintText: "12345678, 87654321",
-                  suffixIcon: Icon(Icons.barcode_reader),
+                  icon: Icons.barcode_reader,
                 ),
                 onSaved: (v) {
                   if (v != null && v.isNotEmpty) {
@@ -327,7 +348,7 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
                 },
               ),
               
-              const SizedBox(height: 50),
+              const SizedBox(height: 100),
             ],
           ),
         ),
@@ -337,11 +358,28 @@ class _ItemFormScreenState extends State<ItemFormScreen> {
 
   Widget _buildSectionTitle(String title) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(bottom: 16, left: 4),
       child: Text(
         title.toUpperCase(),
-        style: TextStyle(fontFamily: 'Outfit', fontSize: 12, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor, letterSpacing: 1.2),
+        style: TextStyle(fontFamily: 'Outfit', fontSize: 12, fontWeight: FontWeight.bold, color: context.textSecondary.withOpacity(0.6), letterSpacing: 1.2),
       ),
+    );
+  }
+
+  InputDecoration _inputDecoration(String label, {String? hintText, String? prefixText, IconData? icon}) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hintText,
+      prefixText: prefixText,
+      prefixIcon: icon != null ? Icon(icon, size: 20, color: context.textSecondary.withOpacity(0.5)) : null,
+      labelStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary),
+      floatingLabelStyle: const TextStyle(fontFamily: 'Outfit', color: AppColors.primaryBlue, fontWeight: FontWeight.bold),
+      filled: true,
+      fillColor: context.isDark ? Colors.white.withOpacity(0.02) : Colors.black.withOpacity(0.02),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.primaryBlue, width: 1.5)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
     );
   }
 }

@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -303,12 +305,13 @@ class _PurchaseRfqFormScreenState extends State<PurchaseRfqFormScreen> {
                   child: TextField(
                     controller: searchController,
                     focusNode: focusNode,
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
+                      filled: false,
                       hintText: "Search...",
-                      prefixIcon: const Icon(Icons.search),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                      filled: true,
-                      fillColor: context.cardBg,
+                                 border: InputBorder.none,
+                                 enabledBorder: InputBorder.none,
+                                 focusedBorder: InputBorder.none,
+                      prefixIcon: Icon(Icons.search),
                     ),
                     onChanged: (v) => setModalState(() => searchQuery = v),
                   ),
@@ -438,7 +441,7 @@ class _PurchaseRfqFormScreenState extends State<PurchaseRfqFormScreen> {
 
   void _saveRfq() async {
     if (_items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please add at least one item")));
+      StatusService.show(context, "Please add at least one item");
       return;
     }
     // Vendor is optional for RFQ sometimes, but let's enforce or assume usually selected? 
@@ -482,11 +485,11 @@ class _PurchaseRfqFormScreenState extends State<PurchaseRfqFormScreen> {
 
       if (mounted) {
         Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("RFQ Saved Successfully")));
+        StatusService.show(context, "RFQ Saved Successfully");
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error saving RFQ: $e"), backgroundColor: Colors.red));
+        StatusService.show(context, "Error saving RFQ: $e", backgroundColor: Colors.red);
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -739,11 +742,8 @@ class _PurchaseRfqFormScreenState extends State<PurchaseRfqFormScreen> {
         TextFormField(
           initialValue: _notes,
           maxLines: 3,
-          decoration: InputDecoration(
+          decoration: const InputDecoration(
             labelText: "Additional Notes or Instructions",
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            filled: true,
-            fillColor: context.cardBg,
           ),
           onChanged: (v) => _notes = v,
         ),

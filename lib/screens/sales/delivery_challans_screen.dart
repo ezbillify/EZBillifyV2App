@@ -182,6 +182,7 @@ final response = await query.order('created_at', ascending: false);
                   cursorColor: AppColors.primaryBlue,
                   decoration: InputDecoration(
                     isDense: true,
+                    filled: false,
                     hintText: "Search challan # or customer...",
                     hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15),
                     prefixIcon: Icon(
@@ -190,6 +191,8 @@ final response = await query.order('created_at', ascending: false);
                       size: 22
                     ),
                     border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                     suffixIcon: _searchQuery.isNotEmpty 
                       ? IconButton(

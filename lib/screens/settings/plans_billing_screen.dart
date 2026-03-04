@@ -6,6 +6,7 @@ import '../../core/theme_service.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class PlansBillingScreen extends ConsumerStatefulWidget {
   final String companyId;
@@ -40,7 +41,7 @@ class _PlansBillingScreenState extends ConsumerState<PlansBillingScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        StatusService.show(context, 'Error: $e');
         setState(() => _isLoading = false);
       }
     }
@@ -65,7 +66,7 @@ class _PlansBillingScreenState extends ConsumerState<PlansBillingScreen> {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open billing portal.')));
+        StatusService.show(context, 'Could not open billing portal.');
       }
     }
   }

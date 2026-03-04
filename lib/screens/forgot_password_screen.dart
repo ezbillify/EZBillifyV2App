@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/theme_service.dart';
@@ -30,9 +31,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.error),
-    );
+    StatusService.show(context, message, backgroundColor: AppColors.error);
   }
 
   Future<void> _requestOTP() async {

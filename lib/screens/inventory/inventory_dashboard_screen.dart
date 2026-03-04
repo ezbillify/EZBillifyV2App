@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../core/theme_service.dart';
 import 'items_screen.dart';
 import 'stock_management_screen.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class InventoryDashboardScreen extends StatefulWidget {
   const InventoryDashboardScreen({super.key});
@@ -384,7 +385,7 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
       ),
       actions: [
         IconButton(
-          onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bulk Import coming soon!"))),
+          onPressed: () => StatusService.show(context, "Bulk Import coming soon!"),
           icon: Icon(Icons.cloud_upload_outlined, color: AppColors.primaryBlue),
         ),
       ],

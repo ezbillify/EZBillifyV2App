@@ -39,7 +39,6 @@ class _PurchaseDashboardState extends State<PurchaseDashboard> with SingleTicker
         title: Text("Purchase Module", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
         backgroundColor: Colors.transparent,
         elevation: 0,
-        centerTitle: false,
         actions: [
            IconButton(
              icon: Icon(Icons.store_outlined, color: context.textPrimary),

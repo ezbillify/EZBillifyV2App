@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/settings_service.dart';
 import '../../core/theme_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class DocumentNumberingScreen extends ConsumerStatefulWidget {
   final String companyId;
@@ -40,7 +41,7 @@ class _DocumentNumberingScreenState extends ConsumerState<DocumentNumberingScree
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        StatusService.show(context, 'Error: $e');
         setState(() => _isLoading = false);
       }
     }
@@ -288,9 +289,9 @@ class _SequenceCardState extends State<_SequenceCard> {
       });
       widget.onSave();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sequence updated!')));
+      StatusService.show(context, 'Sequence updated!');
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) StatusService.show(context, 'Error: $e');
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }

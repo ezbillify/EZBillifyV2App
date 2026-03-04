@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -6,6 +8,7 @@ import '../../core/theme_service.dart';
 import 'purchase_rfq_form_screen.dart';
 import 'purchase_order_form_screen.dart';
 import '../../services/print_service.dart';
+
 
 class PurchaseRfqDetailsSheet extends StatefulWidget {
   final Map<String, dynamic> rfq;
@@ -86,10 +89,10 @@ class _PurchaseRfqDetailsSheetState extends State<PurchaseRfqDetailsSheet> {
       if (mounted) {
         _refreshData();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("RFQ archived successfully")));
+        StatusService.show(context, "RFQ archived successfully");
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error archiving RFQ: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error archiving RFQ: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -103,10 +106,10 @@ class _PurchaseRfqDetailsSheetState extends State<PurchaseRfqDetailsSheet> {
       if (mounted) {
         _refreshData();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("RFQ restored successfully"), backgroundColor: Colors.green));
+        StatusService.show(context, "RFQ restored successfully", backgroundColor: Colors.green);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error restoring RFQ: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error restoring RFQ: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -128,10 +131,10 @@ class _PurchaseRfqDetailsSheetState extends State<PurchaseRfqDetailsSheet> {
       if (mounted) {
         widget.onRefresh();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("RFQ deleted permanently"), backgroundColor: Colors.black));
+        StatusService.show(context, "RFQ deleted permanently", backgroundColor: Colors.black);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error deleting RFQ: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error deleting RFQ: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -329,7 +332,7 @@ class _PurchaseRfqDetailsSheetState extends State<PurchaseRfqDetailsSheet> {
                           child: _buildActionButton(Icons.print_outlined, "Print", () {
                             final data = Map<String, dynamic>.from(_rfq);
                             data['items'] = _items;
-                            PrintService.printDocument(data, 'purchase_rfq');
+                            PrintService.printDocument(data, 'purchase_rfq', context);
                           }),
                         ),
                         const SizedBox(width: 12),
@@ -337,10 +340,10 @@ class _PurchaseRfqDetailsSheetState extends State<PurchaseRfqDetailsSheet> {
                           child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
                             final data = Map<String, dynamic>.from(_rfq);
                             data['items'] = _items;
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
+                            StatusService.show(context, 'Generating PDF...', isLoading: true);
                             final path = await PrintService.downloadDocument(data, 'purchase_rfq');
                             if (path != null && mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
+                              StatusService.show(context, 'PDF saved successfully', backgroundColor: Colors.green);
                             }
                           }),
                         ),
@@ -352,12 +355,12 @@ class _PurchaseRfqDetailsSheetState extends State<PurchaseRfqDetailsSheet> {
                       child: _buildActionButton(Icons.share_outlined, "Share RFQ", () async {
                         final data = Map<String, dynamic>.from(_rfq);
                         data['items'] = _items;
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparing share...'), duration: Duration(seconds: 1)));
+                        StatusService.show(context, 'Preparing share...', isLoading: true);
                         try {
                           await PrintService.shareDocument(context, data, 'purchase_rfq');
                         } catch (e) {
                           if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));
+                            StatusService.show(context, 'Failed to share: ${e.toString()}', backgroundColor: Colors.red);
                           }
                         }
                       }),

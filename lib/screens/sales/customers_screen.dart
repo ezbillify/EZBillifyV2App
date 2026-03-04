@@ -7,6 +7,7 @@ import 'package:animate_do/animate_do.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme_service.dart';
 import 'customer_form_screen.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class CustomersScreen extends StatefulWidget {
   final bool isSelecting; // If true, return selected customer
@@ -529,11 +530,11 @@ final response = await query.order(_sortBy, ascending: _sortAscending);
   Widget _buildSectionHeader(String title) {
     return Text(
       title.toUpperCase(),
-      style: const TextStyle(
+      style: TextStyle(
         fontFamily: 'Outfit',
         fontSize: 12,
         fontWeight: FontWeight.bold,
-        color: Color(0xFF94A3B8),
+        color: context.textSecondary.withOpacity(0.6),
         letterSpacing: 1.2,
       ),
     );
@@ -771,7 +772,7 @@ final response = await query.order(_sortBy, ascending: _sortAscending);
     } catch (e) {
       debugPrint("Error launching URL: $e");
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+        StatusService.show(context, "Error: $e", backgroundColor: Colors.red);
       }
     }
   }
@@ -781,12 +782,13 @@ final response = await query.order(_sortBy, ascending: _sortAscending);
     return Scaffold(
       backgroundColor: context.scaffoldBg,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: context.scaffoldBg,
         elevation: 0,
-        title: const Text("Customers", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+        centerTitle: false,
+        title: Text("Customers", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary, fontSize: 24)),
         actions: [
           IconButton(
-            icon: const Icon(Icons.sort_rounded),
+            icon: Icon(Icons.sort_rounded, color: context.textPrimary),
             onPressed: _showSortSheet,
           ),
           const SizedBox(width: 8),
@@ -795,9 +797,9 @@ final response = await query.order(_sortBy, ascending: _sortAscending);
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showCustomerFormSheet(),
         backgroundColor: AppColors.primaryBlue,
+        elevation: 4,
         icon: const Icon(Icons.person_add_rounded, color: Colors.white),
         label: const Text("New Customer", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white)),
-        elevation: 4,
       ),
       body: Column(
         children: [
@@ -830,6 +832,7 @@ final response = await query.order(_sortBy, ascending: _sortAscending);
                   cursorColor: AppColors.primaryBlue,
                   decoration: InputDecoration(
                     isDense: true,
+                    filled: false,
                     hintText: "Search by name, email or phone...",
                     hintStyle: TextStyle(
                       fontFamily: 'Outfit', 
@@ -861,7 +864,7 @@ final response = await query.order(_sortBy, ascending: _sortAscending);
               ),
             ),
           ),
-          const Divider(height: 1, thickness: 1),
+          Divider(height: 1, thickness: 1, color: context.borderColor.withOpacity(0.5)),
           Expanded(
             child: _loading 
               ? const Center(child: CircularProgressIndicator()) 
@@ -1026,7 +1029,7 @@ final response = await query.order(_sortBy, ascending: _sortAscending);
                 child: Center(
                   child: Text(
                     name[0].toUpperCase(),
-                    style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: AppColors.primaryBlue, fontSize: 18),
+                    style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: AppColors.primaryBlue.withOpacity(0.8), fontSize: 18),
                   ),
                 ),
               ),
@@ -1037,7 +1040,7 @@ final response = await query.order(_sortBy, ascending: _sortAscending);
                   children: [
                     Text(
                       name,
-                      style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16),
+                      style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -1057,7 +1060,7 @@ final response = await query.order(_sortBy, ascending: _sortAscending);
                     ),
                     Text(
                       "₹${NumberFormat('#,##,###').format(balance)}",
-                      style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.red, fontSize: 14),
+                      style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.isDark ? const Color(0xfff87171) : Colors.red, fontSize: 14),
                     ),
                   ],
                 ),

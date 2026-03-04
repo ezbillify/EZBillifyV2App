@@ -4,6 +4,7 @@ import 'package:animate_do/animate_do.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/settings_service.dart';
 import '../../core/theme_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class IntegrationsScreen extends ConsumerStatefulWidget {
   final String companyId;
@@ -106,7 +107,7 @@ class _IntegrationsScreenState extends ConsumerState<IntegrationsScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        StatusService.show(context, 'Error: $e');
         setState(() => _isLoading = false);
       }
     }
@@ -118,9 +119,9 @@ class _IntegrationsScreenState extends ConsumerState<IntegrationsScreen> {
       await _settingsService.updateIntegrations(widget.companyId, providerId, data);
       await _loadIntegrations();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Integration saved successfully!')));
+      StatusService.show(context, 'Integration saved successfully!');
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) StatusService.show(context, 'Error: $e');
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -151,9 +152,9 @@ class _IntegrationsScreenState extends ConsumerState<IntegrationsScreen> {
       await _settingsService.deleteIntegration(widget.companyId, providerId);
       await _loadIntegrations();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Disconnected successfully.')));
+      StatusService.show(context, 'Disconnected successfully.');
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) StatusService.show(context, 'Error: $e');
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }

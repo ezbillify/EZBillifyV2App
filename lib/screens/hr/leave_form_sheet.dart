@@ -5,6 +5,7 @@ import '../../services/hr_service.dart';
 import '../../core/theme_service.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class LeaveFormSheet extends StatefulWidget {
   final String companyId;
@@ -135,7 +136,7 @@ class _LeaveFormSheetState extends State<LeaveFormSheet> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedEmployeeId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select an employee")));
+      StatusService.show(context, "Please select an employee");
       return;
     }
 
@@ -155,7 +156,7 @@ class _LeaveFormSheetState extends State<LeaveFormSheet> {
       widget.onSuccess();
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) StatusService.show(context, 'Error: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }

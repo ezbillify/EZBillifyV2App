@@ -4,6 +4,7 @@ import '../../models/auth_models.dart';
 import '../../core/theme_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class MyProfileScreen extends StatefulWidget {
   final AppUser user;
@@ -88,25 +89,12 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
           .eq('id', widget.user.id);
       
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Profile updated successfully!'),
-            backgroundColor: AppColors.success,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
+        StatusService.show(context, 'Profile updated successfully!', backgroundColor: AppColors.success);
         Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppColors.error,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        StatusService.show(context, 'Error: $e', backgroundColor: AppColors.error);
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -127,9 +115,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       await launchUrl(emailLaunchUri);
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not open email app. Please email support@ezbillify.com directly.'))
-        );
+        StatusService.show(context, 'Could not open email app. Please email support@ezbillify.com directly.');
       }
     }
   }

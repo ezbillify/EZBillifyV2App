@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -215,7 +217,7 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
 
   Future<void> _selectBill() async {
     if (_vendorId == null) {
-       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a vendor first")));
+       StatusService.show(context, "Please select a vendor first");
        return;
     }
 
@@ -323,19 +325,19 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
 
   void _savePayment() async {
     if (_vendorId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a vendor")));
+      StatusService.show(context, "Please select a vendor");
       return;
     }
     if (_billId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a bill to pay")));
+      StatusService.show(context, "Please select a bill to pay");
       return;
     }
     if (_amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter a valid amount")));
+      StatusService.show(context, "Please enter a valid amount");
       return;
     }
     if (_amount > _billBalance && widget.payment == null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Amount exceeds balance due (₹${_billBalance.toStringAsFixed(2)})")));
+      StatusService.show(context, "Amount exceeds balance due (₹${_billBalance.toStringAsFixed(2)})");
       return;
     }
 
@@ -383,11 +385,11 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
       if (mounted) {
         PurchaseRefreshService.triggerRefresh();
         Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Payment Recorded Successfully")));
+        StatusService.show(context, "Payment Recorded Successfully");
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error saving payment: $e"), backgroundColor: Colors.red));
+        StatusService.show(context, "Error saving payment: $e", backgroundColor: Colors.red);
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -714,10 +716,10 @@ class _PurchasePaymentFormScreenState extends State<PurchasePaymentFormScreen> {
       if (mounted) {
         PurchaseRefreshService.triggerRefresh();
         Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Payment Deleted")));
+        StatusService.show(context, "Payment Deleted");
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error: $e", backgroundColor: Colors.red);
     } finally {
       if (mounted) setState(() => _loading = false);
     }

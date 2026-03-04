@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/auth_models.dart';
 import '../../core/theme_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class SecuritySettingsScreen extends StatefulWidget {
   final AppUser user;
@@ -369,15 +370,11 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                 child: ElevatedButton(
                   onPressed: isLoading ? null : () async {
                     if (newPasswordController.text != confirmPasswordController.text) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Passwords do not match"), backgroundColor: AppColors.error),
-                      );
+                      StatusService.show(context, "Passwords do not match", backgroundColor: AppColors.error);
                       return;
                     }
                     if (newPasswordController.text.length < 6) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Password must be at least 6 characters"), backgroundColor: AppColors.error),
-                      );
+                      StatusService.show(context, "Password must be at least 6 characters", backgroundColor: AppColors.error);
                       return;
                     }
                     
@@ -388,19 +385,10 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                       );
                       if (mounted) {
                         Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: const Text("Password updated successfully!"),
-                            backgroundColor: AppColors.success,
-                            behavior: SnackBarBehavior.floating,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                        );
+                        StatusService.show(context, "Password updated successfully!", backgroundColor: AppColors.success);
                       }
                     } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text("Error: $e"), backgroundColor: AppColors.error),
-                      );
+                      StatusService.show(context, "Error: $e", backgroundColor: AppColors.error);
                     } finally {
                       setModalState(() => isLoading = false);
                     }
@@ -467,20 +455,11 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
     try {
       await _supabase.auth.resetPasswordForEmail(widget.user.email);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Password reset link sent to ${widget.user.email}"),
-            backgroundColor: AppColors.success,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
+        StatusService.show(context, "Password reset link sent to ${widget.user.email}", backgroundColor: AppColors.success);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e"), backgroundColor: AppColors.error),
-        );
+        StatusService.show(context, "Error: $e", backgroundColor: AppColors.error);
       }
     }
   }
@@ -517,9 +496,7 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                 }
               } catch (e) {
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("Error: $e"), backgroundColor: AppColors.error),
-                  );
+                  StatusService.show(context, "Error: $e", backgroundColor: AppColors.error);
                 }
               }
             },

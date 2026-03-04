@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:animate_do/animate_do.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +14,7 @@ import 'admin_dashboard.dart';
 import 'employee_dashboard.dart';
 import 'workforce_dashboard.dart';
 import 'forgot_password_screen.dart';
+import 'register_screen.dart';
 
 enum AuthMethod { password, otp }
 enum OtpStep { email, verify }
@@ -210,6 +212,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
         _showError("Profile not found.");
         return;
       }
+      TextInput.finishAutofillContext();
       await _handleNavigation(appUser);
     } on AuthException catch (e) {
       _showError(e.message);
@@ -256,16 +259,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: const TextStyle(fontFamily: 'Outfit', color: Colors.white, fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.red[600],
-        elevation: 10,
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(20),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      )
-    );
+    StatusService.show(context, message, backgroundColor: Colors.red[600]);
   }
 
   @override
@@ -365,17 +359,19 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                       ],
                     ),
                     padding: const EdgeInsets.fromLTRB(32, 40, 32, 40), // Standard padding
-                    child: Column(
-                      children: [
-                        if (_authMethod == AuthMethod.password) 
-                          _buildPasswordFields(textPrimary, textSecondary)
-                        else 
-                          _buildOtpFields(textPrimary, textSecondary),
-                        
-                        const SizedBox(height: 40),
-                        _buildFooter(textSecondary),
-                        const SizedBox(height: 50), // Extra bottom space for scrolling comfort
-                      ],
+                    child: AutofillGroup(
+                      child: Column(
+                        children: [
+                          if (_authMethod == AuthMethod.password) 
+                            _buildPasswordFields(textPrimary, textSecondary)
+                          else 
+                            _buildOtpFields(textPrimary, textSecondary),
+                          
+                          const SizedBox(height: 40),
+                          _buildFooter(textSecondary),
+                          const SizedBox(height: 50),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -403,20 +399,25 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
       children: [
         _buildInputLabel("EMAIL ADDRESS"),
         const SizedBox(height: 10),
-        TextField(
+        TextFormField(
           controller: _emailController,
           focusNode: _emailFocusNode,
           keyboardType: TextInputType.emailAddress,
+          autofillHints: const [AutofillHints.email, AutofillHints.username],
+          textInputAction: TextInputAction.next,
           style: TextStyle(fontFamily: 'Outfit', fontSize: 16, color: textPrimary, fontWeight: FontWeight.w600),
           decoration: _inputDecoration("name@company.com", Icons.alternate_email_rounded, textSecondary, _emailFocusNode),
         ),
         const SizedBox(height: 24),
         _buildInputLabel("PASSWORD"),
         const SizedBox(height: 10),
-        TextField(
+        TextFormField(
           controller: _passwordController,
           focusNode: _passwordFocusNode,
           obscureText: !_showPassword,
+          autofillHints: const [AutofillHints.password],
+          textInputAction: TextInputAction.done,
+          onFieldSubmitted: (_) => _handleAuth(),
           style: TextStyle(fontFamily: 'Outfit', fontSize: 16, color: textPrimary, fontWeight: FontWeight.w600),
           decoration: _inputDecoration("••••••••", Icons.lock_outline_rounded, textSecondary, _passwordFocusNode,
             isPassword: true,
@@ -424,38 +425,82 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
             showPassword: _showPassword
           ),
         ),
-        const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(children: [
-              SizedBox(
-                height: 24, width: 24,
-                child: Checkbox(value: _rememberMe, onChanged: (v) => setState(() => _rememberMe = v ?? true), activeColor: AppColors.primaryBlue),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(children: [
+                SizedBox(
+                  height: 24,
+                  width: 24,
+                  child: Checkbox(
+                      value: _rememberMe,
+                      onChanged: (v) => setState(() => _rememberMe = v ?? true),
+                      activeColor: AppColors.primaryBlue),
+                ),
+                const SizedBox(width: 8),
+                Text("Remember",
+                    style: TextStyle(
+                        fontFamily: 'Outfit',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: textPrimary)),
+              ]),
+              TextButton(
+                onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (c) => ForgotPasswordScreen(
+                            initialEmail: _emailController.text))),
+                child: const Text("Forgot Password?",
+                    style: TextStyle(
+                        fontFamily: 'Outfit',
+                        color: AppColors.primaryBlue,
+                        fontWeight: FontWeight.bold)),
               ),
-              const SizedBox(width: 8),
-              Text("Remember", style: TextStyle(fontFamily: 'Outfit', fontSize: 14, fontWeight: FontWeight.w500, color: textPrimary)),
-            ]),
-            TextButton(
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => ForgotPasswordScreen(initialEmail: _emailController.text))),
-              child: const Text("Forgot Password?", style: TextStyle(fontFamily: 'Outfit', color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
-        const SizedBox(height: 32),
-        _buildActionButton("SIGN IN", _handleAuth),
-        const SizedBox(height: 24),
-        Center(
-          child: TextButton(
-            onPressed: () => setState(() {
-              _authMethod = AuthMethod.otp;
-              _otpStep = OtpStep.email;
-            }),
-            child: const Text("Sign in using OTP", style: TextStyle(fontFamily: 'Outfit', color: AppColors.primaryBlue, fontWeight: FontWeight.bold)),
+            ],
           ),
-        ),
-      ],
-    );
+          const SizedBox(height: 32),
+          _buildActionButton("SIGN IN", _handleAuth),
+          const SizedBox(height: 24),
+          Center(
+            child: TextButton(
+              onPressed: () => setState(() {
+                _authMethod = AuthMethod.otp;
+                _otpStep = OtpStep.email;
+              }),
+              child: const Text("Sign in using OTP",
+                  style: TextStyle(
+                      fontFamily: 'Outfit',
+                      color: AppColors.primaryBlue,
+                      fontWeight: FontWeight.bold)),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: TextButton(
+              onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (c) => const RegisterScreen())),
+              child: RichText(
+                text: TextSpan(
+                    style: TextStyle(
+                        fontFamily: 'Outfit',
+                        color: textSecondary,
+                        fontSize: 14),
+                    children: const [
+                      TextSpan(text: "Don't have an account? "),
+                      TextSpan(
+                          text: "Register",
+                          style: TextStyle(
+                              color: AppColors.primaryBlue,
+                              fontWeight: FontWeight.bold)),
+                    ]),
+              ),
+            ),
+          ),
+        ],
+      );
   }
 
   Widget _buildOtpFields(Color textPrimary, Color textSecondary) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/settings_service.dart';
 import '../../core/theme_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class GSTSettingsScreen extends ConsumerStatefulWidget {
   final String companyId;
@@ -44,7 +45,7 @@ class _GSTSettingsScreenState extends ConsumerState<GSTSettingsScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        StatusService.show(context, 'Error: $e');
         setState(() => _isLoading = false);
       }
     }
@@ -61,9 +62,9 @@ class _GSTSettingsScreenState extends ConsumerState<GSTSettingsScreen> {
         'default_hsn': _hsnController.text,
       });
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('GST Policy updated!')));
+      StatusService.show(context, 'GST Policy updated!');
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) StatusService.show(context, 'Error: $e');
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }

@@ -4,16 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GST Invoice</title>
+    <title>Tax Invoice</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --border: 1px solid #000;
-            --bg-light: #f3f4f6;
-            --text-main: #000;
-            --text-muted: #666;
-        }
-
         @media print {
             @page {
                 margin: 0;
@@ -33,6 +26,7 @@
                 width: 210mm !important;
                 min-height: 296mm !important;
                 padding: 10mm !important;
+                page-break-after: always;
             }
         }
 
@@ -40,9 +34,8 @@
             font-family: 'Inter', sans-serif;
             margin: 0;
             padding: 0;
-            color: var(--text-main);
             background: #f0f2f5;
-            -webkit-font-smoothing: antialiased;
+            color: #000;
         }
 
         .page-container {
@@ -53,6 +46,8 @@
             background: white;
             box-sizing: border-box;
             position: relative;
+            font-size: 10px;
+            line-height: normal;
         }
 
         table {
@@ -69,18 +64,17 @@
         }
 
         .cell-border {
-            border: var(--border);
+            border: 1px solid #000;
         }
 
-        .no-border {
-            border: none !important;
+        .header-title-box {
+            background: #f3f4f6;
+            border-bottom: 1px solid #000;
+            padding: 8pt;
+            text-align: center;
         }
 
         .header-title {
-            background: var(--bg-light);
-            border-bottom: var(--border);
-            padding: 8pt;
-            text-align: center;
             font-weight: bold;
             font-size: 12pt;
             text-transform: uppercase;
@@ -94,14 +88,8 @@
             margin-bottom: 4pt;
         }
 
-        .branch-subtext {
-            font-weight: normal;
-            color: var(--text-muted);
-            font-size: 10pt;
-        }
-
         .label-text {
-            color: var(--text-muted);
+            color: #666;
             font-weight: bold;
             font-size: 8pt;
             text-transform: uppercase;
@@ -112,62 +100,35 @@
             font-size: 9pt;
         }
 
-        .items-table th {
-            background: var(--bg-light);
+        .items-table thead tr {
+            background: #f3f4f6;
             font-weight: bold;
             text-transform: uppercase;
-            font-size: 7.5pt;
-            text-align: center;
-            border: var(--border);
+            font-size: 7pt;
         }
 
+        .items-table th,
         .items-table td {
-            border: var(--border);
-            font-size: 8.5pt;
-            padding: 6pt 4pt;
+            border: 1px solid #000;
+            padding: 4pt;
         }
 
-        .items-table .text-left {
-            text-align: left;
+        .items-table tbody {
+            font-size: 8pt;
         }
 
-        .items-table .text-right {
-            text-align: right;
+        .tax-breakup-table {
+            font-size: 8pt;
         }
 
-        .items-table .text-center {
-            text-align: center;
-        }
-
-        .total-row-label {
+        .tax-breakup-table th {
+            background: #f9fafb;
             font-weight: bold;
-            color: var(--text-muted);
-            padding: 4pt 8pt;
-        }
-
-        .total-row-value {
-            font-weight: bold;
-            text-align: right;
-            padding: 4pt 8pt;
         }
 
         .footer-note {
-            font-size: 7pt;
+            font-size: 6pt;
             color: #999;
-            margin-top: 10pt;
-        }
-
-        .qr-box {
-            text-align: center;
-            width: 120pt;
-        }
-
-        .qr-img {
-            width: 100pt;
-            height: 100pt;
-            border: var(--border);
-            padding: 2pt;
-            margin-bottom: 2pt;
         }
 
         .sign-box {
@@ -175,16 +136,36 @@
             padding: 8pt;
         }
 
-        .sign-line {
-            border-bottom: var(--border);
-            width: 80%;
-            margin: 30pt auto 4pt auto;
+        .qr-box {
+            text-align: center;
+            width: 70pt;
         }
 
-        .logo-img {
-            max-width: 120pt;
-            max-height: 50pt;
-            margin-bottom: 8pt;
+        .qr-img {
+            width: 50pt;
+            height: 50pt;
+            border: 1px solid #000;
+            padding: 1pt;
+        }
+
+        .bold {
+            font-weight: bold;
+        }
+
+        .text-right {
+            text-align: right;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .uppercase {
+            text-transform: uppercase;
+        }
+
+        .underline {
+            text-decoration: underline;
         }
     </style>
 </head>
@@ -195,54 +176,74 @@
         <table class="cell-border" style="border-bottom: none;">
             <tr>
                 <!-- Company Info -->
-                <td style="width: 65%; padding: 10pt; border-right: var(--border);">
-                    {{LOGO_CELL}}
-                    <div class="company-name">
-                        {{COMPANY_NAME}} {{BRANCH_LABEL_HTML}}
+                <td style="width: 65%; padding: 8pt; border-right: 1px solid #000;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div>
+                            <div class="company-name">
+                                {{COMPANY_NAME}} <span style="font-weight: normal; color: #666; font-size: 10pt;"> -
+                                    {{BRANCH_NAME_TEXT}}</span>
+                            </div>
+                            <div
+                                style="color: #333; margin-bottom: 8pt; font-size: 9pt; white-space: pre-line; max-width: 250pt;">
+                                {{COMPANY_ADDRESS}}
+                            </div>
+                            <table style="font-size: 8pt;" border="0">
+                                <tr>
+                                    <td
+                                        style="font-weight: bold; color: #666; padding-right: 8pt; border:none; width: 40pt;">
+                                        GSTIN:</td>
+                                    <td style="font-weight: bold; border:none;">{{COMPANY_GSTIN}}</td>
+                                </tr>
+                                <tr>
+                                    <td style="font-weight: bold; color: #666; padding-right: 8pt; border:none;">State:
+                                    </td>
+                                    <td style="border:none;">{{COMPANY_STATE}}</td>
+                                </tr>
+                                {{FSSAI_ROW_NATIVE}}
+                                <tr>
+                                    <td style="font-weight: bold; color: #666; padding-right: 8pt; border:none;">Email:
+                                    </td>
+                                    <td style="border:none;">{{COMPANY_EMAIL}}</td>
+                                </tr>
+                                <tr>
+                                    <td style="font-weight: bold; color: #666; padding-right: 8pt; border:none;">Phone:
+                                    </td>
+                                    <td style="border:none;">{{COMPANY_PHONE}}</td>
+                                </tr>
+                            </table>
+                        </div>
+                        <div style="text-align: right;">
+                            {{LOGO_IMG_TAG}}
+                        </div>
                     </div>
-                    <div style="font-size: 9pt; white-space: pre-line; margin-bottom: 8pt;">{{COMPANY_ADDRESS}}</div>
-
-                    <table style="font-size: 8pt;">
-                        <tr>
-                            <td style="width: 50pt; color: #666; font-weight: bold;">GSTIN:</td>
-                            <td style="font-weight: bold;">{{COMPANY_GSTIN}}</td>
-                        </tr>
-                        <tr>
-                            <td style="color: #666; font-weight: bold;">State:</td>
-                            <td>{{COMPANY_STATE}}</td>
-                        </tr>
-                        {{FSSAI_ROW}}
-                        <tr>
-                            <td style="color: #666; font-weight: bold;">Email:</td>
-                            <td>{{COMPANY_EMAIL}}</td>
-                        </tr>
-                        <tr>
-                            <td style="color: #666; font-weight: bold;">Phone:</td>
-                            <td>{{COMPANY_PHONE}}</td>
-                        </tr>
-                    </table>
                 </td>
-
-                <!-- Invoice Info -->
-                <td style="width: 35%; padding: 0; vertical-align: top;">
-                    <div class="header-title">{{DOC_TITLE}}</div>
-                    <div style="font-size: 7pt; text-align: center; color: #666; margin: 4pt 0;">{{DOC_SUBTITLE}}</div>
-
+                <!-- Document Info -->
+                <td style="width: 35%; padding: 0;">
+                    <div class="header-title-box">
+                        <div class="header-title">{{DOC_TITLE}}</div>
+                        <div style="font-size: 7pt; text-transform: uppercase; color: #666;">
+                            {{DOC_COPY_LABEL}}
+                        </div>
+                    </div>
                     <div style="padding: 8pt;">
-                        <table style="font-size: 9pt;">
+                        <table style="width: 100%; font-size: 9pt;">
                             <tr style="border-bottom: 1px dotted #ccc;">
-                                <td class="label-text" style="padding: 4pt 0;">{{DOC_NUMBER_LABEL}}</td>
-                                <td class="value-text" style="text-align: right; padding: 4pt 0;">{{DOC_NUMBER}}</td>
+                                <td style="font-weight: bold; color: #666; border:none; padding: 2pt 0;">
+                                    {{DOC_NUMBER_LABEL}}</td>
+                                <td style="text-align: right; font-weight: bold; border:none; padding: 2pt 0;">
+                                    {{DOC_NUMBER}}</td>
                             </tr>
                             <tr style="border-bottom: 1px dotted #ccc;">
-                                <td class="label-text" style="padding: 4pt 0;">Date:</td>
-                                <td class="value-text" style="text-align: right; padding: 4pt 0;">{{DATE}}</td>
+                                <td style="font-weight: bold; color: #666; border:none; padding: 2pt 0;">Date:</td>
+                                <td style="text-align: right; font-weight: bold; border:none; padding: 2pt 0;">{{DATE}}
+                                </td>
                             </tr>
-                            {{DUE_DATE_ROW_NEW}}
+                            {{DUE_DATE_ROW_NATIVE}}
                             <tr>
-                                <td class="label-text" style="padding: 4pt 0;">Place of Supply:</td>
-                                <td class="value-text"
-                                    style="text-align: right; text-transform: uppercase; padding: 4pt 0;">{{POS}}</td>
+                                <td style="font-weight: bold; color: #666; border:none; padding: 2pt 0;">Place of
+                                    Supply:</td>
+                                <td style="text-align: right; text-transform: uppercase; border:none; padding: 2pt 0;">
+                                    {{POS}}</td>
                             </tr>
                         </table>
                     </div>
@@ -253,152 +254,172 @@
         <!-- PARTY DETAILS -->
         <table class="cell-border" style="border-bottom: none;">
             <tr>
-                <td style="width: 50%; border-right: var(--border); padding: 8pt; background: #fafafa;">
-                    <div class="label-text" style="margin-bottom: 4pt;">Billed To</div>
-                    <div style="font-weight: bold; font-size: 10pt; text-transform: uppercase;">{{CUSTOMER_NAME}}</div>
-                    <div style="font-size: 9pt; white-space: pre-line; margin: 4pt 0;">{{CUSTOMER_ADDRESS}}</div>
+                <td style="border-right: 1px solid #000; padding: 8pt; width: 50%; background: #fafafa;">
+                    <div
+                        style="font-size: 7pt; font-weight: bold; text-transform: uppercase; color: #666; letter-spacing: 0.5pt; margin-bottom: 4pt;">
+                        Billed To</div>
+                    <div style="font-weight: bold; font-size: 10pt; text-transform: uppercase; margin-bottom: 4pt;">
+                        {{CUSTOMER_NAME}}</div>
+                    <div style="color: #333; white-space: pre-line; margin-bottom: 6pt; font-size: 9pt;">
+                        {{CUSTOMER_ADDRESS}}</div>
                     <table style="font-size: 8pt;">
                         <tr>
-                            <td style="width: 40pt; font-weight: bold;">GSTIN:</td>
-                            <td>{{CUSTOMER_GSTIN}}</td>
+                            <td style="font-weight: bold; border:none; padding-right: 6pt; width: 40pt;">GSTIN:</td>
+                            <td style="border:none;">{{CUSTOMER_GSTIN}}</td>
                         </tr>
                         <tr>
-                            <td style="font-weight: bold;">State:</td>
-                            <td>{{CUSTOMER_STATE}}</td>
+                            <td style="font-weight: bold; border:none; padding-right: 6pt;">State:</td>
+                            <td style="border:none;">{{CUSTOMER_STATE}}</td>
                         </tr>
                     </table>
                 </td>
-                <td style="width: 50%; padding: 8pt;">
-                    <div class="label-text" style="margin-bottom: 4pt;">Shipped To</div>
-                    {{SHIPPING_CONTENT_CLEAN}}
+                <td style="padding: 8pt; width: 50%;">
+                    <div
+                        style="font-size: 7pt; font-weight: bold; text-transform: uppercase; color: #666; letter-spacing: 0.5pt; margin-bottom: 4pt;">
+                        Shipped To</div>
+                    <div style="font-size: 9pt; color: #333; white-space: pre-line;">
+                        {{SHIPPING_ADDRESS_TEXT}}
+                    </div>
                 </td>
             </tr>
         </table>
 
         <!-- ITEMS TABLE -->
-        <table class="items-table">
+        <table class="items-table cell-border">
             <thead>
                 <tr>
-                    <th style="width: 25pt;">#</th>
-                    <th>Item Description</th>
-                    <th style="width: 45pt;">HSN/SAC</th>
-                    {{TAX_COLUMNS_HEADER_NEW}}
-                    <th style="width: 70pt;">Amount</th>
+                    <th style="width: 6%;">S.No</th>
+                    <th style="text-align: left;">Item Description</th>
+                    <th style="width: 8%;">HSN/SAC</th>
+                    <th style="width: 7%;">MRP</th>
+                    <th style="width: 6%;">Qty</th>
+                    <th style="width: 8%; text-align: right;">Rate</th>
+                    <th style="width: 5%;">Disc</th>
+                    <th style="width: 10%; text-align: right;">Taxable</th>
+                    {{TAX_HEADER_NATIVE}}
+                    <th style="width: 10%; text-align: right;">Amount</th>
                 </tr>
             </thead>
             <tbody>
-                {{ITEMS_ROWS_NATIVE}}
+                {{ITEMS_ROWS_EXPANDED}}
             </tbody>
         </table>
 
-        <!-- SUMMARY SECTION -->
+        <!-- TOTALS SECTION -->
         <table class="cell-border" style="border-top: none;">
             <tr>
-                <td colspan="2" style="padding: 0;">
-                    <table style="width: 100%;">
-                        <tr>
-                            <!-- Words and Bank -->
-                            <td style="width: 60%; border-right: var(--border); padding: 8pt;">
-                                <div class="label-text">Total Amount in Words</div>
-                                <div
-                                    style="font-weight: bold; font-style: italic; font-size: 9pt; margin-bottom: 12pt;">
-                                    {{AMOUNT_IN_WORDS}} Only</div>
-
-                                <div
-                                    style="font-weight: bold; text-decoration: underline; font-size: 8pt; text-transform: uppercase; margin-bottom: 4pt;">
-                                    Bank Details</div>
-                                <table style="font-size: 8pt;">
-                                    <tr>
-                                        <td style="width: 40pt; color: #666;">Bank:</td>
-                                        <td style="font-weight: bold; text-transform: uppercase;">{{BANK_NAME}}</td>
-                                    </tr>
-                                    <tr>
-                                        <td style="color: #666;">A/c No:</td>
-                                        <td style="font-weight: bold;">{{BANK_ACC}}</td>
-                                    </tr>
-                                    <tr>
-                                        <td style="color: #666;">IFSC:</td>
-                                        <td style="font-weight: bold;">{{BANK_IFSC}}</td>
-                                    </tr>
-                                    <tr>
-                                        <td style="color: #666;">Branch:</td>
-                                        <td>{{BANK_BRANCH}}</td>
-                                    </tr>
-                                </table>
+                <!-- Amount in Words -->
+                <td style="padding: 6pt 8pt; border-right: 1px solid #000; width: 60%;">
+                    <div
+                        style="font-size: 8pt; font-weight: bold; text-transform: uppercase; color: #666; margin-bottom: 2pt;">
+                        Total Amount in Words</div>
+                    <div style="font-size: 9pt; font-weight: bold; font-style: italic;">{{AMOUNT_IN_WORDS}} Only</div>
+                </td>
+                <!-- Summary Table -->
+                <td style="padding: 0; width: 40%;">
+                    <table style="font-size: 9pt;">
+                        <tr style="border-bottom: 1px solid #ddd;">
+                            <td style="padding: 3pt 6pt; border:none; font-weight: bold; color: #666;">Taxable Amount
                             </td>
-                            <!-- Totals -->
-                            <td style="width: 40%; padding: 0;">
-                                <table style="font-size: 9pt;">
-                                    <tr style="border-bottom: 1px solid #ddd;">
-                                        <td class="total-row-label">Taxable Amount</td>
-                                        <td class="total-row-value">₹{{SUBTOTAL}}</td>
-                                    </tr>
-                                    {{TAX_SUMMARY_ROWS_NATIVE}}
-                                    {{ROUND_OFF_ROW_NEW}}
-                                    <tr style="background: var(--bg-light);">
-                                        <td class="total-row-label" style="font-size: 11pt; color: #000;">Grand Total
-                                        </td>
-                                        <td class="total-row-value" style="font-size: 11pt;">₹{{GRAND_TOTAL}}</td>
-                                    </tr>
-                                </table>
-                            </td>
+                            <td style="padding: 3pt 6pt; border:none; text-align: right;">₹{{SUBTOTAL}}</td>
                         </tr>
-                    </table>
-                </td>
-            </tr>
-
-            <!-- Compliance Section (IRN/E-Way Bill) -->
-            {{COMPLIANCE_SECTION_NATIVE}}
-
-            <!-- Tax Breakup -->
-            <tr>
-                <td colspan="2" style="border-top: var(--border); padding: 8pt;">
-                    <div class="label-text" style="margin-bottom: 4pt;">Tax Breakup</div>
-                    {{TAX_BREAKUP_SECTION_NATIVE}}
-                </td>
-            </tr>
-
-            <!-- Footer Grid -->
-            <tr>
-                <td colspan="2" style="border-top: var(--border); padding: 0;">
-                    <table style="width: 100%;">
-                        <tr>
-                            <!-- Terms & QR -->
-                            <td style="width: 70%; padding: 10pt; border-right: var(--border);">
-                                <div style="display: table; width: 100%;">
-                                    <div style="display: table-cell; vertical-align: top; width: 75%;">
-                                        <div class="label-text" style="text-decoration: underline; margin-bottom: 4pt;">
-                                            Terms & Conditions</div>
-                                        <div
-                                            style="font-size: 7.5pt; color: #333; line-height: 1.4; white-space: pre-line;">
-                                            {{TERMS_CONTENT_CLEAN}}</div>
-                                    </div>
-                                    <div style="display: table-cell; vertical-align: top; padding-left: 10pt;">
-                                        <div class="qr-box">
-                                            {{UPI_QR_CELL_NEW}}
-                                        </div>
-                                    </div>
-                                </div>
+                        {{TAX_SUMMARY_ROWS_NATIVE}}
+                        {{ROUND_OFF_ROW_NATIVE}}
+                        <tr style="background: #f3f4f6;">
+                            <td style="padding: 4pt 6pt; border:none; font-weight: bold; font-size: 10pt;">Grand Total
                             </td>
-                            <!-- Signature -->
-                            <td style="width: 30%; padding: 0;">
-                                <div class="sign-box">
-                                    <div style="font-weight: bold; font-size: 8pt;">For {{COMPANY_NAME_SHORT}}</div>
-                                    <div class="sign-line"></div>
-                                    <div style="font-weight: bold; font-size: 8pt;">Authorized Signatory</div>
-                                </div>
-                            </td>
+                            <td
+                                style="padding: 4pt 6pt; border:none; text-align: right; font-weight: bold; font-size: 10pt;">
+                                ₹{{GRAND_TOTAL}}</td>
                         </tr>
                     </table>
                 </td>
             </tr>
         </table>
 
-        <!-- Page Footer -->
-        <table style="margin-top: 8pt;">
+        <!-- TAX BREAKUP -->
+        <div style="padding: 6pt; border: 1px solid #000; border-top: none;">
+            <div style="font-size: 8pt; font-weight: bold; text-transform: uppercase; color: #666; margin-bottom: 3pt;">
+                Tax Breakup</div>
+            <table class="tax-breakup-table cell-border">
+                <thead>
+                    <tr style="background: #f9fafb; font-weight: bold; font-size: 7pt;">
+                        <th style="text-align: left;">HSN/SAC</th>
+                        <th style="text-align: right;">Taxable Value</th>
+                        {{TAX_BREAKUP_HEADER_NATIVE}}
+                        <th style="text-align: right;">Total Tax</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{TAX_BREAKUP_EXPANDED}}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- E-INVOICE DETAILS -->
+        {{EINVOICE_SECTION_NATIVE}}
+
+        <!-- FOOTER: BANK & SIGN -->
+        <table class="cell-border" style="border-top: none;">
+            <tr>
+                <!-- Bank Details -->
+                <td style="padding: 8pt; border-right: 1px solid #000; width: 45%;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <div>
+                            <div
+                                style="font-weight: bold; text-decoration: underline; margin-bottom: 3pt; text-transform: uppercase; font-size: 8pt;">
+                                Bank Details</div>
+                            <table style="font-size: 8pt;">
+                                <tr>
+                                    <td style="color: #666; padding-right: 6pt; border:none;">Bank:</td>
+                                    <td style="font-weight: bold; border:none; text-transform: uppercase;">{{BANK_NAME}}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="color: #666; padding-right: 6pt; border:none;">A/c No:</td>
+                                    <td style="font-weight: bold; border:none;">{{BANK_ACC}}</td>
+                                </tr>
+                                <tr>
+                                    <td style="color: #666; padding-right: 6pt; border:none;">IFSC:</td>
+                                    <td style="font-weight: bold; border:none;">{{BANK_IFSC}}</td>
+                                </tr>
+                                <tr>
+                                    <td style="color: #666; padding-right: 6pt; border:none;">Branch:</td>
+                                    <td style="font-size: 7pt; border:none;">{{BANK_BRANCH}}</td>
+                                </tr>
+                            </table>
+                        </div>
+                        <div class="qr-box">
+                            {{QR_CODE_TAG}}
+                            <div style="font-size: 6pt; font-weight: bold; margin-top: 2pt;">SCAN TO PAY</div>
+                            <div style="font-size: 5pt; color: #666;">{{UPI_ID_TEXT}}</div>
+                        </div>
+                    </div>
+                </td>
+                <!-- Terms -->
+                <td style="padding: 8pt; border-right: 1px solid #000; width: 28%;">
+                    <div
+                        style="font-weight: bold; text-decoration: underline; margin-bottom: 3pt; text-transform: uppercase; font-size: 8pt;">
+                        Terms & Conditions</div>
+                    <div style="font-size: 7pt; color: #333; line-height: 1.3; white-space: pre-line;">
+                        {{TERMS_CONTENT_CLEAN}}</div>
+                </td>
+                <!-- Signatory -->
+                <td style="padding: 8pt; width: 27%; text-align: center; vertical-align: top;">
+                    <div style="font-weight: bold; font-size: 8pt;">For {{COMPANY_NAME_SHORT}}</div>
+                    <div style="margin-top: 35pt;">
+                        <div style="border-bottom: 1px solid #000; width: 75%; margin: 0 auto 3pt auto;"></div>
+                        <div style="font-weight: bold; font-size: 8pt;">Authorized Signatory</div>
+                    </div>
+                </td>
+            </tr>
+        </table>
+
+        <!-- PAGE FOOTER -->
+        <table style="width: 100%; margin-top: 4pt;">
             <tr>
                 <td class="footer-note">
-                    This is a computer generated invoice. No signature required. | Powered by EZBillify
+                    This is a computer generated invoice. No signature required. | <b>Powered by EZBillify</b>
                 </td>
                 <td style="text-align: right; font-size: 7pt; color: #666; font-weight: 500;">
                     Page 1 of 1

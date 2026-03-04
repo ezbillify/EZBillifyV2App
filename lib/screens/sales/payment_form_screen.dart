@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/sales_refresh_service.dart';
@@ -367,14 +369,10 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                              controller: p['controller'],
                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
                              style: TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primaryBlue),
-                             decoration: InputDecoration(
-                               prefixText: "₹ ",
-                               labelText: "Amount",
-                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                               filled: true,
-                               fillColor: context.surfaceBg,
-                               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                             ),
+                               decoration: const InputDecoration(
+                                 prefixText: "₹ ",
+                                 labelText: "Amount",
+                               ),
                              onChanged: (v) {
                                p['amount'] = double.tryParse(v) ?? 0.0;
                                _updateTotalAmount();
@@ -427,14 +425,14 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                    const SizedBox(height: 24),
                    
                    TextFormField(
-                     decoration: InputDecoration(labelText: "Reference # (Optional)", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none), filled: true, fillColor: context.cardBg),
+                     decoration: const InputDecoration(labelText: "Reference # (Optional)"),
                      onChanged: (v) => _referenceNumber = v,
                    ),
                    const SizedBox(height: 16),
                    
                    TextFormField(
                      maxLines: 3,
-                     decoration: InputDecoration(labelText: "Notes (Optional)", border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none), filled: true, fillColor: context.cardBg),
+                      decoration: const InputDecoration(labelText: "Notes (Optional)"),
                      onChanged: (v) => _notes = v,
                    ),
                    
@@ -741,8 +739,8 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
     );
   }
   Future<void> _savePayment() async {
-    if (_customerId == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Select customer"))); return; }
-    if (_invoiceId == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Select invoice"))); return; }
+    if (_customerId == null) { StatusService.show(context, "Select customer"); return; }
+    if (_invoiceId == null) { StatusService.show(context, "Select invoice"); return; }
     
     final finalPayments = _payments.map((p) => {
       'mode': p['mode'],
@@ -751,13 +749,13 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
     }).where((p) => (p['amount'] as double) > 0).toList();
 
     if (finalPayments.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter payment amount")));
+      StatusService.show(context, "Enter payment amount");
       return;
     }
 
     double totalAmt = finalPayments.fold(0.0, (sum, p) => sum + (p['amount'] as double));
     if (_invoiceId != null && totalAmt > _invoiceBalance + 0.99) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Total amount exceeds balance (₹$_invoiceBalance)")));
+      StatusService.show(context, "Total amount exceeds balance (₹$_invoiceBalance)");
       return;
     }
     
@@ -810,7 +808,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       debugPrint("Error saving payment: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) StatusService.show(context, "Error: $e");
     } finally {
        if (mounted) setState(() => _loading = false);
     }

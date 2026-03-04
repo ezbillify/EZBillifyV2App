@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme_service.dart';
 import '../../services/print_settings_service.dart';
 import 'package:animate_do/animate_do.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class PrintTemplatePreviewScreen extends StatefulWidget {
   const PrintTemplatePreviewScreen({super.key});
@@ -42,13 +43,7 @@ class _PrintTemplatePreviewScreenState extends State<PrintTemplatePreviewScreen>
       _activeTemplate = type;
     });
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Template updated for ${_docTypeLabels[_selectedDocType]}"),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
+      StatusService.show(context, "Template updated for ${_docTypeLabels[_selectedDocType]}");
     }
   }
 

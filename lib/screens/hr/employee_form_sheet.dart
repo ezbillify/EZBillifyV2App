@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../models/employee_model.dart';
 import '../../services/hr_service.dart';
 import '../../core/theme_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class EmployeeFormSheet extends StatefulWidget {
   final Employee? employee;
@@ -151,7 +152,7 @@ class _EmployeeFormSheetState extends State<EmployeeFormSheet> {
       widget.onSuccess();
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) StatusService.show(context, "Error: $e");
     } finally {
       if (mounted) setState(() => _loading = false);
     }

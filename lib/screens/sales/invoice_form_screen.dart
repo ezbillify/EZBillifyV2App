@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -39,7 +41,7 @@ class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
   }
 
   Future<void> _initializeData() async {
-    ref.read(invoiceProvider.notifier).setLoading(true);
+    Future.microtask(() => ref.read(invoiceProvider.notifier).setLoading(true));
     try {
       final user = Supabase.instance.client.auth.currentUser;
       final profile = await Supabase.instance.client.from('users').select('id, company_id').eq('auth_id', user!.id).single();
@@ -163,10 +165,7 @@ class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
     } catch (e) {
       debugPrint("Error initializing invoice form: $e");
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("Error loading invoice: $e"),
-          backgroundColor: Colors.red,
-        ));
+        StatusService.show(context, "Error loading invoice: $e", backgroundColor: Colors.red);
       }
     } finally {
       ref.read(invoiceProvider.notifier).setLoading(false);
@@ -197,7 +196,6 @@ class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
       appBar: AppBar(
         backgroundColor: context.scaffoldBg,
         elevation: 0,
-        centerTitle: false,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -584,7 +582,7 @@ class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
   void _showPaymentModal({required bool shouldPrint}) {
     final state = ref.read(invoiceProvider);
     if (state.customerId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a customer first")));
+      StatusService.show(context, "Please select a customer first");
       return;
     }
     
@@ -706,11 +704,7 @@ class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
                               decoration: InputDecoration(
                                 prefixText: "₹ ",
                                 prefixStyle: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryBlue),
-                                filled: true,
-                                fillColor: context.cardBg,
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: context.borderColor)),
-                                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.primaryBlue, width: 2)),
+                                hintText: "0.00",
                               ),
                               style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold),
                               onChanged: (v) => setModalState(() {}),
@@ -1054,13 +1048,9 @@ class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 autofocus: true,
                 style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   prefixText: "₹ ",
-                  prefixStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                   labelText: "New Unit Price",
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                  filled: true,
-                  fillColor: context.cardBg,
                 ),
               ),
               const SizedBox(height: 32),
@@ -1272,7 +1262,7 @@ class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
     ref.read(invoiceProvider.notifier).setItems(newItems);
   }
 
-  void _showPrintingStatusModal() {
+  void _oldPrintingModal() {
     showGeneralDialog(
       context: context,
       barrierDismissible: false,
@@ -1502,8 +1492,8 @@ class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
 
   Future<void> _saveInvoice({List<Map<String, dynamic>>? customPayments, bool shouldPrint = false}) async {
     final state = ref.read(invoiceProvider);
-    if (state.customerId == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a customer"))); return; }
-    if (state.items.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Add at least one item"))); return; }
+    if (state.customerId == null) { StatusService.show(context, "Please select a customer"); return; }
+    if (state.items.isEmpty) { StatusService.show(context, "Add at least one item"); return; }
     
     final companyId = state.companyId;
     final branchId = state.branchId;
@@ -1818,7 +1808,7 @@ class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
         
         if (shouldPrint && savedInvoiceId != null) {
           // Show the wow animation
-          _showPrintingStatusModal();
+          StatusService.show(context, 'Connecting to printer...', isLoading: true, persistent: true);
           
           final fullInvoice = await Supabase.instance.client.from('sales_invoices').select('*, customer:customers(*)').eq('id', savedInvoiceId!).single();
           if (mounted) {
@@ -1834,11 +1824,11 @@ class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
 
         SalesRefreshService.triggerRefresh();
         Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Invoice ${isEdit ? 'Updated' : 'Created'} successfully")));
+        StatusService.show(context, "Invoice ${isEdit ? 'Updated' : 'Created'} successfully");
       }
     } catch (e) {
       debugPrint("Error saving invoice: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) StatusService.show(context, "Error: $e");
     } finally {
        if (mounted) ref.read(invoiceProvider.notifier).setLoading(false);
     }
@@ -1939,7 +1929,7 @@ class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
                                           // BETTER: Selection sheet should probably fetch its own data or take a Future.
                                           // For now, let's just pop and let user reopen or tell them to reopen if we can't update 'items' local list.
                                           if (context.mounted) Navigator.pop(context);
-                                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Data synchronized! Please reopen to see changes.")));
+                                          StatusService.show(context, "Data synchronized! Please reopen to see changes.");
                                         }, 
                                         icon: const Icon(Icons.sync_rounded, color: AppColors.primaryBlue)
                                       ),
@@ -1981,7 +1971,11 @@ class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
                               style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
                               decoration: InputDecoration(
                                 isDense: true,
+                                filled: false,
                                 hintText: "Search anything...",
+                                 border: InputBorder.none,
+                                 enabledBorder: InputBorder.none,
+                                 focusedBorder: InputBorder.none,
                                 hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15, fontWeight: FontWeight.normal),
                                 prefixIcon: AnimatedSwitcher(
                                   duration: const Duration(milliseconds: 200),
@@ -2022,9 +2016,6 @@ class _InvoiceFormScreenState extends ConsumerState<InvoiceFormScreen> {
                                     const SizedBox(width: 4),
                                   ],
                                 ),
-                                border: InputBorder.none,
-                                enabledBorder: InputBorder.none,
-                                focusedBorder: InputBorder.none,
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 20),
                               ),
                               onChanged: (v) => setModalState(() => searchQuery = v),

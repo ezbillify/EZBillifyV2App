@@ -6,6 +6,7 @@ import '../../models/auth_models.dart';
 import '../../services/auth_service.dart';
 
 import 'leave_form_sheet.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class LeaveListScreen extends StatefulWidget {
   const LeaveListScreen({super.key});
@@ -61,7 +62,7 @@ class _LeaveListScreenState extends State<LeaveListScreen> {
         await _hrService.updateLeaveStatus(id, status);
         _loadData();
     } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+        StatusService.show(context, "Error: $e");
     }
   }
 

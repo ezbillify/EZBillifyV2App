@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/settings_service.dart';
 import '../../core/theme_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class UserManagementScreen extends ConsumerWidget {
   final String companyId;
@@ -50,7 +51,7 @@ class _UserManagementViewState extends ConsumerState<UserManagementView> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        StatusService.show(context, 'Error: $e');
         setState(() => _isLoading = false);
       }
     }
@@ -83,15 +84,12 @@ class _UserManagementViewState extends ConsumerState<UserManagementView> {
       try {
         await _settingsService.removeUser(userId);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('User removed successfully'),
-            backgroundColor: AppColors.success,
-          ));
+          StatusService.show(context, 'User removed successfully', backgroundColor: AppColors.success,);
         }
         _loadUsers();
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+          StatusService.show(context, 'Error: $e');
           setState(() => _isLoading = false);
         }
       }
@@ -247,7 +245,7 @@ class _UserManagementViewState extends ConsumerState<UserManagementView> {
                                 if (mounted) Navigator.pop(context);
                                 _loadUsers();
                               } catch (e) {
-                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                                if (mounted) StatusService.show(context, 'Error: $e');
                               }
                             },
                             style: ElevatedButton.styleFrom(

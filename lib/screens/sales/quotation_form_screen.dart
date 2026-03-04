@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -198,7 +200,7 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
       appBar: AppBar(
         backgroundColor: context.scaffoldBg,
         elevation: 0,
-        centerTitle: false,
+        
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -699,46 +701,94 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
         final salesPrice = (item['default_sales_price'] ?? 0).toDouble();
         final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
         final salesPriceInclTax = salesPrice * (1 + rate / 100);
+        final itemMrp = salesPriceInclTax; // Defaulting MRP to tax inclusive sales price
         final unit = item['uom'] ?? 'unt';
-
-        final isSelected = count > 0;
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: Material(
-            color: isSelected ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
-            borderRadius: BorderRadius.circular(16),
+            color: count > 0 ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
+            borderRadius: BorderRadius.circular(20),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
               onTap: onAdd,
               child: Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: isSelected ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5)),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5), width: 1),
                 ),
                 child: Row(
                   children: [
-                     Container(width: 44, height: 44, decoration: BoxDecoration(color: AppColors.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue, size: 20)),
-                     const SizedBox(width: 16),
-                     Expanded(
-                       child: Column(
-                         crossAxisAlignment: CrossAxisAlignment.start,
-                         children: [
-                         Text(item['name'], style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary)),
-                         const SizedBox(height: 2),
-                         Text("Rate: ₹${salesPriceInclTax.toStringAsFixed(2)} • $unit • ${rate.toStringAsFixed(0)}% Tax", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary)),
+                     Container(
+                       width: 48,
+                       height: 48,
+                       decoration: BoxDecoration(
+                         color: AppColors.primaryBlue.withOpacity(0.1),
+                         borderRadius: BorderRadius.circular(12),
+                       ),
+                       child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue),
+                     ),
+                   const SizedBox(width: 16),
+                   Expanded(
+                     child: Column(
+                       crossAxisAlignment: CrossAxisAlignment.start,
+                       children: [
+                         Text(
+                           item['name'],
+                           style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary),
+                           maxLines: 1, overflow: TextOverflow.ellipsis
+                         ),
+                         const SizedBox(height: 4),
+                         Wrap(
+                           spacing: 8,
+                           runSpacing: 4,
+                           children: [
+                             Text("MRP: ₹${itemMrp.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary, fontWeight: FontWeight.w500)),
+                             Text("Rate: ₹${salesPriceInclTax.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+                           ],
+                         ),
+                         const SizedBox(height: 4),
+                         Text("Pur: ₹${(item['default_purchase_price'] ?? 0).toStringAsFixed(2)} • $unit • ${rate.toStringAsFixed(0)}% Tax", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary.withOpacity(0.7))),
                        ],
                      ),
                    ),
-                   if (isSelected)
+                   const SizedBox(width: 12),
+                   if (count > 0)
                      Container(
-                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                       decoration: BoxDecoration(color: AppColors.primaryBlue, borderRadius: BorderRadius.circular(8)),
-                       child: Text("x$count", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                       decoration: BoxDecoration(
+                         color: context.surfaceBg,
+                         borderRadius: BorderRadius.circular(12),
+                         border: Border.all(color: context.borderColor),
+                       ),
+                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                       child: Row(
+                         mainAxisSize: MainAxisSize.min,
+                         children: [
+                           InkWell(
+                             onTap: onRemove,
+                             child: const Icon(Icons.remove, size: 20),
+                           ),
+                           SizedBox(
+                             width: 32,
+                             child: Text("$count", textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold)),
+                           ),
+                            InkWell(
+                             onTap: onAdd,
+                             child: const Icon(Icons.add, size: 20),
+                           ),
+                         ],
+                       ),
                      )
                    else
-                     const Icon(Icons.add_circle_outline_rounded, color: AppColors.primaryBlue, size: 24),
+                     Container(
+                       padding: const EdgeInsets.all(8),
+                       decoration: BoxDecoration(
+                         color: AppColors.primaryBlue.withOpacity(0.1),
+                         shape: BoxShape.circle,
+                       ),
+                       child: const Icon(Icons.add, color: AppColors.primaryBlue, size: 24),
+                     ),
                 ],
               ),
             ),
@@ -774,8 +824,8 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
   }
 
   Future<void> _saveQuotation() async {
-    if (_customerId == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a customer"))); return; }
-    if (_items.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Add at least one item"))); return; }
+    if (_customerId == null) { StatusService.show(context, "Please select a customer"); return; }
+    if (_items.isEmpty) { StatusService.show(context, "Add at least one item"); return; }
     
     setState(() => _loading = true);
     try {
@@ -852,7 +902,7 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       debugPrint("Error saving quotation: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) StatusService.show(context, "Error: $e");
     } finally {
        if (mounted) setState(() => _loading = false);
     }
@@ -1007,7 +1057,7 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
                                           setModalState(() => isRefreshing = true);
                                           await onRefresh();
                                           if (context.mounted) Navigator.pop(context);
-                                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Data synchronized! Please reopen to see changes.")));
+                                          StatusService.show(context, "Data synchronized! Please reopen to see changes.");
                                         }, 
                                         icon: const Icon(Icons.sync_rounded, color: AppColors.primaryBlue)
                                       ),
@@ -1050,7 +1100,11 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
                               style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
                               decoration: InputDecoration(
                                 isDense: true,
+                                filled: false,
                                 hintText: "Search anything...",
+                                 border: InputBorder.none,
+                                 enabledBorder: InputBorder.none,
+                                 focusedBorder: InputBorder.none,
                                 hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15, fontWeight: FontWeight.normal),
                                 prefixIcon: AnimatedSwitcher(
                                   duration: const Duration(milliseconds: 200),
@@ -1091,9 +1145,6 @@ class _QuotationFormScreenState extends State<QuotationFormScreen> {
                                     const SizedBox(width: 4),
                                   ],
                                 ),
-                                border: InputBorder.none,
-                                enabledBorder: InputBorder.none,
-                                focusedBorder: InputBorder.none,
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 20),
                               ),
                               onChanged: (v) => setModalState(() => searchQuery = v),

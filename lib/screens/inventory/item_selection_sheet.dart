@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme_service.dart';
+import 'item_form_sheet.dart';
 
 class ItemSelectionSheet extends StatefulWidget {
   const ItemSelectionSheet({super.key});
@@ -68,7 +69,7 @@ class _ItemSelectionSheetState extends State<ItemSelectionSheet> {
           Container(
             width: 40,
             height: 4,
-            decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+            decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2)),
           ),
           // Premium High-Fidelity Search Bar
           Padding(
@@ -97,6 +98,7 @@ class _ItemSelectionSheetState extends State<ItemSelectionSheet> {
                   style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
                   decoration: InputDecoration(
                     isDense: true,
+                    filled: false,
                     hintText: "Search anything...",
                     hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15, fontWeight: FontWeight.normal),
                     prefixIcon: const Icon(Icons.search_rounded, color: AppColors.primaryBlue, size: 24),
@@ -128,7 +130,36 @@ class _ItemSelectionSheetState extends State<ItemSelectionSheet> {
             child: _loading 
               ? const Center(child: CircularProgressIndicator())
               : _items.isEmpty 
-                ? const Center(child: Text("No items found"))
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.inventory_2_outlined, size: 64, color: context.textSecondary.withOpacity(0.1)),
+                        const SizedBox(height: 16),
+                        Text("No items found", style: TextStyle(fontFamily: 'Outfit', fontSize: 18, color: context.textSecondary.withOpacity(0.5))),
+                        const SizedBox(height: 24),
+                        ElevatedButton.icon(
+                          onPressed: () async {
+                            final res = await showModalBottomSheet(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              builder: (context) => const ItemFormSheet(),
+                            );
+                            if (res == true) _fetchItems();
+                          },
+                          icon: const Icon(Icons.add_rounded),
+                          label: const Text("Create New Item", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primaryBlue,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
                 : ListView.separated(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     itemCount: _items.length,

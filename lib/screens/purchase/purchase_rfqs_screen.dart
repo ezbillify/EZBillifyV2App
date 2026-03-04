@@ -187,6 +187,7 @@ class _PurchaseRfqsScreenState extends State<PurchaseRfqsScreen> {
                   cursorColor: AppColors.primaryBlue,
                   decoration: InputDecoration(
                     isDense: true,
+                    filled: false,
                     hintText: "Search RFQ # or vendor...",
                     hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15),
                     prefixIcon: Icon(

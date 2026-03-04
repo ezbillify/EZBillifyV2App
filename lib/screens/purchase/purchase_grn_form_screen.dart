@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -133,7 +135,7 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
 
   Future<void> _selectPO() async {
     if (_vendorId == null) {
-       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a vendor first to see their POs")));
+       StatusService.show(context, "Please select a vendor first to see their POs");
        return;
     }
 
@@ -388,17 +390,35 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
                 ),
                 Padding(
                   padding: const EdgeInsets.all(24),
-                  child: TextField(
-                    controller: searchController,
-                    focusNode: focusNode,
-                    decoration: InputDecoration(
-                      hintText: "Search...",
-                      prefixIcon: const Icon(Icons.search),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                      filled: true,
-                      fillColor: context.cardBg,
+                  child: Container(
+                    height: 56,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: context.cardBg,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: context.borderColor, width: 1.5),
                     ),
-                    onChanged: (v) => setModalState(() => searchQuery = v),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: TextField(
+                        controller: searchController,
+                        focusNode: focusNode,
+                        textAlignVertical: TextAlignVertical.center,
+                        style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          filled: false,
+                          hintText: "Search anything...",
+                          hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15, fontWeight: FontWeight.normal),
+                          prefixIcon: Icon(Icons.search_rounded, color: focusNode.hasFocus ? AppColors.primaryBlue : context.textSecondary.withOpacity(0.5)),
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+                        ),
+                        onChanged: (v) => setModalState(() => searchQuery = v),
+                      ),
+                    ),
                   ),
                 ),
                 Expanded(
@@ -492,11 +512,11 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
 
   void _saveGrn() async {
     if (_items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please add at least one item")));
+      StatusService.show(context, "Please add at least one item");
       return;
     }
     if (_vendorId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a vendor")));
+      StatusService.show(context, "Please select a vendor");
       return;
     }
 
@@ -514,7 +534,7 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
             
         if (existing != null) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("A GRN with this Invoice Number already exists for this vendor."), backgroundColor: Colors.red));
+            StatusService.show(context, "A GRN with this Invoice Number already exists for this vendor.", backgroundColor: Colors.red);
             setState(() => _loading = false);
           }
           return;
@@ -579,11 +599,11 @@ class _PurchaseGrnFormScreenState extends State<PurchaseGrnFormScreen> {
       if (mounted) {
         PurchaseRefreshService.triggerRefresh();
         Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("GRN Saved Successfully")));
+        StatusService.show(context, "GRN Saved Successfully");
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error saving GRN: $e"), backgroundColor: Colors.red));
+        StatusService.show(context, "Error saving GRN: $e", backgroundColor: Colors.red);
       }
     } finally {
       if (mounted) setState(() => _loading = false);

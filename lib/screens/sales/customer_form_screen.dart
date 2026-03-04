@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -167,10 +169,13 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
         await Supabase.instance.client.from('customers').insert(data);
       }
       
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        StatusService.show(context, widget.customer != null ? "Customer updated!" : "Customer created!", backgroundColor: AppColors.success);
+        Navigator.pop(context);
+      }
     } catch (e) {
       debugPrint("Error saving customer: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) StatusService.show(context, "Error: $e");
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -189,7 +194,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
           children: [
             if (widget.isSheet) ...[
               const SizedBox(height: 12),
-              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                 child: Row(
@@ -203,8 +208,8 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                       onPressed: () => Navigator.pop(context),
                       icon: Container(
                         padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(color: Colors.grey.withOpacity(0.1), shape: BoxShape.circle),
-                        child: const Icon(Icons.close_rounded, size: 20),
+                        decoration: BoxDecoration(color: context.borderColor.withOpacity(0.2), shape: BoxShape.circle),
+                        child: Icon(Icons.close_rounded, size: 20, color: context.textPrimary),
                       ),
                     ),
                   ],
@@ -213,9 +218,13 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
             ],
             if (!widget.isSheet)
               AppBar(
-                backgroundColor: Colors.transparent,
+                backgroundColor: context.scaffoldBg,
                 elevation: 0,
-                title: Text(widget.customer != null ? "Edit Customer" : "New Customer", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                leading: IconButton(
+                  icon: Icon(Icons.arrow_back_ios_new_rounded, color: context.textPrimary, size: 20),
+                  onPressed: () => Navigator.pop(context),
+                ),
+                title: Text(widget.customer != null ? "Edit Customer" : "New Customer", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
               ),
             Expanded(
               child: SingleChildScrollView(
@@ -293,7 +302,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                           const Spacer(),
                           Row(
                             children: [
-                              const Text("Same as billing", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: Color(0xFF64748B))),
+                              Text("Same as billing", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
                               Switch.adaptive(
                                 value: _sameAsBilling,
                                 activeColor: AppColors.primaryBlue,
@@ -301,10 +310,12 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                                   setState(() {
                                     _sameAsBilling = v;
                                     if (v) {
-                                      _shippingStreetController.text = _billingStreetController.text;
-                                      _shippingCityController.text = _billingCityController.text;
-                                      _shippingStateController.text = _billingStateController.text;
-                                      _shippingPincodeController.text = _billingPincodeController.text;
+                                      setState(() {
+                                        _shippingStreetController.text = _billingStreetController.text;
+                                        _shippingCityController.text = _billingCityController.text;
+                                        _shippingStateController.text = _billingStateController.text;
+                                        _shippingPincodeController.text = _billingPincodeController.text;
+                                      });
                                     }
                                   });
                                 },
@@ -316,26 +327,26 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                       const SizedBox(height: 12),
                       if (!_sameAsBilling) _buildAddressFields(isBilling: false),
                       if (_sameAsBilling) 
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.05),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.blue.withOpacity(0.1)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.info_outline_rounded, size: 20, color: Colors.blue),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  "Shipping address is currently synced with the billing address.",
-                                  style: TextStyle(fontFamily: 'Outfit', fontSize: 13, color: Colors.blue.shade700),
-                                ),
-                              ),
-                            ],
-                          ),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryBlue.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppColors.primaryBlue.withOpacity(0.1)),
                         ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.info_outline_rounded, size: 20, color: AppColors.primaryBlue),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                "Shipping address is currently synced with the billing address.",
+                                style: TextStyle(fontFamily: 'Outfit', fontSize: 13, color: context.textSecondary),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                       const SizedBox(height: 40),
                     ],
                   ),
@@ -502,7 +513,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
       padding: const EdgeInsets.only(left: 4),
       child: Text(
         title,
-        style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 1.2, color: Color(0xFF94A3B8)),
+        style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 1.2, color: context.textSecondary.withOpacity(0.6)),
       ),
     );
   }

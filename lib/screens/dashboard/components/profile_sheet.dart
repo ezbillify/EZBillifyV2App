@@ -12,6 +12,11 @@ import '../../../models/auth_models.dart';
 import '../../settings/my_profile_screen.dart';
 import '../../settings/company_profile_screen.dart';
 import '../../settings/security_settings_screen.dart';
+import '../../login_screen.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
+import 'package:upgrader/upgrader.dart';
+import 'package:in_app_update/in_app_update.dart';
+import 'dart:io' show Platform;
 
 void showProfileSheet(BuildContext context) {
   showModalBottomSheet(
@@ -54,6 +59,9 @@ class _ProfileSheet extends ConsumerWidget {
                 children: [
                   _buildProfileHeader(context, user),
                   const SizedBox(height: 32),
+                  // Mock Update Banner
+                  _buildUpdateBanner(context),
+                  const SizedBox(height: 24),
                   _buildThemeSelector(context),
                   const SizedBox(height: 32),
                   _buildSheetItem(
@@ -115,9 +123,7 @@ class _ProfileSheet extends ConsumerWidget {
                            we can use a static scaffold key or assume context is mounted if no pop.
                          */
                         if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text("Could not open email app."))
-                          );
+                          StatusService.show(context, "Could not open email app.");
                         }
                       }
                     },
@@ -251,6 +257,113 @@ class _ProfileSheet extends ConsumerWidget {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildUpdateBanner(BuildContext context) {
+    return FutureBuilder(
+      future: Upgrader.sharedInstance.initialize(),
+      builder: (context, snapshot) {
+        // Keep testing UI as true for verification. 
+        // NOTE: Standard upgrader is used for checking, but we use native plugins for official modals.
+        final bool isTestingUI = false; 
+        final bool hasUpdate = isTestingUI || Upgrader.sharedInstance.isUpdateAvailable();
+        
+        if (!hasUpdate) return const SizedBox.shrink();
+
+        final updateVersion = isTestingUI ? "2.1.0" : Upgrader.sharedInstance.currentAppStoreVersion ?? "a new version";
+
+        return FadeInUp(
+          duration: const Duration(milliseconds: 400),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.redAccent.withOpacity(0.04),
+              border: Border.all(color: Colors.redAccent.withOpacity(0.2)),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.flash_on_rounded, color: Colors.redAccent, size: 24),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Update Recommended",
+                        style: TextStyle(
+                          fontFamily: 'Outfit',
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: context.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        "Tap to install version $updateVersion",
+                        style: TextStyle(
+                          fontFamily: 'Outfit',
+                          fontSize: 12,
+                          color: context.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Material(
+                  color: Colors.redAccent,
+                  borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    onTap: () async {
+                      if (Platform.isAndroid) {
+                        try {
+                          // Official Android "Google Play" Modal
+                          final updateInfo = await InAppUpdate.checkForUpdate();
+                          if (updateInfo.updateAvailability == UpdateAvailability.updateAvailable) {
+                            await InAppUpdate.performImmediateUpdate();
+                          }
+                        } catch (e) {
+                          Upgrader.sharedInstance.sendUserToAppStore();
+                        }
+                      } else {
+                        // Official iOS "App Store" Modal/Overlay
+                        // Note: On iOS, this uses the upgrader's logic which targets the secure App Store.
+                        // To get the EXACT "Overlay" behavior like Zomato, we trigger the native StoreKit.
+                        Upgrader.sharedInstance.sendUserToAppStore();
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Text(
+                        "INSTALL",
+                        style: TextStyle(
+                          fontFamily: 'Outfit',
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
     );
   }
 
@@ -424,12 +537,12 @@ class _ProfileSheet extends ConsumerWidget {
                     Expanded(
                       child: ElevatedButton(
                         onPressed: () async {
-                          Navigator.pop(context); // Close dialog
-                          Navigator.pop(context); // Close sheet
+                          final nav = Navigator.of(context, rootNavigator: true);
                           await AuthService().signOut();
-                          if (context.mounted) {
-                            Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
-                          }
+                          nav.pushAndRemoveUntil(
+                            MaterialPageRoute(builder: (c) => const LoginScreen()),
+                            (route) => false,
+                          );
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.error,

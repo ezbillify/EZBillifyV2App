@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -178,7 +180,6 @@ class _SalesOrderFormScreenState extends ConsumerState<SalesOrderFormScreen> {
       appBar: AppBar(
         backgroundColor: context.scaffoldBg,
         elevation: 0,
-        centerTitle: false,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -468,13 +469,9 @@ class _SalesOrderFormScreenState extends ConsumerState<SalesOrderFormScreen> {
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               autofocus: true,
               style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary),
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 prefixText: "₹ ",
-                prefixStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                 labelText: "New Unit Price",
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                filled: true,
-                fillColor: context.cardBg,
               ),
             ),
             const SizedBox(height: 32),
@@ -622,7 +619,106 @@ class _SalesOrderFormScreenState extends ConsumerState<SalesOrderFormScreen> {
            });
          }
          ref.read(salesOrderProvider.notifier).setItems(newItems);
-       }
+       },
+       itemContentBuilder: (context, item, count, onAdd, onRemove) {
+        final salesPrice = (item['default_sales_price'] ?? 0).toDouble();
+        final rate = (item['tax_rate']?['rate'] ?? 0).toDouble();
+        final salesPriceInclTax = salesPrice * (1 + rate / 100);
+        final itemMrp = salesPriceInclTax; // Defaulting MRP to tax inclusive sales price
+        final unit = item['uom'] ?? 'unt';
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Material(
+            color: count > 0 ? AppColors.primaryBlue.withOpacity(0.05) : context.cardBg,
+            borderRadius: BorderRadius.circular(20),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onAdd,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: count > 0 ? AppColors.primaryBlue : context.borderColor.withOpacity(0.5), width: 1),
+                ),
+                child: Row(
+                  children: [
+                     Container(
+                       width: 48,
+                       height: 48,
+                       decoration: BoxDecoration(
+                         color: AppColors.primaryBlue.withOpacity(0.1),
+                         borderRadius: BorderRadius.circular(12),
+                       ),
+                       child: const Icon(Icons.inventory_2_outlined, color: AppColors.primaryBlue),
+                     ),
+                   const SizedBox(width: 16),
+                   Expanded(
+                     child: Column(
+                       crossAxisAlignment: CrossAxisAlignment.start,
+                       children: [
+                         Text(
+                           item['name'],
+                           style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16, color: context.textPrimary),
+                           maxLines: 1, overflow: TextOverflow.ellipsis
+                         ),
+                         const SizedBox(height: 4),
+                         Wrap(
+                           spacing: 8,
+                           runSpacing: 4,
+                           children: [
+                             Text("MRP: ₹${itemMrp.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary, fontWeight: FontWeight.w500)),
+                             Text("Rate: ₹${salesPriceInclTax.toStringAsFixed(2)}", style: TextStyle(fontFamily: 'Outfit', fontSize: 12, color: context.textSecondary)),
+                           ],
+                         ),
+                         const SizedBox(height: 4),
+                         Text("Pur: ₹${(item['default_purchase_price'] ?? 0).toStringAsFixed(2)} • $unit • ${rate.toStringAsFixed(0)}% Tax", style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary.withOpacity(0.7))),
+                       ],
+                     ),
+                   ),
+                   const SizedBox(width: 12),
+                   if (count > 0)
+                     Container(
+                       decoration: BoxDecoration(
+                         color: context.surfaceBg,
+                         borderRadius: BorderRadius.circular(12),
+                         border: Border.all(color: context.borderColor),
+                       ),
+                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                       child: Row(
+                         mainAxisSize: MainAxisSize.min,
+                         children: [
+                           InkWell(
+                             onTap: onRemove,
+                             child: const Icon(Icons.remove, size: 20),
+                           ),
+                           SizedBox(
+                             width: 32,
+                             child: Text("$count", textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold)),
+                           ),
+                            InkWell(
+                             onTap: onAdd,
+                             child: const Icon(Icons.add, size: 20),
+                           ),
+                         ],
+                       ),
+                     )
+                   else
+                     Container(
+                       padding: const EdgeInsets.all(8),
+                       decoration: BoxDecoration(
+                         color: AppColors.primaryBlue.withOpacity(0.1),
+                         shape: BoxShape.circle,
+                       ),
+                       child: const Icon(Icons.add, color: AppColors.primaryBlue, size: 24),
+                     ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    },
 
      );
   }
@@ -638,6 +734,7 @@ class _SalesOrderFormScreenState extends ConsumerState<SalesOrderFormScreen> {
     List<T>? currentValues,
     bool showScanner = false,
     String Function(T)? barcodeMapper,
+    Widget Function(BuildContext, T, int count, VoidCallback onAdd, VoidCallback onRemove)? itemContentBuilder,
     Future<void> Function()? onRefresh,
   }) {
     String searchQuery = "";
@@ -703,7 +800,7 @@ class _SalesOrderFormScreenState extends ConsumerState<SalesOrderFormScreen> {
                                           setModalState(() => isRefreshing = true);
                                           await onRefresh();
                                           if (context.mounted) Navigator.pop(context);
-                                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Data synchronized! Please reopen to see changes.")));
+                                          StatusService.show(context, "Data synchronized! Please reopen to see changes.");
                                         }, 
                                         icon: const Icon(Icons.sync_rounded, color: AppColors.primaryBlue)
                                       ),
@@ -747,7 +844,11 @@ class _SalesOrderFormScreenState extends ConsumerState<SalesOrderFormScreen> {
                               style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
                               decoration: InputDecoration(
                                 isDense: true,
+                                filled: false,
                                 hintText: "Search anything...",
+                                 border: InputBorder.none,
+                                 enabledBorder: InputBorder.none,
+                                 focusedBorder: InputBorder.none,
                                 hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15, fontWeight: FontWeight.normal),
                                 prefixIcon: AnimatedSwitcher(
                                   duration: const Duration(milliseconds: 200),
@@ -788,9 +889,6 @@ class _SalesOrderFormScreenState extends ConsumerState<SalesOrderFormScreen> {
                                     const SizedBox(width: 4),
                                   ],
                                 ),
-                                border: InputBorder.none,
-                                enabledBorder: InputBorder.none,
-                                focusedBorder: InputBorder.none,
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 20),
                               ),
                               onChanged: (v) => setModalState(() => searchQuery = v),
@@ -812,6 +910,27 @@ class _SalesOrderFormScreenState extends ConsumerState<SalesOrderFormScreen> {
                             final label = labelMapper(item);
                             final count = selectedItems.where((e) => e == item).length;
                             final isSelected = count > 0;
+
+                            if (itemContentBuilder != null) {
+                              return itemContentBuilder(
+                                context,
+                                item,
+                                count,
+                                () {
+                                  if (isMultiple) {
+                                    setModalState(() => selectedItems.add(item));
+                                  } else {
+                                    onSelect?.call(item);
+                                    Navigator.pop(context);
+                                  }
+                                },
+                                () {
+                                  if (isMultiple && count > 0) {
+                                    setModalState(() => selectedItems.remove(item));
+                                  }
+                                },
+                              );
+                            }
 
                             return Container(
                               decoration: BoxDecoration(
@@ -914,16 +1033,16 @@ class _SalesOrderFormScreenState extends ConsumerState<SalesOrderFormScreen> {
     final notifier = ref.read(salesOrderProvider.notifier);
 
     if (state.customerId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a customer")));
+      StatusService.show(context, "Please select a customer");
       return;
     }
     if (state.items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please add at least one item")));
+      StatusService.show(context, "Please add at least one item");
       return;
     }
     
     if (_companyId == null) {
-       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error: Company profile not loaded. Please try again.")));
+       StatusService.show(context, "Error: Company profile not loaded. Please try again.");
        return;
     }
     
@@ -1001,7 +1120,7 @@ class _SalesOrderFormScreenState extends ConsumerState<SalesOrderFormScreen> {
     } catch (e) {
       debugPrint("Error saving order: $e");
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error saving order: ${e.toString()}"), backgroundColor: Colors.red));
+        StatusService.show(context, "Error saving order: ${e.toString()}", backgroundColor: Colors.red);
       }
     } finally {
        notifier.setLoading(false);

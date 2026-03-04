@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/settings_service.dart';
 import '../../core/theme_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class BranchManagementScreen extends ConsumerStatefulWidget {
   final String companyId;
@@ -34,7 +35,7 @@ class _BranchManagementScreenState extends ConsumerState<BranchManagementScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        StatusService.show(context, 'Error: $e');
         setState(() => _isLoading = false);
       }
     }
@@ -215,7 +216,7 @@ class _BranchManagementScreenState extends ConsumerState<BranchManagementScreen>
                                 _loadBranches();
                               } catch (e) {
                                 if (!context.mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                                StatusService.show(context, 'Error: $e');
                               }
                             },
                             style: ElevatedButton.styleFrom(

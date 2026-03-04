@@ -21,11 +21,13 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   List<Map<String, dynamic>> _payments = [];
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   String? _cachedCompanyId;
 
   @override
   void initState() {
     super.initState();
+    _searchFocusNode.addListener(() { if (mounted) setState(() {}); });
     _initPayments();
     SalesRefreshService.refreshNotifier.addListener(_fetchPayments);
   }
@@ -38,6 +40,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _searchFocusNode.dispose();
     SalesRefreshService.refreshNotifier.removeListener(_fetchPayments);
     super.dispose();
   }
@@ -144,27 +147,61 @@ final response = await query.order('date', ascending: false);
   Widget _buildSearch() {
     return SliverToBoxAdapter(
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeInOut,
+          height: 54,
+          alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: context.cardBg,
+            color: _searchFocusNode.hasFocus ? AppColors.primaryBlue.withOpacity(0.04) : context.cardBg,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: context.borderColor),
-          ),
-          child: TextField(
-            controller: _searchController,
-            decoration: InputDecoration(
-              hintText: "Search payment #...",
-              hintStyle: TextStyle(color: context.textSecondary.withOpacity(0.5)),
-              prefixIcon: Icon(Icons.search, color: context.textSecondary),
-              border: InputBorder.none,
-              contentPadding: const EdgeInsets.all(16),
+            border: Border.all(
+              color: _searchFocusNode.hasFocus ? AppColors.primaryBlue : context.textSecondary.withOpacity(0.2),
+              width: 1.5,
+              strokeAlign: BorderSide.strokeAlignInside,
             ),
-            onChanged: (v) {
-              setState(() => _searchQuery = v);
-              // Throttle usually, but direct call for now
-              _fetchPayments();
-            },
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: TextField(
+              focusNode: _searchFocusNode,
+              controller: _searchController,
+              textAlignVertical: TextAlignVertical.center,
+              style: TextStyle(fontFamily: 'Outfit', fontSize: 16, color: context.textPrimary),
+              cursorColor: AppColors.primaryBlue,
+              decoration: InputDecoration(
+                isDense: true,
+                filled: false,
+                hintText: "Search payment #...",
+                hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15),
+                prefixIcon: Icon(
+                  Icons.search_rounded, 
+                  color: _searchFocusNode.hasFocus ? AppColors.primaryBlue : context.textSecondary.withOpacity(0.4), 
+                  size: 22
+                ),
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                suffixIcon: _searchQuery.isNotEmpty 
+                  ? IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 20, color: AppColors.primaryBlue), 
+                      onPressed: () {
+                        setState(() {
+                          _searchQuery = '';
+                          _searchController.clear();
+                        });
+                        _fetchPayments();
+                      }
+                    ) 
+                  : null,
+              ),
+              onChanged: (v) {
+                setState(() => _searchQuery = v);
+                _fetchPayments();
+              },
+            ),
           ),
         ),
       ),

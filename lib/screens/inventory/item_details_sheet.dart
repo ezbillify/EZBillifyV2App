@@ -137,10 +137,10 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
                     const SizedBox(height: 16),
                     _buildInfoGrid(),
                     const SizedBox(height: 32),
-                    _buildSectionHeader("Recent Stock History"),
+                    _buildSectionHeader("Recent Stock Movements"),
                     const SizedBox(height: 16),
                     _buildStockHistoryList(),
-                    const SizedBox(height: 40),
+                    const SizedBox(height: 48),
                   ],
                 ),
               ),
@@ -159,10 +159,11 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: AppColors.primaryBlue.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(16),
+              gradient: LinearGradient(colors: [AppColors.primaryBlue, AppColors.primaryBlue.withOpacity(0.8)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: [BoxShadow(color: AppColors.primaryBlue.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4))],
             ),
-            child: const Icon(Icons.inventory_2_rounded, color: AppColors.primaryBlue, size: 28),
+            child: const Icon(Icons.inventory_2_rounded, color: Colors.white, size: 28),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -171,33 +172,32 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
               children: [
                 Text(
                   _item['name'] ?? 'Unknown Item',
-                  style: TextStyle(
-                    fontFamily: 'Outfit',
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: context.textPrimary,
-                  ),
+                  style: TextStyle(fontFamily: 'Outfit', fontSize: 22, fontWeight: FontWeight.bold, color: context.textPrimary, letterSpacing: -0.5),
                 ),
-                Text(
-                  _item['category']?['name'] ?? 'Uncategorized',
-                  style: TextStyle(
-                    fontFamily: 'Outfit',
-                    fontSize: 14,
-                    color: context.textSecondary,
-                  ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Icon(Icons.label_important_outline_rounded, size: 12, color: context.textSecondary),
+                    const SizedBox(width: 4),
+                    Text(
+                      _item['category']?['name'] ?? 'Uncategorized',
+                      style: TextStyle(fontFamily: 'Outfit', fontSize: 13, color: context.textSecondary, fontWeight: FontWeight.w500),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-          IconButton(
-            onPressed: _editItem,
-            icon: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppColors.primaryBlue.withOpacity(0.1),
-                shape: BoxShape.circle,
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _editItem,
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
+                child: const Icon(Icons.edit_note_rounded, color: AppColors.primaryBlue, size: 24),
               ),
-              child: const Icon(Icons.edit_rounded, color: AppColors.primaryBlue, size: 20),
             ),
           ),
         ],
@@ -252,14 +252,15 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
   }
 
   Widget _buildSectionHeader(String title) {
-    return Text(
-      title,
-      style: TextStyle(
-        fontFamily: 'Outfit',
-        fontSize: 16,
-        fontWeight: FontWeight.bold,
-        color: context.textPrimary,
-      ),
+    return Row(
+      children: [
+        Container(width: 4, height: 20, decoration: BoxDecoration(color: AppColors.primaryBlue, borderRadius: BorderRadius.circular(2))),
+        const SizedBox(width: 12),
+        Text(
+          title,
+          style: TextStyle(fontFamily: 'Outfit', fontSize: 17, fontWeight: FontWeight.bold, color: context.textPrimary, letterSpacing: -0.2),
+        ),
+      ],
     );
   }
 
@@ -303,13 +304,20 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
     if (_loading) return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()));
     if (_recentStockHistory.isEmpty) {
       return Container(
-        padding: const EdgeInsets.all(20),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 40),
         decoration: BoxDecoration(
           color: context.cardBg,
           borderRadius: BorderRadius.circular(24),
           border: Border.all(color: context.borderColor),
         ),
-        child: Center(child: Text("No stock transactions found", style: TextStyle(color: context.textSecondary, fontSize: 14))),
+        child: Column(
+          children: [
+            Icon(Icons.history_rounded, size: 48, color: context.textSecondary.withOpacity(0.1)),
+            const SizedBox(height: 12),
+            Text("No transactions yet", style: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 14)),
+          ],
+        ),
       );
     }
 
@@ -317,29 +325,31 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
       children: _recentStockHistory.map((tx) {
         final date = DateTime.parse(tx['created_at']);
         final change = (tx['quantity_change'] ?? 0).toDouble();
+        final bool isCredit = change >= 0;
+        
         return Container(
-          margin: const EdgeInsets.only(bottom: 8),
+          margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: context.cardBg,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(24),
             border: Border.all(color: context.borderColor),
           ),
           child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: (change >= 0 ? Colors.green : Colors.red).withOpacity(0.1),
-                  shape: BoxShape.circle,
+                  color: (isCredit ? Colors.green : Colors.red).withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(14),
                 ),
                 child: Icon(
-                  change >= 0 ? Icons.add_rounded : Icons.remove_rounded,
-                  color: change >= 0 ? Colors.green : Colors.red,
-                  size: 16,
+                  isCredit ? Icons.add_circle_outline_rounded : Icons.remove_circle_outline_rounded,
+                  color: isCredit ? Colors.green : Colors.red,
+                  size: 20,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -348,21 +358,26 @@ class _ItemDetailsSheetState extends State<ItemDetailsSheet> {
                       tx['reference_type']?.toString().replaceAll('_', ' ').toUpperCase() ?? 'ADJUSTMENT',
                       style: TextStyle(fontFamily: 'Outfit', fontSize: 13, fontWeight: FontWeight.bold, color: context.textPrimary),
                     ),
+                    const SizedBox(height: 2),
                     Text(
-                      DateFormat('dd MMM yyyy, hh:mm a').format(date),
-                      style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary),
+                      DateFormat('dd MMM, hh:mm a').format(date),
+                      style: TextStyle(fontFamily: 'Outfit', fontSize: 11, color: context.textSecondary.withOpacity(0.5)),
                     ),
                   ],
                 ),
               ),
-              Text(
-                "${change > 0 ? '+' : ''}$change",
-                style: TextStyle(
-                  fontFamily: 'Outfit',
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: change >= 0 ? Colors.green : Colors.red,
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    "${isCredit ? '+' : ''}$change",
+                    style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: isCredit ? Colors.green : Colors.red),
+                  ),
+                  Text(
+                    tx['branch']?['name'] ?? 'Main',
+                    style: TextStyle(fontFamily: 'Outfit', fontSize: 10, color: context.textSecondary.withOpacity(0.4)),
+                  ),
+                ],
               ),
             ],
           ),

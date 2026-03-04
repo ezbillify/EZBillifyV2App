@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -5,6 +7,7 @@ import 'dart:ui' as ui;
 import '../../core/theme_service.dart';
 import 'purchase_debit_note_form_screen.dart';
 import '../../services/print_service.dart';
+
 
 class PurchaseDebitNoteDetailsSheet extends StatefulWidget {
   final Map<String, dynamic> debitNote;
@@ -85,10 +88,10 @@ class _PurchaseDebitNoteDetailsSheetState extends State<PurchaseDebitNoteDetails
       if (mounted) {
         _refreshData();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Debit Note archived successfully")));
+        StatusService.show(context, "Debit Note archived successfully");
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error archiving debit note: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error archiving debit note: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -102,10 +105,10 @@ class _PurchaseDebitNoteDetailsSheetState extends State<PurchaseDebitNoteDetails
       if (mounted) {
         _refreshData();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Debit Note restored successfully"), backgroundColor: Colors.green));
+        StatusService.show(context, "Debit Note restored successfully", backgroundColor: Colors.green);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error restoring debit note: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error restoring debit note: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -127,10 +130,10 @@ class _PurchaseDebitNoteDetailsSheetState extends State<PurchaseDebitNoteDetails
       if (mounted) {
         widget.onRefresh();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Debit Note deleted permanently"), backgroundColor: Colors.black));
+        StatusService.show(context, "Debit Note deleted permanently", backgroundColor: Colors.black);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error deleting debit note: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error deleting debit note: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -342,16 +345,16 @@ class _PurchaseDebitNoteDetailsSheetState extends State<PurchaseDebitNoteDetails
                       children: [
                         Expanded(
                           child: _buildActionButton(Icons.print_outlined, "Print", () {
-                            PrintService.printDocument(Map<String, dynamic>.from(_debitNote), 'purchase_debit_note');
+                            PrintService.printDocument(Map<String, dynamic>.from(_debitNote), 'purchase_debit_note', context);
                           }),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
+                            StatusService.show(context, 'Generating PDF...', isLoading: true);
                             final path = await PrintService.downloadDocument(Map<String, dynamic>.from(_debitNote), 'purchase_debit_note');
                             if (path != null && mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
+                              StatusService.show(context, 'PDF saved successfully', backgroundColor: Colors.green);
                             }
                           }),
                         ),
@@ -361,12 +364,12 @@ class _PurchaseDebitNoteDetailsSheetState extends State<PurchaseDebitNoteDetails
                     SizedBox(
                       width: double.infinity,
                       child: _buildActionButton(Icons.share_outlined, "Share Note", () async {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparing share...'), duration: Duration(seconds: 1)));
+                        StatusService.show(context, 'Preparing share...', isLoading: true);
                         try {
                           await PrintService.shareDocument(context, Map<String, dynamic>.from(_debitNote), 'purchase_debit_note');
                         } catch (e) {
                           if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));
+                            StatusService.show(context, 'Failed to share: ${e.toString()}', backgroundColor: Colors.red);
                           }
                         }
                       }),

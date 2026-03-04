@@ -4,6 +4,8 @@ import '../../hr/employee_list_screen.dart';
 import '../../hr/workforce_monitor_screen.dart';
 import '../../sales/sales_dashboard.dart';
 import '../../inventory/inventory_dashboard_screen.dart';
+import '../../purchase/purchase_dashboard.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class DashboardQuickActions extends StatelessWidget {
   const DashboardQuickActions({super.key});
@@ -33,6 +35,20 @@ class DashboardQuickActions extends StatelessWidget {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (c) => const SalesDashboard()),
+            );
+          },
+        ),
+        const SizedBox(height: 16),
+        _buildBigAction(
+          context,
+          title: "Purchase & Sourcing",
+          description: "Manage vendors, purchase orders & bills",
+          icon: Icons.storefront_rounded,
+          color: const Color(0xFFF59E0B),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (c) => PurchaseDashboard()),
             );
           },
         ),
@@ -86,9 +102,7 @@ class DashboardQuickActions extends StatelessWidget {
           icon: Icons.analytics_rounded,
           color: const Color(0xFFF59E0B),
           onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Reports - Coming Soon")),
-            );
+            StatusService.show(context, "Reports - Coming Soon");
           },
         ),
       ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme_service.dart';
 import '../../services/master_data_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 class ItemFormSheet extends StatefulWidget {
   final Map<String, dynamic>? item; // If null, create new
   const ItemFormSheet({super.key, this.item});
@@ -118,26 +119,30 @@ class _ItemFormSheetState extends State<ItemFormSheet> {
         'min_stock_level': double.tryParse(_minStockController.text) ?? 0,
         'hsn_code': _hsnController.text.trim(),
         'tax_rate_id': _taxRateId,
+        'barcodes': _barcodes,
         'is_active': true,
       };
-
-      if (widget.item == null) {
-        data['total_stock'] = double.tryParse(_openingStockController.text) ?? 0;
-      }
 
       if (widget.item != null) {
         await Supabase.instance.client.from('items').update(data).eq('id', widget.item!['id']);
       } else {
+        // For new items, if opening stock is provided, it should ideally be handled via a transaction to inventory_stock.
+        // For now, we omit total_stock from the items table as it's a calculated field.
         await Supabase.instance.client.from('items').insert(data);
       }
       
       if (mounted) {
         await MasterDataService().invalidateItems();
+        StatusService.show(context, widget.item != null ? "Item updated!" : "Item created!", backgroundColor: AppColors.success);
         Navigator.pop(context, true);
       }
     } catch (e) {
       debugPrint("Error saving item: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      String errorMessage = e.toString();
+      if (errorMessage.contains("schema")) {
+        errorMessage = "Database schema mismatch. Please contact support.";
+      }
+      if (mounted) StatusService.show(context, "Error: $errorMessage");
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -145,14 +150,17 @@ class _ItemFormSheetState extends State<ItemFormSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.9,
-      decoration: BoxDecoration(
-        color: context.scaffoldBg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-      ),
-      child: Column(
-        children: [
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.9,
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        decoration: BoxDecoration(
+          color: context.scaffoldBg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: Column(
+            children: [
           const SizedBox(height: 12),
           Container(width: 40, height: 4, decoration: BoxDecoration(color: context.borderColor, borderRadius: BorderRadius.circular(2))),
           const SizedBox(height: 20),
@@ -165,11 +173,18 @@ class _ItemFormSheetState extends State<ItemFormSheet> {
                   widget.item != null ? "Edit Item" : "New Item",
                   style: TextStyle(fontFamily: 'Outfit', fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary),
                 ),
-                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(color: context.borderColor.withOpacity(0.2), shape: BoxShape.circle),
+                    child: Icon(Icons.close_rounded, size: 20, color: context.textPrimary),
+                  ),
+                ),
               ],
             ),
           ),
-          const Divider(),
+          Divider(height: 1, thickness: 1, color: context.borderColor.withOpacity(0.5)),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
@@ -289,17 +304,19 @@ class _ItemFormSheetState extends State<ItemFormSheet> {
                     const SizedBox(height: 40),
                     SizedBox(
                       width: double.infinity,
-                      height: 56,
                       child: ElevatedButton(
                         onPressed: _loading ? null : _saveItem,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primaryBlue,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          elevation: 0,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 18),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                          elevation: 8,
+                          shadowColor: AppColors.primaryBlue.withOpacity(0.4),
                         ),
                         child: _loading 
-                          ? const CircularProgressIndicator(color: Colors.white)
-                          : const Text("Save Item", style: TextStyle(fontFamily: 'Outfit', fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
+                          : Text(widget.item != null ? "Update Item" : "Create Item", style: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 16)),
                       ),
                     ),
                     const SizedBox(height: 40),
@@ -310,23 +327,37 @@ class _ItemFormSheetState extends State<ItemFormSheet> {
           ),
         ],
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildSectionHeader(String title) {
-    return Text(title, style: TextStyle(fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary));
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Text(
+        title.toUpperCase(),
+        style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1.2, color: context.textSecondary.withOpacity(0.6)),
+      ),
+    );
   }
 
   Widget _buildTextField(TextEditingController controller, String label, IconData icon, {bool isNumber = false, String? prefix, bool required = false}) {
     return TextFormField(
       controller: controller,
       keyboardType: isNumber ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
+      style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary, fontWeight: FontWeight.w500),
       decoration: InputDecoration(
         labelText: label,
         prefixText: prefix,
-        prefixIcon: Icon(icon, size: 20),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: context.borderColor)),
+        prefixIcon: Icon(icon, size: 20, color: context.textSecondary.withOpacity(0.5)),
+        labelStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary),
+        floatingLabelStyle: const TextStyle(fontFamily: 'Outfit', color: AppColors.primaryBlue, fontWeight: FontWeight.bold),
+        filled: true,
+        fillColor: context.isDark ? Colors.white.withOpacity(0.02) : Colors.black.withOpacity(0.02),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.primaryBlue, width: 1.5)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       ),
       validator: required ? (v) => v!.isEmpty ? "Required" : null : null,
     );
@@ -337,25 +368,25 @@ class _ItemFormSheetState extends State<ItemFormSheet> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
+          color: context.isDark ? Colors.white.withOpacity(0.02) : Colors.black.withOpacity(0.02),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: context.borderColor),
         ),
         child: Row(
           children: [
-            Icon(icon, size: 20, color: context.textSecondary),
-            const SizedBox(width: 8),
+            Icon(icon, size: 20, color: context.textSecondary.withOpacity(0.5)),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: TextStyle(fontSize: 10, color: context.textSecondary)),
-                  Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(label, style: TextStyle(fontSize: 10, color: context.textSecondary, fontFamily: 'Outfit')),
+                  Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary, fontFamily: 'Outfit'), maxLines: 1, overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),
-            Icon(Icons.arrow_drop_down_rounded, color: context.textSecondary),
+            Icon(Icons.keyboard_arrow_down_rounded, color: context.textSecondary.withOpacity(0.5)),
           ],
         ),
       ),

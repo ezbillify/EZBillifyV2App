@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -147,7 +149,6 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
       appBar: AppBar(
         backgroundColor: context.scaffoldBg,
         elevation: 0,
-        centerTitle: false,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -245,12 +246,9 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
         TextFormField(
           initialValue: _reason,
           style: const TextStyle(fontFamily: 'Outfit'),
-          decoration: InputDecoration(
+          decoration: const InputDecoration(
             labelText: "Reason for Return", 
             hintText: "e.g. Damaged goods, Wrong item sent",
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), 
-            filled: true, 
-            fillColor: context.cardBg
           ),
           onChanged: (v) => _reason = v,
         ),
@@ -606,9 +604,12 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
                                    controller: searchController,
                                    focusNode: focusNode,
                                    decoration: InputDecoration(
+                                     filled: false,
                                      hintText: "Search...",
                                      prefixIcon: Icon(Icons.search, color: focusNode.hasFocus ? Colors.red : context.textSecondary),
                                      border: InputBorder.none,
+                                     enabledBorder: InputBorder.none,
+                                     focusedBorder: InputBorder.none,
                                      contentPadding: const EdgeInsets.symmetric(vertical: 14),
                                    ),
                                    onChanged: (v) => setModalState(() => searchQuery = v),
@@ -764,8 +765,8 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
 
 
   Future<void> _saveCreditNote() async {
-    if (_customerId == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Select customer"))); return; }
-    if (_items.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Add returned items"))); return; }
+    if (_customerId == null) { StatusService.show(context, "Select customer"); return; }
+    if (_items.isEmpty) { StatusService.show(context, "Add returned items"); return; }
     
     setState(() => _loading = true);
     try {
@@ -841,7 +842,7 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       debugPrint("Error saving CN: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) StatusService.show(context, "Error: $e");
     } finally {
        if (mounted) setState(() => _loading = false);
     }

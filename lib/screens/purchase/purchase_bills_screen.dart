@@ -7,6 +7,7 @@ import 'vendors_screen.dart';
 import 'purchase_bill_form_screen.dart';
 import 'purchase_bill_details_sheet.dart';
 import '../../services/purchase_refresh_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class PurchaseBillsScreen extends StatefulWidget {
   final bool showAppBar;
@@ -161,7 +162,7 @@ class _PurchaseBillsScreenState extends State<PurchaseBillsScreen> {
         onPressed: () async {
           final result = await Navigator.push(context, MaterialPageRoute(builder: (c) => const PurchaseBillFormScreen()));
           if (result == true) _fetchBills();
-          // ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Create bill coming soon")));
+          // StatusService.show(context, "Create bill coming soon");
         },
         backgroundColor: AppColors.primaryBlue,
         icon: const Icon(Icons.add_rounded, color: Colors.white),
@@ -246,6 +247,7 @@ class _PurchaseBillsScreenState extends State<PurchaseBillsScreen> {
                   cursorColor: AppColors.primaryBlue,
                   decoration: InputDecoration(
                     isDense: true,
+                    filled: false,
                     hintText: "Search bill # or vendor...",
                     hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15),
                     prefixIcon: Icon(

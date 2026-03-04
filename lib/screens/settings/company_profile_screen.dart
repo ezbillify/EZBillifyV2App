@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import '../../services/settings_service.dart';
 import '../../core/theme_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class CompanyProfileScreen extends StatefulWidget {
   final String companyId;
@@ -82,7 +83,7 @@ class _CompanyProfileScreenState extends State<CompanyProfileScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error loading company data: $e')));
+      StatusService.show(context, 'Error loading company data: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -111,12 +112,9 @@ class _CompanyProfileScreenState extends State<CompanyProfileScreen> {
       });
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: const Text('Profile updated successfully!'),
-        backgroundColor: AppColors.success,
-      ));
+      StatusService.show(context, 'Profile updated successfully!', backgroundColor: AppColors.success);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving changes: $e')));
+      StatusService.show(context, 'Error saving changes: $e');
     } finally {
       setState(() => _isSaving = false);
     }

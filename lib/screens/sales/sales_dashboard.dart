@@ -40,7 +40,6 @@ class _SalesDashboardState extends State<SalesDashboard> with SingleTickerProvid
         title: Text("Sales Module", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
         backgroundColor: context.surfaceBg,
         elevation: 0,
-        centerTitle: false,
         actions: [
            IconButton(
              icon: Icon(Icons.people_alt_outlined, color: context.textPrimary),

@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/settings_service.dart';
 import '../../core/theme_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class BrandingSettingsScreen extends ConsumerStatefulWidget {
   final String companyId;
@@ -64,7 +65,7 @@ class _BrandingSettingsScreenState extends ConsumerState<BrandingSettingsScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        StatusService.show(context, 'Error: $e');
         setState(() => _isLoading = false);
       }
     }
@@ -97,7 +98,7 @@ class _BrandingSettingsScreenState extends ConsumerState<BrandingSettingsScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload Error: $e')));
+        StatusService.show(context, 'Upload Error: $e');
         setState(() {
           if (isMain) _isUploadingMain = false; else _isUploadingThermal = false;
         });
@@ -113,9 +114,9 @@ class _BrandingSettingsScreenState extends ConsumerState<BrandingSettingsScreen>
         'branding': _branding,
       });
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Branding updated!')));
+      StatusService.show(context, 'Branding updated!');
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) StatusService.show(context, 'Error: $e');
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }

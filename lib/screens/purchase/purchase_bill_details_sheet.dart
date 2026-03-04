@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -7,6 +9,7 @@ import '../../core/theme_service.dart';
 import 'purchase_bill_form_screen.dart';
 import 'purchase_payment_form_screen.dart';
 import '../../services/print_service.dart';
+
 
 class PurchaseBillDetailsSheet extends StatefulWidget {
   final Map<String, dynamic> bill;
@@ -66,10 +69,10 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
       if (mounted) {
         widget.onRefresh();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill archived successfully")));
+        StatusService.show(context, "Bill archived successfully");
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error archiving bill: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error archiving bill: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -83,10 +86,10 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
       if (mounted) {
         widget.onRefresh();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill restored successfully"), backgroundColor: Colors.green));
+        StatusService.show(context, "Bill restored successfully", backgroundColor: Colors.green);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error restoring bill: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error restoring bill: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -108,10 +111,10 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
       if (mounted) {
         widget.onRefresh();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill deleted permanently"), backgroundColor: Colors.black));
+        StatusService.show(context, "Bill deleted permanently", backgroundColor: Colors.black);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error deleting bill: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error deleting bill: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -379,7 +382,7 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
                       children: [
                         Expanded(
                           child: _buildActionButton(Icons.print_outlined, "Print", () {
-                            PrintService.printDocument(Map<String, dynamic>.from(widget.bill), 'purchase_bill');
+                            PrintService.printDocument(Map<String, dynamic>.from(widget.bill), 'purchase_bill', context);
                           }),
                         ),
                         const SizedBox(width: 12),
@@ -387,10 +390,10 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
                           child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
                             final data = Map<String, dynamic>.from(widget.bill);
                             data['items'] = _items;
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
+                            StatusService.show(context, 'Generating PDF...', isLoading: true);
                             final path = await PrintService.downloadDocument(data, 'purchase_bill');
                             if (path != null && mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
+                              StatusService.show(context, 'PDF saved successfully', backgroundColor: Colors.green);
                             }
                           }),
                         ),
@@ -412,7 +415,7 @@ class _PurchaseBillDetailsSheetState extends State<PurchaseBillDetailsSheet> {
                             await PrintService.shareDocument(context, data, 'purchase_bill');
                           } catch (e) {
                             if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));
+                              StatusService.show(context, 'Failed to share: ${e.toString()}', backgroundColor: Colors.red);
                             }
                           } finally {
                             if (mounted) {

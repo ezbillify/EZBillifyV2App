@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import '../../models/employee_model.dart';
 import '../../services/hr_service.dart';
@@ -140,7 +142,7 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+        StatusService.show(context, "Error: $e");
       }
     } finally {
       if (mounted) setState(() => _loading = false);

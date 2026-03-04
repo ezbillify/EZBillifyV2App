@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -6,6 +8,7 @@ import '../../core/theme_service.dart';
 import 'purchase_order_form_screen.dart';
 import 'purchase_bill_form_screen.dart';
 import '../../services/print_service.dart';
+
 
 class PurchaseOrderDetailsSheet extends StatefulWidget {
   final Map<String, dynamic> order;
@@ -64,10 +67,10 @@ class _PurchaseOrderDetailsSheetState extends State<PurchaseOrderDetailsSheet> {
       if (mounted) {
         widget.onRefresh();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Order archived successfully")));
+        StatusService.show(context, "Order archived successfully");
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error archiving order: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error archiving order: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -81,10 +84,10 @@ class _PurchaseOrderDetailsSheetState extends State<PurchaseOrderDetailsSheet> {
       if (mounted) {
         widget.onRefresh();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Order restored successfully"), backgroundColor: Colors.green));
+        StatusService.show(context, "Order restored successfully", backgroundColor: Colors.green);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error restoring order: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error restoring order: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -106,10 +109,10 @@ class _PurchaseOrderDetailsSheetState extends State<PurchaseOrderDetailsSheet> {
       if (mounted) {
         widget.onRefresh();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Order deleted permanently"), backgroundColor: Colors.black));
+        StatusService.show(context, "Order deleted permanently", backgroundColor: Colors.black);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error deleting order: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error deleting order: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -332,7 +335,7 @@ class _PurchaseOrderDetailsSheetState extends State<PurchaseOrderDetailsSheet> {
                       children: [
                         Expanded(
                           child: _buildActionButton(Icons.print_outlined, "Print", () {
-                            PrintService.printDocument(Map<String, dynamic>.from(widget.order), 'purchase_order');
+                            PrintService.printDocument(Map<String, dynamic>.from(widget.order), 'purchase_order', context);
                           }),
                         ),
                         const SizedBox(width: 12),
@@ -340,10 +343,10 @@ class _PurchaseOrderDetailsSheetState extends State<PurchaseOrderDetailsSheet> {
                           child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
                             final data = Map<String, dynamic>.from(widget.order);
                             data['items'] = _items;
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
+                            StatusService.show(context, 'Generating PDF...');
                             final path = await PrintService.downloadDocument(data, 'purchase_order');
                             if (path != null && mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
+                              StatusService.show(context, 'PDF saved successfully', backgroundColor: Colors.green);
                             }
                           }),
                         ),
@@ -353,14 +356,14 @@ class _PurchaseOrderDetailsSheetState extends State<PurchaseOrderDetailsSheet> {
                     SizedBox(
                       width: double.infinity,
                       child: _buildActionButton(Icons.share_outlined, "Share Order", () async {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparing share...'), duration: Duration(seconds: 1)));
+                        StatusService.show(context, 'Preparing share...');
                         try {
                           final data = Map<String, dynamic>.from(widget.order);
                           data['items'] = _items;
                           await PrintService.shareDocument(context, data, 'purchase_order');
                         } catch (e) {
                           if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));
+                            StatusService.show(context, 'Failed to share: ${e.toString()}', backgroundColor: Colors.red);
                           }
                         }
                       }),

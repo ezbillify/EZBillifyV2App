@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/settings_service.dart';
 import '../../core/theme_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class FinancialYearsScreen extends ConsumerStatefulWidget {
   final String companyId;
@@ -35,7 +36,7 @@ class _FinancialYearsScreenState extends ConsumerState<FinancialYearsScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        StatusService.show(context, 'Error: $e');
         setState(() => _isLoading = false);
       }
     }
@@ -203,7 +204,7 @@ class _FinancialYearsScreenState extends ConsumerState<FinancialYearsScreen> {
                             child: ElevatedButton(
                               onPressed: () async {
                                 if (codeController.text.isEmpty || startDate == null || endDate == null) {
-                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all fields')));
+                                  StatusService.show(context, 'Please fill all fields');
                                   return;
                                 }
                                 try {
@@ -224,7 +225,7 @@ class _FinancialYearsScreenState extends ConsumerState<FinancialYearsScreen> {
                                   }
                                 } catch (e) {
                                   if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                                    StatusService.show(context, 'Error: $e');
                                   }
                                 }
                               },

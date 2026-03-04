@@ -22,11 +22,13 @@ class _CreditNotesScreenState extends State<CreditNotesScreen> {
   bool _showArchived = false;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   String? _cachedCompanyId;
 
   @override
   void initState() {
     super.initState();
+    _searchFocusNode.addListener(() { if (mounted) setState(() {}); });
     _initCreditNotes();
     SalesRefreshService.refreshNotifier.addListener(_fetchCreditNotes);
   }
@@ -39,6 +41,7 @@ class _CreditNotesScreenState extends State<CreditNotesScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _searchFocusNode.dispose();
     SalesRefreshService.refreshNotifier.removeListener(_fetchCreditNotes);
     super.dispose();
   }
@@ -124,25 +127,7 @@ final response = await query.order('created_at', ascending: false);
                   elevation: 0,
                   title: Text("Credit Notes (Returns)", style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: context.textPrimary)),
                 ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Container(
-                      decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.borderColor)),
-                      child: TextField(
-                        controller: _searchController,
-                        decoration: InputDecoration(
-                          hintText: "Search credit note #...",
-                          hintStyle: TextStyle(color: context.textSecondary.withOpacity(0.5)),
-                          prefixIcon: Icon(Icons.search, color: context.textSecondary),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.all(16),
-                        ),
-                        onChanged: (v) { setState(() => _searchQuery = v); },
-                      ),
-                    ),
-                  ),
-                ),
+                _buildSearch(),
                 SliverToBoxAdapter(
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -241,6 +226,68 @@ final response = await query.order('created_at', ascending: false);
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearch() {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeInOut,
+          height: 54,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: _searchFocusNode.hasFocus ? AppColors.primaryBlue.withOpacity(0.04) : context.cardBg,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: _searchFocusNode.hasFocus ? AppColors.primaryBlue : context.textSecondary.withOpacity(0.2),
+              width: 1.5,
+              strokeAlign: BorderSide.strokeAlignInside,
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: TextField(
+              focusNode: _searchFocusNode,
+              controller: _searchController,
+              textAlignVertical: TextAlignVertical.center,
+              style: TextStyle(fontFamily: 'Outfit', fontSize: 16, color: context.textPrimary),
+              cursorColor: AppColors.primaryBlue,
+              decoration: InputDecoration(
+                isDense: true,
+                filled: false,
+                hintText: "Search credit note #...",
+                hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15),
+                prefixIcon: Icon(
+                  Icons.search_rounded, 
+                  color: _searchFocusNode.hasFocus ? AppColors.primaryBlue : context.textSecondary.withOpacity(0.4), 
+                  size: 22
+                ),
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                suffixIcon: _searchQuery.isNotEmpty 
+                  ? IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 20, color: AppColors.primaryBlue), 
+                      onPressed: () {
+                        setState(() {
+                          _searchQuery = '';
+                          _searchController.clear();
+                        });
+                        }
+                    ) 
+                  : null,
+              ),
+              onChanged: (v) {
+                setState(() => _searchQuery = v);
+                },
+            ),
+          ),
         ),
       ),
     );

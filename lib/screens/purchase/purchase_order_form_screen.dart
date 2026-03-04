@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -406,11 +408,11 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
 
   void _saveOrder() async {
     if (_vendorId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select a vendor")));
+      StatusService.show(context, "Please select a vendor");
       return;
     }
     if (_items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please add at least one item")));
+      StatusService.show(context, "Please add at least one item");
       return;
     }
 
@@ -472,13 +474,13 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
       if (mounted) {
         PurchaseRefreshService.triggerRefresh();
         Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Purchase Order Saved Successfully")));
+        StatusService.show(context, "Purchase Order Saved Successfully");
       }
     } catch (e, stacktrace) {
       debugPrint("Detailed PO Save Error: $e");
       debugPrint("Stacktrace: $stacktrace");
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error saving PO: $e\nCheck console for details."), backgroundColor: Colors.red));
+        StatusService.show(context, "Error saving PO: $e\nCheck console for details.", backgroundColor: Colors.red);
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -757,11 +759,8 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
         TextFormField(
           initialValue: _notes,
           maxLines: 2,
-          decoration: InputDecoration(
+          decoration: const InputDecoration(
             labelText: "Internal Notes",
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            filled: true,
-            fillColor: context.cardBg,
           ),
           onChanged: (v) => _notes = v,
         ),
@@ -769,11 +768,8 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
         TextFormField(
           initialValue: _terms,
           maxLines: 2,
-          decoration: InputDecoration(
+          decoration: const InputDecoration(
             labelText: "Terms & Conditions",
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            filled: true,
-            fillColor: context.cardBg,
           ),
           onChanged: (v) => _terms = v,
         ),
@@ -957,7 +953,7 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
                                           setModalState(() => isRefreshing = true);
                                           await onRefresh();
                                           if (context.mounted) Navigator.pop(context);
-                                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Data synchronized! Please reopen to see changes.")));
+                                          StatusService.show(context, "Data synchronized! Please reopen to see changes.");
                                         }, 
                                         icon: const Icon(Icons.sync_rounded, color: AppColors.primaryBlue)
                                       ),
@@ -998,7 +994,11 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
                               style: TextStyle(fontFamily: 'Outfit', color: context.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
                               decoration: InputDecoration(
                                 isDense: true,
+                                filled: false,
                                 hintText: "Search anything...",
+                                 border: InputBorder.none,
+                                 enabledBorder: InputBorder.none,
+                                 focusedBorder: InputBorder.none,
                                 hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15, fontWeight: FontWeight.normal),
                                 prefixIcon: AnimatedSwitcher(
                                   duration: const Duration(milliseconds: 200),
@@ -1028,9 +1028,6 @@ class _PurchaseOrderFormScreenState extends State<PurchaseOrderFormScreen> {
                                     const SizedBox(width: 4),
                                   ],
                                 ),
-                                border: InputBorder.none,
-                                enabledBorder: InputBorder.none,
-                                focusedBorder: InputBorder.none,
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 20),
                               ),
                               onChanged: (v) => setModalState(() => searchQuery = v),

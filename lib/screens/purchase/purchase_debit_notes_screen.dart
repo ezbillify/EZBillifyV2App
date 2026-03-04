@@ -223,6 +223,7 @@ class _PurchaseDebitNotesScreenState extends State<PurchaseDebitNotesScreen> {
                   cursorColor: AppColors.primaryBlue,
                   decoration: InputDecoration(
                     isDense: true,
+                    filled: false,
                     hintText: "Search Debit Note # or vendor...",
                     hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15),
                     prefixIcon: Icon(
@@ -255,15 +256,13 @@ class _PurchaseDebitNotesScreenState extends State<PurchaseDebitNotesScreen> {
               ),
             ),
           ),
-          SliverToBoxAdapter(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  _buildArchivedToggle(),
-                ],
-              ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                _buildArchivedToggle(),
+              ],
             ),
           ),
           const SizedBox(height: 8),

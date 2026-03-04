@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/constants.dart';
 import '../../core/theme_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class UnitsScreen extends StatefulWidget {
   const UnitsScreen({super.key});
@@ -111,7 +112,7 @@ class _UnitsScreenState extends State<UnitsScreen> {
       // Check if unit already exists
       final existing = _units.indexWhere((u) => u['code'].toString().toLowerCase() == code.toLowerCase());
       if (existing != -1) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Unit with this code already exists.")));
+        if (mounted) StatusService.show(context, "Unit with this code already exists.");
         return;
       }
           
@@ -126,7 +127,7 @@ class _UnitsScreenState extends State<UnitsScreen> {
       if (mounted) Navigator.pop(context);
     } catch (e) {
       debugPrint("Error adding unit: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) StatusService.show(context, "Error: $e");
     }
   }
 
@@ -154,7 +155,7 @@ class _UnitsScreenState extends State<UnitsScreen> {
       _fetchUnits();
     } catch (e) {
       debugPrint("Error deleting: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Failed to delete. Unit might be in use.")));
+      if (mounted) StatusService.show(context, "Failed to delete. Unit might be in use.");
     }
   }
 

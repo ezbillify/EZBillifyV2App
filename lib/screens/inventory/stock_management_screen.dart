@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
 import 'dart:ui';
 import '../../core/theme_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class StockManagementScreen extends StatefulWidget {
   const StockManagementScreen({super.key});
@@ -260,6 +261,8 @@ class _StockManagementScreenState extends State<StockManagementScreen> {
               textAlignVertical: TextAlignVertical.center,
               style: TextStyle(fontFamily: 'Outfit', fontSize: 16, color: context.textPrimary),
               decoration: InputDecoration(
+                isDense: true,
+                filled: false,
                 hintText: "Search item name in stock...",
                 hintStyle: TextStyle(fontFamily: 'Outfit', color: context.textSecondary.withOpacity(0.4), fontSize: 15),
                 prefixIcon: Icon(Icons.search_rounded, color: _searchFocusNode.hasFocus ? AppColors.primaryBlue : context.textSecondary.withOpacity(0.4)),
@@ -468,7 +471,7 @@ class _StockManagementScreenState extends State<StockManagementScreen> {
       final currentQty = (record['quantity'] ?? 0).toDouble();
       final newQty = currentQty + change;
       if (newQty < 0) {
-         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Action failed: Insufficient stock")));
+         StatusService.show(context, "Action failed: Insufficient stock");
          return;
       }
 
@@ -493,7 +496,7 @@ class _StockManagementScreenState extends State<StockManagementScreen> {
       HapticFeedback.mediumImpact();
     } catch (e) {
       debugPrint("Update failed: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) StatusService.show(context, "Error: $e");
     }
   }
 

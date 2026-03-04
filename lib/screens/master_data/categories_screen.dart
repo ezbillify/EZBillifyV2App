@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/constants.dart';
 import '../../core/theme_service.dart';
+import 'package:ez_billify_v2_app/services/status_service.dart';
 
 class CategoriesScreen extends StatefulWidget {
   const CategoriesScreen({super.key});
@@ -78,7 +79,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
       if (mounted) Navigator.pop(context);
     } catch (e) {
       debugPrint("Error adding category: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) StatusService.show(context, "Error: $e");
     }
   }
 
@@ -107,7 +108,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
       _fetchCategories();
     } catch (e) {
       debugPrint("Error deleting: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Failed to delete. Item might be in use.")));
+      if (mounted) StatusService.show(context, "Failed to delete. Item might be in use.");
     }
   }
 

@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -7,8 +9,10 @@ import '../../core/theme_service.dart';
 import 'invoice_form_screen.dart';
 import 'payment_form_screen.dart';
 import '../../services/print_service.dart';
+
 import '../../services/numbering_service.dart';
 import '../../services/sales_refresh_service.dart';
+import '../common/pdf_preview_screen.dart';
 
 class InvoiceDetailsSheet extends StatefulWidget {
   final Map<String, dynamic> invoice;
@@ -107,10 +111,10 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
       if (mounted) {
         _refreshData();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invoice archived successfully")));
+        StatusService.show(context, "Invoice archived successfully");
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error archiving invoice: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error archiving invoice: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -124,10 +128,10 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
       if (mounted) {
         _refreshData();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invoice restored successfully"), backgroundColor: Colors.green));
+        StatusService.show(context, "Invoice restored successfully", backgroundColor: Colors.green);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error restoring invoice: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error restoring invoice: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -149,10 +153,10 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
       if (mounted) {
         widget.onRefresh();
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invoice deleted permanently"), backgroundColor: Colors.black));
+        StatusService.show(context, "Invoice deleted permanently", backgroundColor: Colors.black);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error deleting invoice: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error deleting invoice: $e", backgroundColor: Colors.red);
     }
   }
 
@@ -478,10 +482,22 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: _buildActionButton(Icons.print_outlined, "Print", () {
+              child: _buildActionButton(Icons.remove_red_eye_outlined, "Preview", () {
                  final printData = Map<String, dynamic>.from(_invoice);
                  printData['items'] = _items;
-                 PrintService.printDocument(printData, 'invoice');
+                 Navigator.push(context, MaterialPageRoute(builder: (c) => PdfPreviewScreen(
+                   data: printData, 
+                   docType: 'Invoice', 
+                   fileName: 'INV_${_invoice['invoice_number']}'
+                 )));
+              }),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildActionButton(Icons.print_outlined, "Direct Print", () {
+                 final printData = Map<String, dynamic>.from(_invoice);
+                 printData['items'] = _items;
+                 PrintService.printDocument(printData, 'invoice', context);
               }),
             ),
           ],
@@ -493,11 +509,11 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
               child: _buildActionButton(Icons.file_download_outlined, "Download", () async {
                 final printData = Map<String, dynamic>.from(_invoice);
                 printData['items'] = _items;
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
+                StatusService.show(context, 'Generating PDF...', isLoading: true);
                 final path = await PrintService.downloadDocument(printData, 'invoice');
                 if (path != null && mounted) {
                   String msg = path == 'system_dialog' ? 'Opening Save dialog...' : 'PDF saved successfully';
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.green));
+                  StatusService.show(context, msg, backgroundColor: Colors.green);
                 }
               }),
             ),
@@ -519,7 +535,7 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
                   } catch (e, stack) {
                     debugPrint('EZ_DEBUG_UI ERROR: $e');
                     if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.red));
+                      StatusService.show(context, '❌ Error: $e', backgroundColor: Colors.red);
                     }
                   } finally {
                     if (mounted) {
@@ -664,7 +680,7 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
   void _showRecordPaymentModal() {
     final balanceDueNow = (_invoice['balance_due'] ?? 0).toDouble();
     if (balanceDueNow <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invoice is already fully paid")));
+      StatusService.show(context, "Invoice is already fully paid");
       return;
     }
 
@@ -840,7 +856,7 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
                         }).where((p) => (p['amount'] as double) > 0).toList();
                         
                         if (finalPayments.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter a valid payment amount")));
+                          StatusService.show(context, "Enter a valid payment amount");
                           return;
                         }
 
@@ -967,12 +983,12 @@ class _InvoiceDetailsSheetState extends State<InvoiceDetailsSheet> {
         'status': status,
       }).eq('id', _invoice['id']);
 
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Payment recorded successfully"), backgroundColor: Colors.green));
+      StatusService.show(context, "Payment recorded successfully", backgroundColor: Colors.green);
       _refreshData();
       SalesRefreshService.triggerRefresh();
     } catch (e) {
       debugPrint("Error recording payment: $e");
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+      StatusService.show(context, "Error: $e", backgroundColor: Colors.red);
     } finally {
       setState(() => _loading = false);
     }

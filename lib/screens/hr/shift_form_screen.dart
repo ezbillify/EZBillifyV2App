@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import '../../models/shift_model.dart';
 import '../../services/hr_service.dart';
@@ -83,7 +85,7 @@ class _ShiftFormScreenState extends State<ShiftFormScreen> {
       
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) StatusService.show(context, 'Error: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }

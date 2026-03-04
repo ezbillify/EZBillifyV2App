@@ -1,3 +1,5 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -129,11 +131,11 @@ class _VendorFormScreenState extends State<VendorFormScreen> {
 
       if (mounted) {
         Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Vendor saved successfully!"), backgroundColor: AppColors.success));
+        StatusService.show(context, "Vendor saved successfully!", backgroundColor: AppColors.success);
       }
     } catch (e) {
       debugPrint("Error saving vendor: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+      if (mounted) StatusService.show(context, "Error: $e", backgroundColor: Colors.red);
     } finally {
       if (mounted) setState(() => _loading = false);
     }

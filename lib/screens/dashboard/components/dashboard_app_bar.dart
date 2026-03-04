@@ -1,6 +1,8 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:animate_do/animate_do.dart';
+import 'package:upgrader/upgrader.dart';
 import '../../../providers/dashboard_provider.dart';
 import '../../../core/theme_service.dart';
 
@@ -87,28 +89,54 @@ class DashboardAppBar extends ConsumerWidget {
                 ),
                 GestureDetector(
                   onTap: onProfileTap,
-                  child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: AppColors.primaryBlue.withOpacity(lerpDouble(0.1, 0.2, t)!),
-                        width: 1.5,
-                      ),
-                    ),
-                    child: CircleAvatar(
-                      radius: lerpDouble(16, 24, t),
-                      backgroundColor: AppColors.primaryBlue.withOpacity(0.1),
-                      child: Text(
-                        (user?.name ?? "U")[0].toUpperCase(),
-                        style: TextStyle(
-                          fontFamily: 'Outfit',
-                          color: AppColors.primaryBlue,
-                          fontWeight: FontWeight.bold,
-                          fontSize: lerpDouble(11, 16, t),
+                  // Conditional Mock Update Indicator
+                  child: FutureBuilder(
+                    future: Upgrader.sharedInstance.initialize(),
+                    builder: (context, snapshot) {
+                      // Uses the Upgrader package to natively check app stores
+                      final bool isTestingUI = false;
+                      final bool hasUpdate = isTestingUI || Upgrader.sharedInstance.isUpdateAvailable();
+
+                      final avatar = Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            // If there is an update, we pulse with a stronger red border
+                            color: hasUpdate 
+                              ? Colors.redAccent.withOpacity(lerpDouble(0.6, 0.9, t)!) 
+                              : AppColors.primaryBlue.withOpacity(lerpDouble(0.1, 0.2, t)!),
+                            width: hasUpdate ? 2.5 : 1.5,
+                          ),
+                          boxShadow: hasUpdate 
+                            ? [BoxShadow(color: Colors.redAccent.withOpacity(0.3), blurRadius: 6, spreadRadius: 1)]
+                            : null,
                         ),
-                      ),
-                    ),
+                        child: CircleAvatar(
+                          radius: lerpDouble(16, 24, t),
+                          backgroundColor: hasUpdate ? Colors.redAccent.withOpacity(0.1) : AppColors.primaryBlue.withOpacity(0.1),
+                          child: Text(
+                            (user?.name ?? "U")[0].toUpperCase(),
+                            style: TextStyle(
+                              fontFamily: 'Outfit',
+                              color: hasUpdate ? Colors.redAccent : AppColors.primaryBlue,
+                              fontWeight: FontWeight.bold,
+                              fontSize: lerpDouble(11, 16, t),
+                            ),
+                          ),
+                        ),
+                      );
+
+                      if (hasUpdate) {
+                        return Pulse(
+                          infinite: true,
+                          duration: const Duration(milliseconds: 1500),
+                          child: avatar,
+                        );
+                      }
+                      
+                      return avatar;
+                    }
                   ),
                 ),
               ],

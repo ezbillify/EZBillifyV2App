@@ -1,9 +1,12 @@
+
+import 'package:ez_billify_v2_app/services/status_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import 'dart:ui' as ui;
 import '../../core/theme_service.dart';
 import '../../services/print_service.dart';
+
 
 class PaymentDetailsSheet extends StatefulWidget {
   final Map<String, dynamic> payment;
@@ -230,7 +233,7 @@ class _PaymentDetailsSheetState extends State<PaymentDetailsSheet> {
                 'quantity': 1,
                 'unit_price': a['amount'],
               }).toList();
-              PrintService.printDocument(printData, 'payment');
+              PrintService.printDocument(printData, 'payment', context);
             }, filled: true)),
           ],
         ),
@@ -244,10 +247,10 @@ class _PaymentDetailsSheetState extends State<PaymentDetailsSheet> {
                 'quantity': 1,
                 'unit_price': a['amount'],
               }).toList();
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Generating PDF...'), duration: Duration(seconds: 1)));
+              StatusService.show(context, 'Generating PDF...', isLoading: true);
               final path = await PrintService.downloadDocument(printData, 'payment');
               if (path != null && mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF saved successfully'), backgroundColor: Colors.green));
+                StatusService.show(context, 'PDF saved successfully', backgroundColor: Colors.green);
               }
             })),
             const SizedBox(width: 12),
@@ -258,12 +261,12 @@ class _PaymentDetailsSheetState extends State<PaymentDetailsSheet> {
                 'quantity': 1,
                 'unit_price': a['amount'],
               }).toList();
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preparing share...'), duration: Duration(seconds: 1)));
+              StatusService.show(context, 'Preparing share...', isLoading: true);
               try {
                 await PrintService.shareDocument(context, printData, 'payment');
               } catch (e) {
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: ${e.toString()}'), backgroundColor: Colors.red));
+                  StatusService.show(context, 'Failed to share: ${e.toString()}', backgroundColor: Colors.red);
                 }
               }
             })),
